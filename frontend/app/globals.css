@@ -287,8 +287,10 @@ button:disabled {
 }
 
 .market-empty {
+  flex: 0 0 auto;
   color: var(--muted);
-  font-size: 13px;
+  font-size: 12px;
+  white-space: nowrap;
 }
 
 .page {
@@ -507,6 +509,14 @@ table {
 
 table.wide-table {
   min-width: 1460px;
+}
+
+.spot-distance-cell {
+  min-width: 92px;
+}
+
+.spot-distance-cell .subtext {
+  white-space: nowrap;
 }
 
 th,

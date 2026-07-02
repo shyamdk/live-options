@@ -268,9 +268,9 @@ function OptionTradeTable({
               <th>Net</th>
               <th>Charges</th>
               <th>%</th>
-              <th>Spot Dist</th>
               {showRemainingProfit ? <th>Remaining</th> : null}
               {showRemainingProfit ? <th>Remain %</th> : null}
+              <th>Spot Dist</th>
               <th>SL</th>
               <th>Target</th>
               <th>Status</th>
@@ -295,12 +295,12 @@ function OptionTradeTable({
                   <td className={tone(trade.estimatedNetPnl)}>{money(trade.estimatedNetPnl)}</td>
                   <td>{money(trade.estimatedCharges)}</td>
                   <td className={tone(trade.percentChange)}>{percent(trade.percentChange)}</td>
-                  <td className={spotDistanceClass(trade)}>
-                    {plainPercent(trade.spotDistancePercent)}
-                    <span className="subtext">{trade.spotPrice ? `Spot ${money(trade.spotPrice)}` : "-"}</span>
-                  </td>
                   {showRemainingProfit ? <td>{money(trade.profitRemaining)}</td> : null}
                   {showRemainingProfit ? <td>{plainPercent(trade.profitRemainingPercent)}</td> : null}
+                  <td className={spotDistanceClass(trade)}>
+                    {plainPercent(trade.spotDistancePercent)}
+                    <span className="subtext">{trade.spotDistancePoints === null || trade.spotDistancePoints === undefined ? "-" : `${money(trade.spotDistancePoints)} pts`}</span>
+                  </td>
                   <td>
                     <input
                       className="level-input"
@@ -397,8 +397,7 @@ function plainPercent(value: number | null | undefined): string {
 }
 
 function spotDistanceClass(trade: LiveTrade): string {
-  if (!trade.spotDistanceAlert) return "";
-  return "negative";
+  return `spot-distance-cell ${trade.spotDistanceAlert ? "negative" : ""}`.trim();
 }
 
 function tone(value: number | null | undefined): string {

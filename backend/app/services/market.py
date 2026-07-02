@@ -21,6 +21,23 @@ class MarketService:
         if _MARKET_CACHE and now - _MARKET_CACHE[0] < self.settings.dhan_market_quote_cache_seconds:
             return copy.deepcopy(_MARKET_CACHE[1])
 
+        try:
+            payload = await self._quote()
+        except Exception as exc:
+            stale_payload = self._stale_payload(str(exc))
+            if stale_payload:
+                return stale_payload
+            raise
+
+        if not _has_index_price(payload):
+            stale_payload = self._stale_payload("Market quote response did not include index prices.")
+            if stale_payload:
+                return stale_payload
+
+        _MARKET_CACHE = (time.monotonic(), copy.deepcopy(payload))
+        return payload
+
+    async def _quote(self) -> dict[str, Any]:
         india_vix_security_id = self._india_vix_security_id()
         securities = [self.settings.dhan_nifty_security_id, self.settings.dhan_sensex_security_id]
         if india_vix_security_id:
@@ -37,7 +54,15 @@ class MarketService:
                 self._index("India VIX", data.get(str(india_vix_security_id), {})),
             ],
         }
-        _MARKET_CACHE = (time.monotonic(), copy.deepcopy(payload))
+        return payload
+
+    def _stale_payload(self, warning: str) -> dict[str, Any] | None:
+        if not _MARKET_CACHE:
+            return None
+        payload = copy.deepcopy(_MARKET_CACHE[1])
+        payload["source"] = "stale-cache"
+        payload["warning"] = warning
+        payload["stale"] = True
         return payload
 
     def _india_vix_security_id(self) -> int:
@@ -66,3 +91,6 @@ def _number(value: Any) -> float | None:
     except (TypeError, ValueError):
         return None
 
+
+def _has_index_price(payload: dict[str, Any]) -> bool:
+    return any(_number(index.get("lastPrice")) is not None for index in payload.get("indices") or [])

@@ -7,6 +7,7 @@ export type MarketIndex = {
 
 export type MarketIndicesPayload = {
   source: string;
+  stale?: boolean | null;
   warning?: string | null;
   updatedAt?: string | number | null;
   indices: MarketIndex[];

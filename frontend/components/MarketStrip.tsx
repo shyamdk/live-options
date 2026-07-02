@@ -16,15 +16,19 @@ function signed(value: number | null | undefined, suffix = "") {
 
 export default function MarketStrip() {
   const [indices, setIndices] = useState<MarketIndex[]>([]);
+  const [status, setStatus] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
     async function load() {
       try {
         const payload = await getMarketIndices();
-        if (active) setIndices(payload.indices);
+        if (!active) return;
+        const hasPrices = payload.indices.some((index) => index.lastPrice !== null && index.lastPrice !== undefined);
+        if (hasPrices) setIndices(payload.indices);
+        setStatus(payload.stale || payload.warning ? "Market data stale" : null);
       } catch {
-        if (active) setIndices([]);
+        if (active) setStatus("Market strip unavailable");
       }
     }
     load();
@@ -50,8 +54,7 @@ export default function MarketStrip() {
           </div>
         );
       })}
-      {!indices.length ? <span className="market-empty">Market strip unavailable</span> : null}
+      {status ? <span className="market-empty">{indices.length ? status : "Market strip unavailable"}</span> : null}
     </div>
   );
 }
-

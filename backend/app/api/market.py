@@ -16,6 +16,7 @@ async def indices() -> dict:
     except Exception as exc:
         return {
             "source": "fallback",
+            "stale": True,
             "warning": str(exc),
             "indices": [
                 {"name": "Nifty 50", "lastPrice": None, "change": None, "percentChange": None},
