@@ -13,6 +13,9 @@ from app.services.orders import DhanOrderService
 from app.services.telegram import TelegramNotifier
 
 
+_TRADE_LTP_CACHE: dict[str, float] = {}
+
+
 async def live_trade_snapshot() -> dict[str, Any]:
     try:
         return await _live_trade_snapshot()
@@ -150,7 +153,8 @@ def _normalize_position(row: dict[str, Any]) -> dict[str, Any] | None:
     avg_price = _average_price(row, qty)
     ltp = _number(_first(row, "lastTradedPrice", "ltp", "lastPrice", "last_price"))
     realized = round(_number(_first(row, "realizedProfit", "realizedPnl", "realisedProfit")) or 0, 2)
-    open_pnl = _number(_first(row, "unrealizedProfit", "unrealizedPnl", "unrealisedProfit"))
+    position_open_pnl = _number(_first(row, "unrealizedProfit", "unrealizedPnl", "unrealisedProfit"))
+    open_pnl = position_open_pnl
     if open_pnl is None:
         open_pnl = _live_pnl(avg_price, ltp, qty)
     open_pnl = round(open_pnl or 0, 2)
@@ -183,6 +187,12 @@ def _normalize_position(row: dict[str, Any]) -> dict[str, Any] | None:
         "percentChange": _percent_change(avg_price, ltp, qty),
         "rawProductType": row.get("productType"),
     }
+    used_stale_ltp = _apply_cached_ltp(trade)
+    if used_stale_ltp:
+        if position_open_pnl is None:
+            trade["openPnl"] = _live_pnl(avg_price, trade.get("ltp"), qty)
+            trade["dayPnl"] = round((_number(trade.get("openPnl")) or 0) + realized, 2)
+        trade["percentChange"] = _percent_change(avg_price, trade.get("ltp"), qty)
     _apply_profit_remaining(trade)
     return trade
 
@@ -205,6 +215,8 @@ async def _apply_live_quotes(service: DhanService, trades: list[dict[str, Any]])
         live_ltp = _number(quote.get("last_price"))
         if live_ltp is not None:
             trade["ltp"] = live_ltp
+            trade["ltpStale"] = False
+            _remember_ltp(trade)
             _refresh_metrics(trade)
 
 
@@ -297,6 +309,28 @@ def _apply_profit_remaining(trade: dict[str, Any]) -> None:
     trade["maxProfit"] = max_profit
     trade["profitRemaining"] = remaining
     trade["profitRemainingPercent"] = round((remaining / max_profit) * 100, 2) if remaining is not None and max_profit else None
+
+
+def _apply_cached_ltp(trade: dict[str, Any]) -> bool:
+    trade_id = str(trade.get("id") or "")
+    ltp = _number(trade.get("ltp"))
+    if ltp is not None:
+        trade["ltpStale"] = False
+        _remember_ltp(trade)
+        return False
+    cached_ltp = _TRADE_LTP_CACHE.get(trade_id)
+    if cached_ltp is None:
+        return False
+    trade["ltp"] = cached_ltp
+    trade["ltpStale"] = True
+    return True
+
+
+def _remember_ltp(trade: dict[str, Any]) -> None:
+    trade_id = str(trade.get("id") or "")
+    ltp = _number(trade.get("ltp"))
+    if trade_id and ltp is not None:
+        _TRADE_LTP_CACHE[trade_id] = ltp
 
 
 def _summary(equity: list[dict[str, Any]], options_buy: list[dict[str, Any]], options_sell: list[dict[str, Any]]) -> dict[str, Any]:

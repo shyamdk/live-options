@@ -209,7 +209,7 @@ function TradeTable({ title, trades, loading }: { title: string; trades: LiveTra
                 <td><Badge tone={trade.side === "BUY" ? "buy" : "sell"}>{trade.side}</Badge></td>
                 <td>{trade.qty}</td>
                 <td>{money(trade.avgPrice)}</td>
-                <td>{money(trade.ltp)}</td>
+                <td><PriceCell trade={trade} /></td>
                 <td className={tone(trade.dayPnl)}>{money(trade.dayPnl)}</td>
                 <td className={tone(trade.percentChange)}>{percent(trade.percentChange)}</td>
                 <td>{trade.productType || "-"}</td>
@@ -290,7 +290,7 @@ function OptionTradeTable({
                   <td><Badge tone={trade.side === "BUY" ? "buy" : "sell"}>{trade.side}</Badge></td>
                   <td>{trade.qty}</td>
                   <td>{money(trade.avgPrice)}</td>
-                  <td>{money(trade.ltp)}</td>
+                  <td><PriceCell trade={trade} /></td>
                   <td className={tone(trade.dayPnl)}>{money(trade.dayPnl)}</td>
                   <td className={tone(trade.estimatedNetPnl)}>{money(trade.estimatedNetPnl)}</td>
                   <td>{money(trade.estimatedCharges)}</td>
@@ -350,6 +350,15 @@ function OptionTradeTable({
 
 function Badge({ tone: badgeTone, children }: { tone: "buy" | "sell"; children: React.ReactNode }) {
   return <span className={`badge ${badgeTone}`}>{children}</span>;
+}
+
+function PriceCell({ trade }: { trade: LiveTrade }) {
+  return (
+    <>
+      {money(trade.ltp)}
+      {trade.ltpStale ? <span className="subtext">stale</span> : null}
+    </>
+  );
 }
 
 function draftsFromSnapshot(snapshot: LiveTradeSnapshot): Record<string, DraftLevels> {
