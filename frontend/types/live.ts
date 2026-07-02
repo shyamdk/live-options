@@ -19,6 +19,18 @@ export type DhanSession = {
   liveOrderEnabled: boolean;
 };
 
+export type AuthStatus = {
+  enabled: boolean;
+  configured: boolean;
+  username: string;
+  sessionHours: number;
+};
+
+export type AuthSession = AuthStatus & {
+  authenticated: boolean;
+  user?: string | null;
+};
+
 export type RiskStatus = {
   kind: "none" | "stopLoss" | "target" | string;
   label: string;
@@ -57,10 +69,18 @@ export type LiveTrade = {
   openPnl: number;
   realizedPnl: number;
   dayPnl: number;
+  estimatedCharges?: number | null;
+  estimatedNetPnl?: number | null;
   percentChange?: number | null;
   maxProfit?: number | null;
   profitRemaining?: number | null;
   profitRemainingPercent?: number | null;
+  spotPrice?: number | null;
+  spotDistancePoints?: number | null;
+  spotDistancePercent?: number | null;
+  spotDistanceSignedPoints?: number | null;
+  spotDistanceAlert?: boolean | null;
+  charges?: Record<string, unknown> | null;
   levels?: TradeLevels;
   riskStatus?: RiskStatus;
 };
@@ -73,6 +93,8 @@ export type LiveTradeSummary = {
   openPnl: number;
   realizedPnl: number;
   dayPnl: number;
+  estimatedCharges: number;
+  estimatedNetPnl: number;
   configuredLevels: number;
   stopLossHits: number;
   targetHits: number;

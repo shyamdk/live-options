@@ -66,6 +66,15 @@ def init_db() -> None:
             )
             """
         )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS alert_events (
+                alert_key TEXT PRIMARY KEY,
+                payload_json TEXT,
+                created_at TEXT NOT NULL
+            )
+            """
+        )
         conn.commit()
 
 
@@ -181,6 +190,23 @@ def save_journal(trade_date: str, strategy_details: str, lessons_learnt: str) ->
     return get_journal(trade_date)
 
 
+def record_alert_once(alert_key: str, payload: dict[str, Any] | None = None) -> bool:
+    try:
+        with _DB_LOCK, _connect() as conn:
+            conn.execute(
+                "INSERT INTO alert_events (alert_key, payload_json, created_at) VALUES (?, ?, ?)",
+                (
+                    alert_key,
+                    json.dumps(payload or {}, default=str),
+                    datetime.now().isoformat(timespec="seconds"),
+                ),
+            )
+            conn.commit()
+        return True
+    except sqlite3.IntegrityError:
+        return False
+
+
 def _level_from_row(row: sqlite3.Row) -> dict[str, Any]:
     return _level_from_mapping(dict(row))
 
@@ -206,4 +232,3 @@ def _number(value: Any) -> float | None:
         return float(str(value).replace(",", ""))
     except (TypeError, ValueError):
         return None
-

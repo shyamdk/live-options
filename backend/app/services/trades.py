@@ -1,11 +1,16 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime
 from typing import Any
 
-from app.db.sqlite import get_trade_levels, record_trade_action, upsert_trade_levels
+from app.core.config import get_settings
+from app.db.sqlite import get_trade_levels, record_alert_once, record_trade_action, upsert_trade_levels
+from app.services.charges import apply_option_charge_estimates
 from app.services.dhan import DhanService
+from app.services.market import MarketService
 from app.services.orders import DhanOrderService
+from app.services.telegram import TelegramNotifier
 
 
 async def live_trade_snapshot() -> dict[str, Any]:
@@ -20,16 +25,19 @@ async def _live_trade_snapshot() -> dict[str, Any]:
     raw_positions = await service.positions()
     trades = [trade for row in raw_positions if (trade := _normalize_position(row))]
     await _apply_live_quotes(service, trades)
+    await _apply_spot_distances(trades)
 
     option_trades = [trade for trade in trades if trade["assetClass"] == "OPTION"]
     levels_by_id = get_trade_levels([trade["id"] for trade in option_trades])
     for trade in option_trades:
         trade["levels"] = levels_by_id.get(trade["id"]) or _empty_levels(trade)
         trade["riskStatus"] = _risk_status(trade)
+        apply_option_charge_estimates(trade)
 
     equity = [trade for trade in trades if trade["assetClass"] == "EQUITY"]
     options_buy = [trade for trade in option_trades if trade["side"] == "BUY"]
     options_sell = [trade for trade in option_trades if trade["side"] == "SELL"]
+    await _notify_spot_distance_alerts(options_sell)
     summary = _summary(equity, options_buy, options_sell)
     return {
         "source": "dhan",
@@ -84,6 +92,36 @@ async def close_trade(trade_id: str, quantity: int | None = None) -> dict[str, A
     )
     record_trade_action(trade_id, "CLOSE", str(result.get("status") or "unknown"), result.get("request"), result)
     return {"tradeId": trade_id, "closeSide": transaction_type, "quantity": close_quantity, "data": result, "status": result.get("status")}
+
+
+def start_spot_distance_monitor_task() -> asyncio.Task | None:
+    settings = get_settings()
+    if not settings.spot_distance_monitor_enabled:
+        return None
+    return asyncio.create_task(_spot_distance_monitor_loop())
+
+
+async def stop_spot_distance_monitor_task(task: asyncio.Task | None) -> None:
+    if not task:
+        return
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        return
+
+
+async def _spot_distance_monitor_loop() -> None:
+    settings = get_settings()
+    interval = max(settings.spot_distance_monitor_interval_seconds, 10)
+    while True:
+        try:
+            await asyncio.sleep(interval)
+            await _live_trade_snapshot()
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            await asyncio.sleep(interval)
 
 
 def _find_trade(snapshot: dict[str, Any], trade_id: str) -> dict[str, Any] | None:
@@ -180,6 +218,68 @@ def _refresh_metrics(trade: dict[str, Any]) -> None:
     trade["dayPnl"] = round(open_pnl + realized, 2)
     trade["percentChange"] = _percent_change(avg_price, ltp, qty)
     _apply_profit_remaining(trade)
+    apply_option_charge_estimates(trade)
+
+
+async def _apply_spot_distances(trades: list[dict[str, Any]]) -> None:
+    option_trades = [trade for trade in trades if trade.get("assetClass") == "OPTION"]
+    if not option_trades:
+        return
+    try:
+        payload = await MarketService().indices()
+    except Exception:
+        return
+    spots: dict[str, float] = {}
+    for index in payload.get("indices") or []:
+        name = str(index.get("name") or "").upper()
+        last_price = _number(index.get("lastPrice"))
+        if last_price is None:
+            continue
+        if "NIFTY 50" in name:
+            spots["NIFTY"] = last_price
+        elif "SENSEX" in name:
+            spots["SENSEX"] = last_price
+    for trade in option_trades:
+        spot = spots.get(str(trade.get("symbol") or "").upper())
+        strike = _number(trade.get("strikePrice"))
+        if spot is None or not spot or strike is None:
+            continue
+        signed_points = strike - spot
+        distance_points = abs(signed_points)
+        distance_percent = round((distance_points / spot) * 100, 2)
+        trade["spotPrice"] = spot
+        trade["spotDistancePoints"] = round(distance_points, 2)
+        trade["spotDistancePercent"] = distance_percent
+        trade["spotDistanceSignedPoints"] = round(signed_points, 2)
+
+
+async def _notify_spot_distance_alerts(options_sell: list[dict[str, Any]]) -> None:
+    settings = get_settings()
+    if not settings.spot_distance_alert_enabled:
+        return
+    threshold = abs(settings.spot_distance_alert_percent)
+    notifier = TelegramNotifier(settings)
+    for trade in options_sell:
+        distance_percent = _number(trade.get("spotDistancePercent"))
+        if distance_percent is None or distance_percent > threshold:
+            continue
+        trade["spotDistanceAlert"] = True
+        alert_key = f"{datetime.now().date().isoformat()}:spot-distance:{trade.get('id')}:{threshold:g}"
+        if not record_alert_once(alert_key, {"tradeId": trade.get("id"), "distancePercent": distance_percent, "threshold": threshold}):
+            continue
+        spot = _number(trade.get("spotPrice"))
+        strike = _number(trade.get("strikePrice"))
+        await notifier.send(
+            "\n".join(
+                [
+                    "Spot distance alert",
+                    f"{trade.get('symbol')} {strike:g} {trade.get('optionSide')} is {distance_percent:.2f}% from spot.",
+                    f"Spot: {spot:.2f}" if spot is not None else "Spot: -",
+                    f"LTP: {_text_number(trade.get('ltp'))}, Qty: {trade.get('qty')}",
+                    f"Threshold: {threshold:.2f}%",
+                ]
+            )
+        )
 
 
 def _apply_profit_remaining(trade: dict[str, Any]) -> None:
@@ -203,6 +303,7 @@ def _summary(equity: list[dict[str, Any]], options_buy: list[dict[str, Any]], op
     rows = [*equity, *options_buy, *options_sell]
     open_pnl = round(sum(_number(row.get("openPnl")) or 0 for row in rows), 2)
     realized = round(sum(_number(row.get("realizedPnl")) or 0 for row in rows), 2)
+    estimated_charges = round(sum(_number(row.get("estimatedCharges")) or 0 for row in [*options_buy, *options_sell]), 2)
     return {
         "totalPositions": len(rows),
         "equityCount": len(equity),
@@ -211,6 +312,8 @@ def _summary(equity: list[dict[str, Any]], options_buy: list[dict[str, Any]], op
         "openPnl": open_pnl,
         "realizedPnl": realized,
         "dayPnl": round(open_pnl + realized, 2),
+        "estimatedCharges": estimated_charges,
+        "estimatedNetPnl": round(open_pnl + realized - estimated_charges, 2),
         "configuredLevels": sum(1 for row in [*options_buy, *options_sell] if (row.get("levels") or {}).get("stopLoss") or (row.get("levels") or {}).get("target")),
         "stopLossHits": sum(1 for row in [*options_buy, *options_sell] if (row.get("riskStatus") or {}).get("kind") == "stopLoss"),
         "targetHits": sum(1 for row in [*options_buy, *options_sell] if (row.get("riskStatus") or {}).get("kind") == "target"),
@@ -260,6 +363,8 @@ def _empty_snapshot(warning: str | None = None) -> dict[str, Any]:
             "openPnl": 0,
             "realizedPnl": 0,
             "dayPnl": 0,
+            "estimatedCharges": 0,
+            "estimatedNetPnl": 0,
             "configuredLevels": 0,
             "stopLossHits": 0,
             "targetHits": 0,
@@ -347,6 +452,11 @@ def _percent_change(avg_price: float | None, ltp: float | None, qty: int) -> flo
     if qty < 0:
         change *= -1
     return round(change, 2)
+
+
+def _text_number(value: Any) -> str:
+    number = _number(value)
+    return "-" if number is None else f"{number:.2f}"
 
 
 def _date_part(value: Any) -> str | None:

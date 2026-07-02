@@ -25,3 +25,13 @@ npm run dev -- --hostname 127.0.0.1 --port 3000
 
 The frontend defaults to `http://127.0.0.1:8000` for API calls. Set `NEXT_PUBLIC_API_BASE_URL` if the backend is hosted elsewhere.
 
+## Public Deployment
+
+Copy `.env.example` to `.env` and set at minimum:
+
+- `APP_AUTH_PASSWORD` and `APP_AUTH_SECRET` for the app login.
+- Dhan credentials/token fields.
+- `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` for spot-distance alerts.
+- `CORS_ORIGINS` to the production frontend URL.
+
+Keep the backend behind HTTPS on OCI, restrict inbound ports, and do not expose `.env`, SQLite data, or logs. The app estimates option charges from configurable rates; reconcile final charges against the Dhan contract note.

@@ -2,9 +2,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
+from app.services.app_auth import require_auth
 from app.services.trades import close_trade, live_trade_snapshot, save_trade_levels
 
 
@@ -21,17 +22,16 @@ class CloseTradeIn(BaseModel):
     quantity: int | None = None
 
 
-@router.get("/live")
+@router.get("/live", dependencies=[Depends(require_auth)])
 async def live_trades() -> dict[str, Any]:
     return await live_trade_snapshot()
 
 
-@router.put("/{trade_id}/levels")
+@router.put("/{trade_id}/levels", dependencies=[Depends(require_auth)])
 async def update_levels(trade_id: str, payload: TradeLevelsIn) -> dict[str, Any]:
     return {"tradeId": trade_id, "levels": await save_trade_levels(trade_id, payload.model_dump())}
 
 
-@router.post("/{trade_id}/close")
+@router.post("/{trade_id}/close", dependencies=[Depends(require_auth)])
 async def close(trade_id: str, payload: CloseTradeIn) -> dict[str, Any]:
     return await close_trade(trade_id, payload.quantity)
-

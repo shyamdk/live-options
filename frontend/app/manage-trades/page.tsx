@@ -130,6 +130,8 @@ export default function ManageTradesPage() {
 
       <div className="metric-grid">
         <Metric label="Day P&L" value={money(summary?.dayPnl)} tone={tone(summary?.dayPnl)} />
+        <Metric label="Net P&L" value={money(summary?.estimatedNetPnl)} tone={tone(summary?.estimatedNetPnl)} />
+        <Metric label="Charges" value={money(summary?.estimatedCharges)} />
         <Metric label="Open P&L" value={money(summary?.openPnl)} tone={tone(summary?.openPnl)} />
         <Metric label="Realized" value={money(summary?.realizedPnl)} tone={tone(summary?.realizedPnl)} />
         <Metric label="Positions" value={String(summary?.totalPositions ?? 0)} />
@@ -246,7 +248,7 @@ function OptionTradeTable({
   onClose: (trade: LiveTrade) => void;
   showRemainingProfit: boolean;
 }) {
-  const emptyColSpan = showRemainingProfit ? 13 : 11;
+  const emptyColSpan = showRemainingProfit ? 16 : 13;
   return (
     <section className="table-section">
       <div className="section-title">
@@ -263,7 +265,10 @@ function OptionTradeTable({
               <th>Avg</th>
               <th>LTP</th>
               <th>P&L</th>
+              <th>Net</th>
+              <th>Charges</th>
               <th>%</th>
+              <th>Spot Dist</th>
               {showRemainingProfit ? <th>Remaining</th> : null}
               {showRemainingProfit ? <th>Remain %</th> : null}
               <th>SL</th>
@@ -287,7 +292,13 @@ function OptionTradeTable({
                   <td>{money(trade.avgPrice)}</td>
                   <td>{money(trade.ltp)}</td>
                   <td className={tone(trade.dayPnl)}>{money(trade.dayPnl)}</td>
+                  <td className={tone(trade.estimatedNetPnl)}>{money(trade.estimatedNetPnl)}</td>
+                  <td>{money(trade.estimatedCharges)}</td>
                   <td className={tone(trade.percentChange)}>{percent(trade.percentChange)}</td>
+                  <td className={spotDistanceClass(trade)}>
+                    {plainPercent(trade.spotDistancePercent)}
+                    <span className="subtext">{trade.spotPrice ? `Spot ${money(trade.spotPrice)}` : "-"}</span>
+                  </td>
                   {showRemainingProfit ? <td>{money(trade.profitRemaining)}</td> : null}
                   {showRemainingProfit ? <td>{plainPercent(trade.profitRemainingPercent)}</td> : null}
                   <td>
@@ -383,6 +394,11 @@ function percent(value: number | null | undefined): string {
 function plainPercent(value: number | null | undefined): string {
   if (value === null || value === undefined || Number.isNaN(value)) return "-";
   return `${moneyFormat.format(value)}%`;
+}
+
+function spotDistanceClass(trade: LiveTrade): string {
+  if (!trade.spotDistanceAlert) return "";
+  return "negative";
 }
 
 function tone(value: number | null | undefined): string {

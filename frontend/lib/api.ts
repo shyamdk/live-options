@@ -1,4 +1,6 @@
 import type {
+  AuthSession,
+  AuthStatus,
   DhanSession,
   LiveTradeSnapshot,
   MarketIndicesPayload,
@@ -7,17 +9,34 @@ import type {
 } from "@/types/live";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8000";
+const AUTH_TOKEN_KEY = "live-options-auth-token";
+
+export function getAuthToken(): string | null {
+  if (typeof window === "undefined") return null;
+  return window.localStorage.getItem(AUTH_TOKEN_KEY);
+}
+
+export function setAuthToken(token: string): void {
+  window.localStorage.setItem(AUTH_TOKEN_KEY, token);
+}
+
+export function clearAuthToken(): void {
+  if (typeof window !== "undefined") window.localStorage.removeItem(AUTH_TOKEN_KEY);
+}
 
 async function apiJson<T>(path: string, init?: RequestInit, fallback = "Request failed"): Promise<T> {
+  const token = getAuthToken();
   const response = await fetch(new URL(path, API_BASE), {
     cache: "no-store",
     ...init,
     headers: {
       "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...(init?.headers ?? {}),
     },
   });
   if (!response.ok) {
+    if (response.status === 401) clearAuthToken();
     let detail = `${fallback}: ${response.status}`;
     try {
       const payload = await response.json();
@@ -28,6 +47,24 @@ async function apiJson<T>(path: string, init?: RequestInit, fallback = "Request 
     throw new Error(detail);
   }
   return response.json();
+}
+
+export async function getAuthStatus(): Promise<AuthStatus> {
+  return apiJson<AuthStatus>("/api/auth/status", undefined, "Failed to load auth status");
+}
+
+export async function getAuthSession(): Promise<AuthSession> {
+  return apiJson<AuthSession>("/api/auth/session", undefined, "Failed to load auth session");
+}
+
+export async function loginApp(username: string, password: string): Promise<AuthSession> {
+  const payload = await apiJson<AuthSession & { token: string }>(
+    "/api/auth/login",
+    { method: "POST", body: JSON.stringify({ username, password }) },
+    "Login failed",
+  );
+  setAuthToken(payload.token);
+  return payload;
 }
 
 export async function getMarketIndices(): Promise<MarketIndicesPayload> {
@@ -77,4 +114,3 @@ export async function saveJournal(tradeDate: string, strategyDetails: string, le
     "Failed to save journal",
   );
 }
-

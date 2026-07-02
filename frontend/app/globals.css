@@ -43,6 +43,63 @@ button:disabled {
   opacity: 0.62;
 }
 
+.auth-page {
+  display: grid;
+  place-items: center;
+  min-height: 100vh;
+  padding: 24px;
+  background: var(--bg);
+}
+
+.auth-panel {
+  display: grid;
+  gap: 14px;
+  width: min(100%, 380px);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  padding: 24px;
+  box-shadow: 0 16px 40px rgba(37, 42, 50, 0.08);
+}
+
+.auth-mark {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 8px;
+  background: var(--blue-soft);
+  color: var(--blue);
+}
+
+.auth-panel h1,
+.auth-panel p {
+  margin: 0;
+}
+
+.auth-panel p {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.auth-panel label {
+  display: grid;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 750;
+}
+
+.auth-panel input {
+  height: 36px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  padding: 0 10px;
+}
+
+.auth-submit {
+  width: 100%;
+}
+
 .app-shell {
   display: grid;
   grid-template-columns: 232px minmax(0, 1fr);
@@ -449,7 +506,7 @@ table {
 }
 
 table.wide-table {
-  min-width: 1240px;
+  min-width: 1460px;
 }
 
 th,

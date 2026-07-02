@@ -78,6 +78,8 @@ export default function TradeJournalsPage() {
 
       <div className="metric-grid">
         <Metric label="Day P&L" value={money(summary?.dayPnl)} tone={tone(summary?.dayPnl)} />
+        <Metric label="Net P&L" value={money(summary?.estimatedNetPnl)} tone={tone(summary?.estimatedNetPnl)} />
+        <Metric label="Charges" value={money(summary?.estimatedCharges)} />
         <Metric label="Open P&L" value={money(summary?.openPnl)} tone={tone(summary?.openPnl)} />
         <Metric label="Realized" value={money(summary?.realizedPnl)} tone={tone(summary?.realizedPnl)} />
         <Metric label="Equity" value={String(summary?.equityCount ?? 0)} />
@@ -135,4 +137,3 @@ function tone(value: number | null | undefined): string {
   if (value === null || value === undefined || Number.isNaN(value) || value === 0) return "";
   return value > 0 ? "positive" : "negative";
 }
-

@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 
-import AppSidebar from "@/components/AppSidebar";
-import MarketStrip from "@/components/MarketStrip";
+import AuthShell from "@/components/AuthShell";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -13,15 +12,8 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
   return (
     <html lang="en">
       <body>
-        <div className="app-shell">
-          <AppSidebar />
-          <main className="main">
-            <MarketStrip />
-            {children}
-          </main>
-        </div>
+        <AuthShell>{children}</AuthShell>
       </body>
     </html>
   );
 }
-

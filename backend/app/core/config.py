@@ -17,6 +17,11 @@ class Settings(BaseSettings):
     app_timezone: str = "Asia/Kolkata"
     database_file: str = str(DATA_DIR / "live_options.sqlite3")
     cors_origins: str = "http://localhost:3000,http://127.0.0.1:3000,http://localhost:3001,http://127.0.0.1:3001"
+    auth_enabled: bool = True
+    app_auth_username: str = "admin"
+    app_auth_password: str | None = None
+    app_auth_secret: str | None = None
+    app_auth_session_hours: int = 12
 
     dhan_access_token: str | None = None
     dhan_client_id: str | None = None
@@ -36,6 +41,21 @@ class Settings(BaseSettings):
     live_order_product_type: str = "MARGIN"
     live_order_type: str = "MARKET"
     live_order_validity: str = "DAY"
+    option_brokerage_per_order: float = 20.0
+    option_gst_percent: float = 18.0
+    option_stt_sell_percent: float = 0.1
+    option_stamp_buy_percent: float = 0.003
+    option_sebi_turnover_percent: float = 0.0001
+    option_ipft_percent: float = 0.0000001
+    option_nse_transaction_percent: float = 0.03503
+    option_bse_transaction_percent: float = 0.0325
+    spot_distance_alert_enabled: bool = True
+    spot_distance_alert_percent: float = 0.5
+    spot_distance_monitor_enabled: bool = True
+    spot_distance_monitor_interval_seconds: int = 30
+    telegram_bot_token: str | None = None
+    telegram_chat_id: str | None = None
+    telegram_bot_username: str | None = None
 
     model_config = SettingsConfigDict(
         env_file=ROOT_DIR / ".env",
