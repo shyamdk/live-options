@@ -291,6 +291,8 @@ def _normalize_position(row: dict[str, Any]) -> dict[str, Any] | None:
         "avgPrice": avg_price,
         "ltp": ltp,
         "ltpDerived": ltp_derived,
+        "positionOpenPnl": position_open_pnl,
+        "pnlSource": "position" if position_open_pnl is not None else "calculated",
         "openPnl": open_pnl,
         "realizedPnl": realized,
         "dayPnl": round(open_pnl + realized, 2),
@@ -310,6 +312,8 @@ def _normalize_position(row: dict[str, Any]) -> dict[str, Any] | None:
 async def _apply_live_quotes(service: DhanService, trades: list[dict[str, Any]]) -> None:
     securities_by_segment: dict[str, list[int]] = {}
     for trade in trades:
+        if trade.get("positionOpenPnl") is not None:
+            continue
         security_id = _int(trade.get("securityId"))
         segment = str(trade.get("exchangeSegment") or "")
         if security_id and segment:
