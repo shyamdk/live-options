@@ -49,16 +49,20 @@ class DhanService:
         cache_key = _quote_cache_key(body)
         now = time.monotonic()
         cached = _QUOTE_CACHE.get(cache_key)
+        backoff_until = _QUOTE_BACKOFF_UNTIL.get(cache_key, 0)
         if cached and now - cached[0] < self.settings.dhan_market_quote_cache_seconds:
             return copy.deepcopy(cached[1])
-        if cached and now < _QUOTE_BACKOFF_UNTIL.get(cache_key, 0):
-            return copy.deepcopy(cached[1])
+        if now < backoff_until:
+            if cached:
+                return copy.deepcopy(cached[1])
+            raise DhanApiError("Dhan market quote backoff is active after rate limiting.", 429)
 
         try:
             payload = await self._request("POST", "/marketfeed/quote", require_client_id=True, json_body=body)
         except DhanApiError as exc:
-            if cached and exc.status_code == 429:
+            if exc.status_code == 429:
                 _QUOTE_BACKOFF_UNTIL[cache_key] = now + self.settings.dhan_market_quote_backoff_seconds
+            if cached and exc.status_code == 429:
                 return copy.deepcopy(cached[1])
             raise
         data = payload.get("data") or {}
