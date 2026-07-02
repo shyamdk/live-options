@@ -34,4 +34,10 @@ Copy `.env.example` to `.env` and set at minimum:
 - `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` for spot-distance alerts.
 - `CORS_ORIGINS` to the production frontend URL.
 
+Auto SL/Target exits are controlled separately from manual close orders:
+
+- `RISK_ORDER_MONITOR_ENABLED=true` starts the backend monitor.
+- `RISK_ORDER_EXECUTION_ENABLED=true` is required before the monitor can send Dhan close orders.
+- `LIVE_ORDER_ENABLED=true` is still required for any live Dhan order to be sent.
+
 Keep the backend behind HTTPS on OCI, restrict inbound ports, and do not expose `.env`, SQLite data, or logs. The app estimates option charges from configurable rates; reconcile final charges against the Dhan contract note.

@@ -87,6 +87,19 @@ def get_trade_levels(trade_ids: list[str]) -> dict[str, dict[str, Any]]:
     return {str(row["trade_id"]): _level_from_row(row) for row in rows}
 
 
+def has_configured_trade_levels() -> bool:
+    with _DB_LOCK, _connect() as conn:
+        row = conn.execute(
+            """
+            SELECT 1
+            FROM trade_levels
+            WHERE stop_loss IS NOT NULL OR target IS NOT NULL
+            LIMIT 1
+            """
+        ).fetchone()
+    return row is not None
+
+
 def upsert_trade_levels(trade_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     now = datetime.now().isoformat(timespec="seconds")
     normalized = {

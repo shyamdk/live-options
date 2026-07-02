@@ -54,6 +54,10 @@ class Settings(BaseSettings):
     spot_distance_alert_percent: float = 0.5
     spot_distance_monitor_enabled: bool = True
     spot_distance_monitor_interval_seconds: int = 120
+    risk_order_monitor_enabled: bool = True
+    risk_order_execution_enabled: bool = False
+    risk_order_monitor_interval_seconds: int = 5
+    risk_order_allow_stale_ltp: bool = False
     telegram_bot_token: str | None = None
     telegram_chat_id: str | None = None
     telegram_bot_username: str | None = None

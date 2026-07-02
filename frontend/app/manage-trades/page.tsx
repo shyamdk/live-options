@@ -143,6 +143,9 @@ export default function ManageTradesPage() {
         <span className={session?.hasAccessToken && session?.hasClientId ? "status-dot ok" : "status-dot warn"} />
         <span>Dhan {session?.hasAccessToken && session?.hasClientId ? "connected" : "not verified"}</span>
         <span className={session?.liveOrderEnabled ? "status-live on" : "status-live"}>Live orders {session?.liveOrderEnabled ? "on" : "off"}</span>
+        <span className={riskOrdersArmed(session) ? "status-live on" : "status-live"}>
+          Risk orders {riskOrderLabel(session)}
+        </span>
       </div>
 
       <div className="metric-grid">
@@ -406,6 +409,16 @@ function draftNumber(value: string): number | null {
 function tradeLabel(trade: LiveTrade): string {
   const strike = trade.strikePrice ? String(trade.strikePrice).replace(/\.0$/, "") : trade.tradingSymbol;
   return `${trade.symbol} ${strike} ${trade.optionSide ?? ""}`.trim();
+}
+
+function riskOrdersArmed(session: DhanSession | null): boolean {
+  return Boolean(session?.riskOrderMonitorEnabled && session?.riskOrderExecutionEnabled && session?.liveOrderEnabled);
+}
+
+function riskOrderLabel(session: DhanSession | null): string {
+  if (!session?.riskOrderMonitorEnabled) return "off";
+  if (riskOrdersArmed(session)) return "armed";
+  return "dry-run";
 }
 
 function money(value: number | null | undefined): string {

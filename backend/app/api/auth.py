@@ -36,6 +36,8 @@ async def session() -> dict[str, Any]:
         "hasClientId": bool(settings.resolved_dhan_client_id),
         "clientId": settings.resolved_dhan_client_id,
         "liveOrderEnabled": settings.live_order_enabled,
+        "riskOrderMonitorEnabled": settings.risk_order_monitor_enabled,
+        "riskOrderExecutionEnabled": settings.risk_order_execution_enabled,
     }
 
 

@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import Any
 
 from app.core.config import get_settings
-from app.db.sqlite import get_trade_levels, record_alert_once, record_trade_action, upsert_trade_levels
+from app.db.sqlite import has_configured_trade_levels, get_trade_levels, record_alert_once, record_trade_action, upsert_trade_levels
 from app.services.charges import apply_option_charge_estimates
 from app.services.dhan import DhanService
 from app.services.market import MarketService
@@ -95,6 +95,111 @@ async def close_trade(trade_id: str, quantity: int | None = None) -> dict[str, A
     )
     record_trade_action(trade_id, "CLOSE", str(result.get("status") or "unknown"), result.get("request"), result)
     return {"tradeId": trade_id, "closeSide": transaction_type, "quantity": close_quantity, "data": result, "status": result.get("status")}
+
+
+def start_risk_order_monitor_task() -> asyncio.Task | None:
+    settings = get_settings()
+    if not settings.risk_order_monitor_enabled:
+        return None
+    return asyncio.create_task(_risk_order_monitor_loop())
+
+
+async def stop_risk_order_monitor_task(task: asyncio.Task | None) -> None:
+    if not task:
+        return
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        return
+
+
+async def process_risk_order_check() -> dict[str, Any]:
+    settings = get_settings()
+    if not settings.risk_order_monitor_enabled:
+        return {"enabled": False, "checked": 0, "actions": []}
+    if not has_configured_trade_levels():
+        return {"enabled": True, "executionEnabled": settings.risk_order_execution_enabled, "checked": 0, "actions": []}
+
+    snapshot = await _live_trade_snapshot()
+    groups = snapshot.get("groups") or {}
+    option_trades = [*(groups.get("optionsBuy") or []), *(groups.get("optionsSell") or [])]
+    actions = []
+    for trade in option_trades:
+        action = await _maybe_execute_risk_exit(trade)
+        if action:
+            actions.append(action)
+    return {
+        "enabled": True,
+        "executionEnabled": settings.risk_order_execution_enabled,
+        "checked": len(option_trades),
+        "actions": actions,
+    }
+
+
+async def _risk_order_monitor_loop() -> None:
+    settings = get_settings()
+    interval = max(settings.risk_order_monitor_interval_seconds, 1)
+    while True:
+        try:
+            await process_risk_order_check()
+            await asyncio.sleep(interval)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            await asyncio.sleep(interval)
+
+
+async def _maybe_execute_risk_exit(trade: dict[str, Any]) -> dict[str, Any] | None:
+    settings = get_settings()
+    signal = _risk_exit_signal(trade, settings.risk_order_allow_stale_ltp)
+    if not signal:
+        return None
+    if signal.get("status") == "skipped":
+        return signal
+    signal["mode"] = "live" if settings.risk_order_execution_enabled and settings.live_order_enabled else "dry-run"
+
+    event_key = _risk_event_key(trade, signal)
+    if not record_alert_once(event_key, {"tradeId": trade.get("id"), "signal": signal}):
+        return {"tradeId": trade.get("id"), "status": "duplicate", "reason": "risk order already handled", **signal}
+
+    action_name = f"RISK_EXIT_{str(signal['kind']).upper()}"
+    order_service = DhanOrderService(settings)
+    try:
+        request = order_service.build_market_order_request(
+            transaction_type=str(signal["closeSide"]),
+            exchange_segment=str(trade["exchangeSegment"]),
+            security_id=trade["securityId"],
+            quantity=int(signal["quantity"]),
+            correlation_id=str(signal["correlationId"]),
+            product_type=trade.get("productType"),
+        )
+    except Exception as exc:
+        result = {"status": "failed", "message": str(exc), "request": None, "order": None}
+        record_trade_action(str(trade.get("id")), action_name, "failed", None, result)
+        await _notify_risk_exit(trade, signal, result)
+        return {"tradeId": trade.get("id"), "status": "failed", **signal}
+
+    if not settings.risk_order_execution_enabled:
+        result = {
+            "status": "blocked",
+            "message": "RISK_ORDER_EXECUTION_ENABLED is false. Auto SL/Target order was not sent to Dhan.",
+            "request": request,
+            "order": None,
+        }
+    else:
+        result = await order_service.place_market_order(
+            transaction_type=str(signal["closeSide"]),
+            exchange_segment=str(trade["exchangeSegment"]),
+            security_id=trade["securityId"],
+            quantity=int(signal["quantity"]),
+            correlation_id=str(signal["correlationId"]),
+            product_type=trade.get("productType"),
+        )
+
+    record_trade_action(str(trade.get("id")), action_name, str(result.get("status") or "unknown"), request, result)
+    await _notify_risk_exit(trade, signal, result)
+    return {"tradeId": trade.get("id"), "status": result.get("status"), "order": result.get("order"), **signal}
 
 
 def start_spot_distance_monitor_task() -> asyncio.Task | None:
@@ -374,6 +479,88 @@ def _risk_status(trade: dict[str, Any]) -> dict[str, Any]:
     if target is not None and ((is_short and ltp <= target) or (not is_short and ltp >= target)):
         return {"kind": "target", "label": "Target hit", "level": target}
     return {"kind": "none", "label": "Monitoring"}
+
+
+def _risk_exit_signal(trade: dict[str, Any], allow_stale_ltp: bool = False) -> dict[str, Any] | None:
+    status = trade.get("riskStatus") or {}
+    kind = status.get("kind")
+    if kind not in {"stopLoss", "target"}:
+        return None
+    if trade.get("ltpStale") and not allow_stale_ltp:
+        return {
+            "tradeId": trade.get("id"),
+            "kind": kind,
+            "status": "skipped",
+            "reason": "stale LTP",
+            "level": status.get("level"),
+            "ltp": trade.get("ltp"),
+        }
+
+    qty = int(trade.get("qty") or 0)
+    security_id = trade.get("securityId")
+    exchange_segment = trade.get("exchangeSegment")
+    if trade.get("assetClass") != "OPTION" or qty == 0 or not security_id or not exchange_segment:
+        return {
+            "tradeId": trade.get("id"),
+            "kind": kind,
+            "status": "skipped",
+            "reason": "missing option order fields",
+            "level": status.get("level"),
+            "ltp": trade.get("ltp"),
+        }
+
+    close_side = "SELL" if qty > 0 else "BUY"
+    correlation_id = f"RISK-{kind}-{trade.get('symbol')}-{int(datetime.now().timestamp())}"
+    return {
+        "kind": kind,
+        "level": status.get("level"),
+        "ltp": trade.get("ltp"),
+        "quantity": abs(qty),
+        "closeSide": close_side,
+        "correlationId": correlation_id,
+    }
+
+
+def _risk_event_key(trade: dict[str, Any], signal: dict[str, Any]) -> str:
+    levels = trade.get("levels") or {}
+    level = _number(signal.get("level"))
+    level_text = f"{level:g}" if level is not None else "NA"
+    level_version = str(levels.get("updatedAt") or "no-level-version")
+    return ":".join(
+        [
+            datetime.now().date().isoformat(),
+            "risk-exit",
+            str(trade.get("id") or "unknown"),
+            str(signal.get("kind") or "unknown"),
+            str(signal.get("mode") or "unknown"),
+            level_text,
+            level_version,
+        ]
+    )
+
+
+async def _notify_risk_exit(trade: dict[str, Any], signal: dict[str, Any], result: dict[str, Any]) -> None:
+    status = str(result.get("status") or "unknown").upper()
+    level = _number(signal.get("level"))
+    ltp = _number(signal.get("ltp"))
+    label = _risk_trade_label(trade)
+    lines = [
+        f"Auto risk exit {status}",
+        label,
+        f"Reason: {signal.get('kind')}, Level: {_text_number(level)}",
+        f"LTP: {_text_number(ltp)}, Close: {signal.get('closeSide')} {signal.get('quantity')}",
+        f"Mode: {signal.get('mode')}",
+    ]
+    message = result.get("message")
+    if message:
+        lines.append(str(message))
+    await TelegramNotifier().send("\n".join(lines))
+
+
+def _risk_trade_label(trade: dict[str, Any]) -> str:
+    strike = _number(trade.get("strikePrice"))
+    strike_text = f"{strike:g}" if strike is not None else str(trade.get("tradingSymbol") or "")
+    return f"{trade.get('symbol')} {strike_text} {trade.get('optionSide') or ''}".strip()
 
 
 def _empty_levels(trade: dict[str, Any]) -> dict[str, Any]:

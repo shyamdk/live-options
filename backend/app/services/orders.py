@@ -23,23 +23,7 @@ class DhanOrderService:
         correlation_id: str,
         product_type: str | None = None,
     ) -> dict[str, Any]:
-        if not self.settings.live_order_enabled:
-            request = self._body(
-                transaction_type=transaction_type,
-                exchange_segment=exchange_segment,
-                security_id=security_id,
-                quantity=quantity,
-                correlation_id=correlation_id,
-                product_type=product_type,
-            )
-            return {
-                "status": "blocked",
-                "message": "LIVE_ORDER_ENABLED is false. Order payload was not sent to Dhan.",
-                "request": request,
-                "order": None,
-            }
-
-        body = self._body(
+        request = self.build_market_order_request(
             transaction_type=transaction_type,
             exchange_segment=exchange_segment,
             security_id=security_id,
@@ -47,6 +31,15 @@ class DhanOrderService:
             correlation_id=correlation_id,
             product_type=product_type,
         )
+        if not self.settings.live_order_enabled:
+            return {
+                "status": "blocked",
+                "message": "LIVE_ORDER_ENABLED is false. Order payload was not sent to Dhan.",
+                "request": request,
+                "order": None,
+            }
+
+        body = request
         async with httpx.AsyncClient(timeout=12) as client:
             response = await client.post(
                 f"{self.settings.dhan_base_url}/orders",
@@ -62,6 +55,25 @@ class DhanOrderService:
         if response.is_error:
             return {"status": "failed", "message": f"Dhan order request failed: {response.text[:220]}", "request": body}
         return {"status": "sent", "request": body, "order": _response_json(response)}
+
+    def build_market_order_request(
+        self,
+        *,
+        transaction_type: str,
+        exchange_segment: str,
+        security_id: str | int,
+        quantity: int,
+        correlation_id: str,
+        product_type: str | None = None,
+    ) -> dict[str, Any]:
+        return self._body(
+            transaction_type=transaction_type,
+            exchange_segment=exchange_segment,
+            security_id=security_id,
+            quantity=quantity,
+            correlation_id=correlation_id,
+            product_type=product_type,
+        )
 
     async def _headers(self, *, force_refresh: bool = False) -> dict[str, str]:
         headers = {
@@ -111,4 +123,3 @@ def _response_json(response: httpx.Response) -> Any:
         return response.json()
     except ValueError:
         return {"raw": response.text}
-

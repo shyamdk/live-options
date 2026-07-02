@@ -18,6 +18,8 @@ export type DhanSession = {
   hasClientId: boolean;
   clientId?: string | null;
   liveOrderEnabled: boolean;
+  riskOrderMonitorEnabled?: boolean;
+  riskOrderExecutionEnabled?: boolean;
 };
 
 export type AuthStatus = {

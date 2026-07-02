@@ -10,12 +10,18 @@ from app.api.market import router as market_router
 from app.api.trades import router as trades_router
 from app.core.config import get_settings
 from app.db.sqlite import init_db
-from app.services.trades import start_spot_distance_monitor_task, stop_spot_distance_monitor_task
+from app.services.trades import (
+    start_risk_order_monitor_task,
+    start_spot_distance_monitor_task,
+    stop_risk_order_monitor_task,
+    stop_spot_distance_monitor_task,
+)
 
 
 settings = get_settings()
 app = FastAPI(title=settings.app_name)
 spot_distance_monitor_task = None
+risk_order_monitor_task = None
 
 app.add_middleware(
     CORSMiddleware,
@@ -28,13 +34,15 @@ app.add_middleware(
 
 @app.on_event("startup")
 async def startup() -> None:
-    global spot_distance_monitor_task
+    global risk_order_monitor_task, spot_distance_monitor_task
     init_db()
     spot_distance_monitor_task = start_spot_distance_monitor_task()
+    risk_order_monitor_task = start_risk_order_monitor_task()
 
 
 @app.on_event("shutdown")
 async def shutdown() -> None:
+    await stop_risk_order_monitor_task(risk_order_monitor_task)
     await stop_spot_distance_monitor_task(spot_distance_monitor_task)
 
 
