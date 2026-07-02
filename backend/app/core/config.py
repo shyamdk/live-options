@@ -57,6 +57,7 @@ class Settings(BaseSettings):
     risk_order_monitor_enabled: bool = True
     risk_order_execution_enabled: bool = False
     risk_order_monitor_interval_seconds: int = 5
+    risk_order_retry_seconds: int = 60
     risk_order_allow_stale_ltp: bool = False
     telegram_bot_token: str | None = None
     telegram_chat_id: str | None = None

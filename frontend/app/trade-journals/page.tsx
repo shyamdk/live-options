@@ -53,6 +53,12 @@ export default function TradeJournalsPage() {
   }
 
   const summary = payload?.summary;
+  const dayTrades = [
+    ...(payload?.snapshot.groups.closed ?? []),
+    ...(payload?.snapshot.groups.equity ?? []),
+    ...(payload?.snapshot.groups.optionsBuy ?? []),
+    ...(payload?.snapshot.groups.optionsSell ?? []),
+  ];
 
   return (
     <section className="page">
@@ -82,6 +88,7 @@ export default function TradeJournalsPage() {
         <Metric label="Charges" value={money(summary?.estimatedCharges)} />
         <Metric label="Open P&L" value={money(summary?.openPnl)} tone={tone(summary?.openPnl)} />
         <Metric label="Realized" value={money(summary?.realizedPnl)} tone={tone(summary?.realizedPnl)} />
+        <Metric label="Closed" value={String(summary?.closedCount ?? 0)} />
         <Metric label="Equity" value={String(summary?.equityCount ?? 0)} />
         <Metric label="Opt Buy" value={String(summary?.optionsBuyCount ?? 0)} />
         <Metric label="Opt Sell" value={String(summary?.optionsSellCount ?? 0)} />
@@ -104,10 +111,10 @@ export default function TradeJournalsPage() {
           <span>{summary?.totalPositions ?? 0}</span>
         </div>
         <div className="compact-list">
-          {[...(payload?.snapshot.groups.equity ?? []), ...(payload?.snapshot.groups.optionsBuy ?? []), ...(payload?.snapshot.groups.optionsSell ?? [])].map((trade) => (
+          {dayTrades.map((trade) => (
             <div className="compact-row" key={trade.id}>
               <strong>{trade.tradingSymbol || `${trade.symbol} ${trade.strikePrice ?? ""} ${trade.optionSide ?? ""}`}</strong>
-              <span>{trade.side} {trade.qty}</span>
+              <span>{trade.status === "CLOSED" ? "CLOSED" : trade.side} {trade.status === "CLOSED" ? (trade.closedQty ?? trade.absQty) : trade.qty}</span>
               <span>{money(trade.ltp)}</span>
               <span className={tone(trade.dayPnl)}>{money(trade.dayPnl)}</span>
             </div>

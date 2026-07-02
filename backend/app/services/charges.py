@@ -38,6 +38,38 @@ def apply_option_charge_estimates(trade: dict[str, Any], settings: Settings | No
     trade["charges"] = {"entry": entry, "exitAtLtp": exit_charges, "total": total}
 
 
+def apply_closed_option_charge_estimates(trade: dict[str, Any], settings: Settings | None = None) -> None:
+    settings = settings or get_settings()
+    if trade.get("assetClass") != "OPTION":
+        trade["estimatedCharges"] = None
+        trade["estimatedNetPnl"] = trade.get("dayPnl")
+        return
+
+    buy_avg = _number(trade.get("buyAvg"))
+    sell_avg = _number(trade.get("sellAvg"))
+    buy_qty = int(_number(trade.get("buyQty")) or 0)
+    sell_qty = int(_number(trade.get("sellQty")) or 0)
+
+    buy_charges = option_order_charges(
+        premium=buy_avg or 0,
+        quantity=buy_qty,
+        side="BUY",
+        exchange_segment=str(trade.get("exchangeSegment") or ""),
+        settings=settings,
+    )
+    sell_charges = option_order_charges(
+        premium=sell_avg or 0,
+        quantity=sell_qty,
+        side="SELL",
+        exchange_segment=str(trade.get("exchangeSegment") or ""),
+        settings=settings,
+    )
+    total = round(buy_charges["total"] + sell_charges["total"], 2)
+    trade["estimatedCharges"] = total
+    trade["estimatedNetPnl"] = round((_number(trade.get("dayPnl")) or 0) - total, 2)
+    trade["charges"] = {"buy": buy_charges, "sell": sell_charges, "total": total}
+
+
 def option_order_charges(
     *,
     premium: float,
@@ -94,4 +126,3 @@ def _number(value: Any) -> float | None:
         return float(str(value).replace(",", ""))
     except (TypeError, ValueError):
         return None
-

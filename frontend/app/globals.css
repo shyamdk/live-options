@@ -582,6 +582,20 @@ td strong {
   color: var(--text);
 }
 
+.level-field {
+  display: grid;
+  gap: 3px;
+  width: 92px;
+}
+
+.level-preview {
+  min-height: 14px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 750;
+  line-height: 14px;
+}
+
 .level-input:focus,
 .field-panel textarea:focus {
   outline: 2px solid #b9d7fb;
@@ -613,6 +627,50 @@ td strong {
   border-color: #add8bd;
   background: var(--green-soft);
   color: var(--green);
+}
+
+.risk-pill.targetSignal,
+.risk-pill.stopLossSignal {
+  border-color: #e4c46c;
+  background: #fff7db;
+  color: #8a5b00;
+}
+
+.risk-pill.orderFailed {
+  border-color: #e8aaaa;
+  background: var(--red-soft);
+  color: var(--red);
+}
+
+.risk-pill.closed {
+  border-color: #cbd2dc;
+  background: #f3f6f9;
+  color: var(--muted);
+}
+
+.subsection-row td {
+  height: 30px;
+  background: #eef3f7;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.subsection-row span {
+  display: inline-grid;
+  place-items: center;
+  min-width: 20px;
+  height: 18px;
+  margin-left: 6px;
+  border-radius: 999px;
+  background: #dce5ed;
+  color: var(--text);
+  font-size: 11px;
+}
+
+.closed-row {
+  background: #fbfcfd;
 }
 
 .empty-state {

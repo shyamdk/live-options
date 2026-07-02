@@ -1,12 +1,19 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 from app.core.config import get_settings
-from app.db.sqlite import has_configured_trade_levels, get_trade_levels, record_alert_once, record_trade_action, upsert_trade_levels
-from app.services.charges import apply_option_charge_estimates
+from app.db.sqlite import (
+    get_trade_actions,
+    get_trade_levels,
+    has_configured_trade_levels,
+    record_alert_once,
+    record_trade_action,
+    upsert_trade_levels,
+)
+from app.services.charges import apply_closed_option_charge_estimates, apply_option_charge_estimates
 from app.services.dhan import DhanService
 from app.services.market import MarketService
 from app.services.orders import DhanOrderService
@@ -27,27 +34,37 @@ async def _live_trade_snapshot() -> dict[str, Any]:
     service = DhanService()
     raw_positions = await service.positions()
     trades = [trade for row in raw_positions if (trade := _normalize_position(row))]
-    await _apply_live_quotes(service, trades)
-    await _apply_spot_distances(trades)
+    open_trades = [trade for trade in trades if trade.get("status") != "CLOSED"]
+    closed = [trade for trade in trades if trade.get("status") == "CLOSED"]
+    await _apply_live_quotes(service, open_trades)
+    await _apply_spot_distances(open_trades)
 
-    option_trades = [trade for trade in trades if trade["assetClass"] == "OPTION"]
+    option_trades = [trade for trade in open_trades if trade["assetClass"] == "OPTION"]
     levels_by_id = get_trade_levels([trade["id"] for trade in option_trades])
+    risk_actions_by_id = get_trade_actions([trade["id"] for trade in option_trades], action_prefix="RISK_EXIT_")
     for trade in option_trades:
         trade["levels"] = levels_by_id.get(trade["id"]) or _empty_levels(trade)
-        trade["riskStatus"] = _risk_status(trade)
+        trade["riskStatus"] = _risk_status(trade, risk_actions_by_id.get(trade["id"]) or [])
         apply_option_charge_estimates(trade)
+    for trade in closed:
+        if trade["assetClass"] == "OPTION":
+            apply_closed_option_charge_estimates(trade)
+        else:
+            trade["estimatedCharges"] = None
+            trade["estimatedNetPnl"] = trade.get("dayPnl")
 
-    equity = [trade for trade in trades if trade["assetClass"] == "EQUITY"]
+    equity = [trade for trade in open_trades if trade["assetClass"] == "EQUITY"]
     options_buy = [trade for trade in option_trades if trade["side"] == "BUY"]
     options_sell = [trade for trade in option_trades if trade["side"] == "SELL"]
     await _notify_spot_distance_alerts(options_sell)
-    summary = _summary(equity, options_buy, options_sell)
+    summary = _summary(closed, equity, options_buy, options_sell)
     return {
         "source": "dhan",
         "warning": None,
         "updatedAt": datetime.now().isoformat(timespec="seconds"),
         "summary": summary,
         "groups": {
+            "closed": sorted(closed, key=_closed_sort_key),
             "equity": sorted(equity, key=lambda row: row["tradingSymbol"]),
             "optionsBuy": sorted(options_buy, key=_option_sort_key),
             "optionsSell": sorted(options_sell, key=_option_sort_key),
@@ -159,10 +176,6 @@ async def _maybe_execute_risk_exit(trade: dict[str, Any]) -> dict[str, Any] | No
         return signal
     signal["mode"] = "live" if settings.risk_order_execution_enabled and settings.live_order_enabled else "dry-run"
 
-    event_key = _risk_event_key(trade, signal)
-    if not record_alert_once(event_key, {"tradeId": trade.get("id"), "signal": signal}):
-        return {"tradeId": trade.get("id"), "status": "duplicate", "reason": "risk order already handled", **signal}
-
     action_name = f"RISK_EXIT_{str(signal['kind']).upper()}"
     order_service = DhanOrderService(settings)
     try:
@@ -176,7 +189,7 @@ async def _maybe_execute_risk_exit(trade: dict[str, Any]) -> dict[str, Any] | No
         )
     except Exception as exc:
         result = {"status": "failed", "message": str(exc), "request": None, "order": None}
-        record_trade_action(str(trade.get("id")), action_name, "failed", None, result)
+        record_trade_action(str(trade.get("id")), action_name, "failed", None, {**result, "signal": signal})
         await _notify_risk_exit(trade, signal, result)
         return {"tradeId": trade.get("id"), "status": "failed", **signal}
 
@@ -197,7 +210,13 @@ async def _maybe_execute_risk_exit(trade: dict[str, Any]) -> dict[str, Any] | No
             product_type=trade.get("productType"),
         )
 
-    record_trade_action(str(trade.get("id")), action_name, str(result.get("status") or "unknown"), request, result)
+    order_success = _is_successful_order_result(result)
+    audit_result = {**result, "signal": signal, "orderSuccess": order_success}
+    record_trade_action(str(trade.get("id")), action_name, str(result.get("status") or "unknown"), request, audit_result)
+    if order_success:
+        event_key = _risk_event_key(trade, signal, "confirmed")
+        if not record_alert_once(event_key, {"tradeId": trade.get("id"), "signal": signal, "result": result}):
+            return {"tradeId": trade.get("id"), "status": "duplicate", "reason": "risk order already confirmed", **signal}
     await _notify_risk_exit(trade, signal, result)
     return {"tradeId": trade.get("id"), "status": result.get("status"), "order": result.get("order"), **signal}
 
@@ -243,8 +262,6 @@ def _find_trade(snapshot: dict[str, Any], trade_id: str) -> dict[str, Any] | Non
 
 def _normalize_position(row: dict[str, Any]) -> dict[str, Any] | None:
     qty = int(_number(_first(row, "netQty", "netQuantity", "quantity", "positionQty")) or 0)
-    if qty == 0:
-        return None
 
     trading_symbol = str(_first(row, "tradingSymbol", "customSymbol", "symbol") or "").strip()
     security_id = str(_first(row, "securityId", "security_id") or "")
@@ -255,10 +272,68 @@ def _normalize_position(row: dict[str, Any]) -> dict[str, Any] | None:
     raw_option_type = str(_first(row, "drvOptionType", "optionType", "optionSide") or "").upper()
     option_side = _option_side(raw_option_type, trading_symbol)
     is_option = bool(option_side and (strike is not None or "OPT" in instrument or "FNO" in exchange_segment.upper()))
+    buy_avg = _number(_first(row, "buyAvg", "buyAvgPrice"))
+    sell_avg = _number(_first(row, "sellAvg", "sellAvgPrice"))
+    buy_qty = int(_number(_first(row, "buyQty", "dayBuyQty")) or 0)
+    sell_qty = int(_number(_first(row, "sellQty", "daySellQty")) or 0)
     avg_price = _average_price(row, qty)
     ltp = _number(_first(row, "lastTradedPrice", "ltp", "lastPrice", "last_price"))
     realized = round(_number(_first(row, "realizedProfit", "realizedPnl", "realisedProfit")) or 0, 2)
     position_open_pnl = _number(_first(row, "unrealizedProfit", "unrealizedPnl", "unrealisedProfit"))
+    position_type = str(_first(row, "positionType", "positionStatus", "status") or "").upper()
+    is_closed = qty == 0 and (position_type == "CLOSED" or realized != 0 or (buy_qty > 0 and sell_qty > 0))
+    if qty == 0 and not is_closed:
+        return None
+
+    asset_class = "OPTION" if is_option else "EQUITY"
+    symbol = _underlying_symbol(trading_symbol) if asset_class == "OPTION" else _equity_symbol(trading_symbol)
+    expiry = _date_part(_first(row, "drvExpiryDate", "expiryDate", "expiry"))
+    trade_id = _trade_id(asset_class, security_id, exchange_segment, product_type, symbol, expiry, strike, option_side)
+
+    if is_closed:
+        closed_qty = max(abs(buy_qty), abs(sell_qty))
+        entry_side = _closed_entry_side(row, buy_avg, sell_avg, asset_class)
+        entry_avg = sell_avg if entry_side == "SELL" else buy_avg
+        exit_avg = buy_avg if entry_side == "SELL" else sell_avg
+        if entry_avg is None:
+            entry_avg = avg_price
+        percent_qty = -closed_qty if entry_side == "SELL" else closed_qty
+        return {
+            "id": trade_id,
+            "assetClass": asset_class,
+            "symbol": symbol,
+            "tradingSymbol": trading_symbol or symbol,
+            "securityId": security_id,
+            "exchangeSegment": exchange_segment,
+            "productType": product_type,
+            "instrument": instrument,
+            "expiry": expiry,
+            "strikePrice": strike,
+            "optionSide": option_side,
+            "side": entry_side,
+            "entrySide": entry_side,
+            "status": "CLOSED",
+            "qty": 0,
+            "absQty": closed_qty,
+            "closedQty": closed_qty,
+            "buyQty": buy_qty,
+            "sellQty": sell_qty,
+            "buyAvg": buy_avg,
+            "sellAvg": sell_avg,
+            "avgPrice": entry_avg,
+            "entryAvgPrice": entry_avg,
+            "exitAvgPrice": exit_avg,
+            "ltp": exit_avg,
+            "ltpDerived": False,
+            "positionOpenPnl": position_open_pnl,
+            "pnlSource": "position",
+            "openPnl": 0,
+            "realizedPnl": realized,
+            "dayPnl": realized,
+            "percentChange": _percent_change(entry_avg, exit_avg, percent_qty),
+            "rawProductType": row.get("productType"),
+        }
+
     ltp_derived = False
     if ltp is None:
         ltp = _ltp_from_open_pnl(avg_price, position_open_pnl, qty)
@@ -267,11 +342,6 @@ def _normalize_position(row: dict[str, Any]) -> dict[str, Any] | None:
     if open_pnl is None:
         open_pnl = _live_pnl(avg_price, ltp, qty)
     open_pnl = round(open_pnl or 0, 2)
-
-    asset_class = "OPTION" if is_option else "EQUITY"
-    symbol = _underlying_symbol(trading_symbol) if asset_class == "OPTION" else _equity_symbol(trading_symbol)
-    expiry = _date_part(_first(row, "drvExpiryDate", "expiryDate", "expiry"))
-    trade_id = _trade_id(asset_class, security_id, exchange_segment, product_type, symbol, expiry, strike, option_side)
 
     trade = {
         "id": trade_id,
@@ -286,8 +356,13 @@ def _normalize_position(row: dict[str, Any]) -> dict[str, Any] | None:
         "strikePrice": strike,
         "optionSide": option_side,
         "side": "BUY" if qty > 0 else "SELL",
+        "status": "OPEN",
         "qty": qty,
         "absQty": abs(qty),
+        "buyQty": buy_qty,
+        "sellQty": sell_qty,
+        "buyAvg": buy_avg,
+        "sellAvg": sell_avg,
         "avgPrice": avg_price,
         "ltp": ltp,
         "ltpDerived": ltp_derived,
@@ -448,13 +523,19 @@ def _remember_ltp(trade: dict[str, Any]) -> None:
         _TRADE_LTP_CACHE[trade_id] = ltp
 
 
-def _summary(equity: list[dict[str, Any]], options_buy: list[dict[str, Any]], options_sell: list[dict[str, Any]]) -> dict[str, Any]:
-    rows = [*equity, *options_buy, *options_sell]
+def _summary(
+    closed: list[dict[str, Any]],
+    equity: list[dict[str, Any]],
+    options_buy: list[dict[str, Any]],
+    options_sell: list[dict[str, Any]],
+) -> dict[str, Any]:
+    rows = [*closed, *equity, *options_buy, *options_sell]
     open_pnl = round(sum(_number(row.get("openPnl")) or 0 for row in rows), 2)
     realized = round(sum(_number(row.get("realizedPnl")) or 0 for row in rows), 2)
-    estimated_charges = round(sum(_number(row.get("estimatedCharges")) or 0 for row in [*options_buy, *options_sell]), 2)
+    estimated_charges = round(sum(_number(row.get("estimatedCharges")) or 0 for row in [*closed, *options_buy, *options_sell]), 2)
     return {
         "totalPositions": len(rows),
+        "closedCount": len(closed),
         "equityCount": len(equity),
         "optionsBuyCount": len(options_buy),
         "optionsSellCount": len(options_sell),
@@ -469,7 +550,160 @@ def _summary(equity: list[dict[str, Any]], options_buy: list[dict[str, Any]], op
     }
 
 
-def _risk_status(trade: dict[str, Any]) -> dict[str, Any]:
+def _risk_status_for_signal(
+    trade: dict[str, Any],
+    kind: str,
+    level: float,
+    actions: list[dict[str, Any]],
+) -> dict[str, Any]:
+    success = _latest_matching_risk_action(trade, actions, kind, level, success_only=True)
+    if success:
+        return {
+            "kind": kind,
+            "signalKind": kind,
+            "label": "Target hit" if kind == "target" else "SL hit",
+            "level": level,
+            "orderStatus": "sent",
+            "orderAction": success.get("action"),
+            "orderId": _order_id_from_action(success),
+            "orderAt": success.get("createdAt"),
+        }
+
+    latest = _latest_matching_risk_action(trade, actions, kind, level)
+    if latest:
+        retry_at = _risk_retry_at(latest)
+        retry_active = retry_at is not None and datetime.now() < retry_at
+        status = str(latest.get("status") or "unknown")
+        if status in {"failed", "blocked"} and retry_active:
+            return {
+                "kind": "orderFailed",
+                "signalKind": kind,
+                "label": "Target order failed" if kind == "target" else "SL order failed",
+                "level": level,
+                "orderStatus": status,
+                "orderAction": latest.get("action"),
+                "orderAt": latest.get("createdAt"),
+                "retryAt": retry_at.isoformat(timespec="seconds") if retry_at else None,
+                "message": _action_message(latest),
+            }
+
+    return {
+        "kind": "targetSignal" if kind == "target" else "stopLossSignal",
+        "signalKind": kind,
+        "label": "Target reached" if kind == "target" else "SL reached",
+        "level": level,
+    }
+
+
+def _latest_matching_risk_action(
+    trade: dict[str, Any],
+    actions: list[dict[str, Any]],
+    kind: str,
+    level: float,
+    *,
+    success_only: bool = False,
+) -> dict[str, Any] | None:
+    expected_action = f"RISK_EXIT_{kind.upper()}"
+    levels_updated_at = _parse_datetime((trade.get("levels") or {}).get("updatedAt"))
+    for action in actions:
+        if action.get("action") != expected_action:
+            continue
+        created_at = _parse_datetime(action.get("createdAt"))
+        if levels_updated_at and created_at and created_at < levels_updated_at:
+            continue
+        response = action.get("response") or {}
+        signal = response.get("signal") if isinstance(response, dict) else None
+        signal_level = _number((signal or {}).get("level")) if isinstance(signal, dict) else None
+        if signal_level is not None and abs(signal_level - level) > 0.0001:
+            continue
+        if success_only and not _risk_action_successful(action):
+            continue
+        return action
+    return None
+
+
+def _risk_action_successful(action: dict[str, Any]) -> bool:
+    status = str(action.get("status") or "").lower()
+    response = action.get("response") or {}
+    if isinstance(response, dict) and response.get("orderSuccess") is True:
+        return True
+    if status not in {"sent", "success", "placed", "submitted"}:
+        return False
+    return not _order_payload_failed(response.get("order") if isinstance(response, dict) else None)
+
+
+def _is_successful_order_result(result: dict[str, Any]) -> bool:
+    if str(result.get("status") or "").lower() != "sent":
+        return False
+    return not _order_payload_failed(result.get("order"))
+
+
+def _order_payload_failed(order: Any) -> bool:
+    failed_statuses = {"failed", "failure", "rejected", "cancelled", "canceled", "error"}
+    if isinstance(order, dict):
+        for key in ("status", "orderStatus", "order_status", "errorType", "errorCode"):
+            value = str(order.get(key) or "").lower()
+            if value in failed_statuses or value.startswith("dh-"):
+                return True
+        data = order.get("data")
+        if isinstance(data, dict):
+            return _order_payload_failed(data)
+    return False
+
+
+def _risk_retry_at(action: dict[str, Any]) -> datetime | None:
+    created_at = _parse_datetime(action.get("createdAt"))
+    if not created_at:
+        return None
+    retry_seconds = max(get_settings().risk_order_retry_seconds, 5)
+    return created_at.replace(microsecond=0) + timedelta(seconds=retry_seconds)
+
+
+def _parse_datetime(value: Any) -> datetime | None:
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(str(value))
+    except ValueError:
+        return None
+
+
+def _order_id_from_action(action: dict[str, Any]) -> str | None:
+    response = action.get("response") or {}
+    order = response.get("order") if isinstance(response, dict) else None
+    return _order_id_from_payload(order)
+
+
+def _order_id_from_payload(order: Any) -> str | None:
+    if not isinstance(order, dict):
+        return None
+    for key in ("orderId", "order_id", "orderNo", "orderNumber"):
+        value = order.get(key)
+        if value:
+            return str(value)
+    data = order.get("data")
+    if isinstance(data, dict):
+        return _order_id_from_payload(data)
+    return None
+
+
+def _action_message(action: dict[str, Any]) -> str | None:
+    response = action.get("response") or {}
+    if not isinstance(response, dict):
+        return None
+    message = response.get("message")
+    if message:
+        return str(message)
+    order = response.get("order")
+    if isinstance(order, dict):
+        for key in ("errorMessage", "message", "remarks"):
+            value = order.get(key)
+            if value:
+                return str(value)
+    return None
+
+
+def _risk_status(trade: dict[str, Any], actions: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     levels = trade.get("levels") or {}
     ltp = _number(trade.get("ltp"))
     qty = int(trade.get("qty") or 0)
@@ -479,17 +713,29 @@ def _risk_status(trade: dict[str, Any]) -> dict[str, Any]:
     target = _number(levels.get("target"))
     is_short = qty < 0
     if stop_loss is not None and ((is_short and ltp >= stop_loss) or (not is_short and ltp <= stop_loss)):
-        return {"kind": "stopLoss", "label": "SL hit", "level": stop_loss}
+        return _risk_status_for_signal(trade, "stopLoss", stop_loss, actions or [])
     if target is not None and ((is_short and ltp <= target) or (not is_short and ltp >= target)):
-        return {"kind": "target", "label": "Target hit", "level": target}
+        return _risk_status_for_signal(trade, "target", target, actions or [])
     return {"kind": "none", "label": "Monitoring"}
 
 
 def _risk_exit_signal(trade: dict[str, Any], allow_stale_ltp: bool = False) -> dict[str, Any] | None:
     status = trade.get("riskStatus") or {}
-    kind = status.get("kind")
+    kind = status.get("signalKind") or status.get("kind")
     if kind not in {"stopLoss", "target"}:
         return None
+    if status.get("orderStatus") == "sent":
+        return None
+    retry_at = _parse_datetime(status.get("retryAt"))
+    if retry_at and datetime.now() < retry_at:
+        return {
+            "tradeId": trade.get("id"),
+            "kind": kind,
+            "status": "skipped",
+            "reason": f"retry after {retry_at.isoformat(timespec='seconds')}",
+            "level": status.get("level"),
+            "ltp": trade.get("ltp"),
+        }
     if trade.get("ltpStale") and not allow_stale_ltp:
         return {
             "tradeId": trade.get("id"),
@@ -525,7 +771,7 @@ def _risk_exit_signal(trade: dict[str, Any], allow_stale_ltp: bool = False) -> d
     }
 
 
-def _risk_event_key(trade: dict[str, Any], signal: dict[str, Any]) -> str:
+def _risk_event_key(trade: dict[str, Any], signal: dict[str, Any], phase: str) -> str:
     levels = trade.get("levels") or {}
     level = _number(signal.get("level"))
     level_text = f"{level:g}" if level is not None else "NA"
@@ -534,6 +780,7 @@ def _risk_event_key(trade: dict[str, Any], signal: dict[str, Any]) -> str:
         [
             datetime.now().date().isoformat(),
             "risk-exit",
+            phase,
             str(trade.get("id") or "unknown"),
             str(signal.get("kind") or "unknown"),
             str(signal.get("mode") or "unknown"),
@@ -588,6 +835,7 @@ def _empty_snapshot(warning: str | None = None) -> dict[str, Any]:
         "updatedAt": datetime.now().isoformat(timespec="seconds"),
         "summary": {
             "totalPositions": 0,
+            "closedCount": 0,
             "equityCount": 0,
             "optionsBuyCount": 0,
             "optionsSellCount": 0,
@@ -600,7 +848,7 @@ def _empty_snapshot(warning: str | None = None) -> dict[str, Any]:
             "stopLossHits": 0,
             "targetHits": 0,
         },
-        "groups": {"equity": [], "optionsBuy": [], "optionsSell": []},
+        "groups": {"closed": [], "equity": [], "optionsBuy": [], "optionsSell": []},
     }
 
 
@@ -626,6 +874,16 @@ def _option_sort_key(trade: dict[str, Any]) -> tuple[str, str, float, str]:
         str(trade.get("expiry") or ""),
         float(trade.get("strikePrice") or 0),
         str(trade.get("optionSide") or ""),
+    )
+
+
+def _closed_sort_key(trade: dict[str, Any]) -> tuple[str, str, float, str, str]:
+    return (
+        str(trade.get("symbol") or ""),
+        str(trade.get("expiry") or ""),
+        float(trade.get("strikePrice") or 0),
+        str(trade.get("optionSide") or ""),
+        str(trade.get("tradingSymbol") or ""),
     )
 
 
@@ -668,6 +926,16 @@ def _average_price(row: dict[str, Any], qty: int) -> float | None:
     if qty > 0:
         return _number(_first(row, "buyAvg", "buyAvgPrice"))
     return _number(_first(row, "sellAvg", "sellAvgPrice"))
+
+
+def _closed_entry_side(row: dict[str, Any], buy_avg: float | None, sell_avg: float | None, asset_class: str) -> str:
+    cost = _number(_first(row, "costPrice", "avgPrice", "averagePrice"))
+    if cost is not None:
+        if sell_avg is not None and abs(cost - sell_avg) < 0.0001:
+            return "SELL"
+        if buy_avg is not None and abs(cost - buy_avg) < 0.0001:
+            return "BUY"
+    return "SELL" if asset_class == "OPTION" else "BUY"
 
 
 def _live_pnl(avg_price: float | None, ltp: float | None, qty: int) -> float:

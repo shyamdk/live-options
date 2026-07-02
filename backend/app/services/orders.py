@@ -54,7 +54,10 @@ class DhanOrderService:
                 )
         if response.is_error:
             return {"status": "failed", "message": f"Dhan order request failed: {response.text[:220]}", "request": body}
-        return {"status": "sent", "request": body, "order": _response_json(response)}
+        payload = _response_json(response)
+        if _payload_failed(payload):
+            return {"status": "failed", "message": _payload_message(payload), "request": body, "order": payload}
+        return {"status": "sent", "request": body, "order": payload}
 
     def build_market_order_request(
         self,
@@ -123,3 +126,28 @@ def _response_json(response: httpx.Response) -> Any:
         return response.json()
     except ValueError:
         return {"raw": response.text}
+
+
+def _payload_failed(payload: Any) -> bool:
+    failed_statuses = {"failed", "failure", "rejected", "cancelled", "canceled", "error"}
+    if not isinstance(payload, dict):
+        return False
+    for key in ("status", "orderStatus", "order_status", "errorType", "errorCode"):
+        value = str(payload.get(key) or "").lower()
+        if value in failed_statuses or value.startswith("dh-"):
+            return True
+    data = payload.get("data")
+    return _payload_failed(data) if isinstance(data, dict) else False
+
+
+def _payload_message(payload: Any) -> str:
+    if not isinstance(payload, dict):
+        return "Dhan order request failed."
+    for key in ("errorMessage", "message", "remarks", "error"):
+        value = payload.get(key)
+        if value:
+            return str(value)
+    data = payload.get("data")
+    if isinstance(data, dict):
+        return _payload_message(data)
+    return "Dhan order request failed."

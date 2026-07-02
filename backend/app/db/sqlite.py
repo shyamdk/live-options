@@ -162,6 +162,40 @@ def record_trade_action(
         conn.commit()
 
 
+def get_trade_actions(
+    trade_ids: list[str],
+    *,
+    action_prefix: str | None = None,
+    limit_per_trade: int = 20,
+) -> dict[str, list[dict[str, Any]]]:
+    if not trade_ids:
+        return {}
+    placeholders = ",".join("?" for _ in trade_ids)
+    params: list[Any] = [*trade_ids]
+    action_clause = ""
+    if action_prefix:
+        action_clause = " AND action LIKE ?"
+        params.append(f"{action_prefix}%")
+    with _DB_LOCK, _connect() as conn:
+        rows = conn.execute(
+            f"""
+            SELECT *
+            FROM trade_actions
+            WHERE trade_id IN ({placeholders}){action_clause}
+            ORDER BY trade_id, created_at DESC, id DESC
+            """,
+            params,
+        ).fetchall()
+
+    actions_by_trade: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        trade_id = str(row["trade_id"])
+        bucket = actions_by_trade.setdefault(trade_id, [])
+        if len(bucket) < limit_per_trade:
+            bucket.append(_action_from_row(row))
+    return actions_by_trade
+
+
 def get_journal(trade_date: str) -> dict[str, Any]:
     with _DB_LOCK, _connect() as conn:
         row = conn.execute("SELECT * FROM trade_journals WHERE trade_date = ?", (trade_date,)).fetchone()
@@ -236,6 +270,27 @@ def _level_from_mapping(row: dict[str, Any]) -> dict[str, Any]:
         "notes": row.get("notes") or "",
         "updatedAt": row.get("updated_at"),
     }
+
+
+def _action_from_row(row: sqlite3.Row) -> dict[str, Any]:
+    return {
+        "id": row["id"],
+        "tradeId": row["trade_id"],
+        "action": row["action"],
+        "status": row["status"],
+        "request": _json(row["request_json"]),
+        "response": _json(row["response_json"]),
+        "createdAt": row["created_at"],
+    }
+
+
+def _json(value: str | None) -> Any:
+    if not value:
+        return None
+    try:
+        return json.loads(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _number(value: Any) -> float | None:

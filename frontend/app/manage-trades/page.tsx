@@ -80,7 +80,7 @@ export default function ManageTradesPage() {
     try {
       const draft = drafts[trade.id] ?? emptyDraft();
       await saveTradeLevels(trade.id, {
-        stopLoss: draftNumber(draft.stopLoss),
+        stopLoss: stopLossDraftNumber(trade, draft.stopLoss),
         target: draftNumber(draft.target),
         notes: draft.notes,
       });
@@ -116,6 +116,10 @@ export default function ManageTradesPage() {
 
   const summary = snapshot?.summary;
   const optionTrades = useMemo(() => [...(snapshot?.groups.optionsBuy ?? []), ...(snapshot?.groups.optionsSell ?? [])], [snapshot]);
+  const closedTrades = snapshot?.groups.closed ?? [];
+  const closedEquity = closedTrades.filter((trade) => trade.assetClass === "EQUITY");
+  const closedOptionsBuy = closedTrades.filter((trade) => trade.assetClass === "OPTION" && trade.side === "BUY");
+  const closedOptionsSell = closedTrades.filter((trade) => trade.assetClass === "OPTION" && trade.side === "SELL");
 
   return (
     <section className="page">
@@ -155,14 +159,16 @@ export default function ManageTradesPage() {
         <Metric label="Open P&L" value={money(summary?.openPnl)} tone={tone(summary?.openPnl)} />
         <Metric label="Realized" value={money(summary?.realizedPnl)} tone={tone(summary?.realizedPnl)} />
         <Metric label="Positions" value={String(summary?.totalPositions ?? 0)} />
+        <Metric label="Closed" value={String(summary?.closedCount ?? 0)} />
         <Metric label="Levels" value={String(summary?.configuredLevels ?? 0)} />
       </div>
 
-      <TradeTable title="Equity" trades={snapshot?.groups.equity ?? []} loading={loading} />
+      <TradeTable title="Equity" trades={snapshot?.groups.equity ?? []} closedTrades={closedEquity} loading={loading} />
 
       <OptionTradeTable
         title="Options Buy"
         trades={snapshot?.groups.optionsBuy ?? []}
+        closedTrades={closedOptionsBuy}
         drafts={drafts}
         savingId={savingId}
         loading={loading}
@@ -175,6 +181,7 @@ export default function ManageTradesPage() {
       <OptionTradeTable
         title="Options Sell"
         trades={snapshot?.groups.optionsSell ?? []}
+        closedTrades={closedOptionsSell}
         drafts={drafts}
         savingId={savingId}
         loading={loading}
@@ -184,7 +191,7 @@ export default function ManageTradesPage() {
         showRemainingProfit
       />
 
-      {!loading && !optionTrades.length && !snapshot?.groups.equity.length ? <div className="empty-state">No live positions returned by Dhan.</div> : null}
+      {!loading && !closedTrades.length && !optionTrades.length && !snapshot?.groups.equity.length ? <div className="empty-state">No positions returned by Dhan.</div> : null}
     </section>
   );
 }
@@ -198,12 +205,13 @@ function Metric({ label, value, tone: metricTone }: { label: string; value: stri
   );
 }
 
-function TradeTable({ title, trades, loading }: { title: string; trades: LiveTrade[]; loading: boolean }) {
+function TradeTable({ title, trades, closedTrades, loading }: { title: string; trades: LiveTrade[]; closedTrades: LiveTrade[]; loading: boolean }) {
+  const totalRows = trades.length + closedTrades.length;
   return (
     <section className="table-section">
       <div className="section-title">
         <h2>{title}</h2>
-        <span>{trades.length}</span>
+        <span>{totalRows}</span>
       </div>
       <div className="table-wrap">
         <table>
@@ -235,7 +243,23 @@ function TradeTable({ title, trades, loading }: { title: string; trades: LiveTra
                 <td>{trade.productType || "-"}</td>
               </tr>
             ))}
-            {!trades.length ? (
+            {closedTrades.length ? <ClosedSubsectionRow colSpan={8} count={closedTrades.length} /> : null}
+            {closedTrades.map((trade) => (
+              <tr className="closed-row" key={trade.id}>
+                <td>
+                  <strong>{trade.tradingSymbol}</strong>
+                  <span className="subtext">{trade.exchangeSegment || "-"}</span>
+                </td>
+                <td><Badge tone={trade.side === "BUY" ? "buy" : "sell"}>{trade.side}</Badge></td>
+                <td>{trade.closedQty ?? trade.absQty}</td>
+                <td>{money(trade.entryAvgPrice ?? trade.avgPrice)}</td>
+                <td>{money(trade.exitAvgPrice ?? trade.ltp)}</td>
+                <td className={tone(trade.dayPnl)}>{money(trade.dayPnl)}</td>
+                <td className={tone(trade.percentChange)}>{percent(trade.percentChange)}</td>
+                <td>{trade.productType || "-"}</td>
+              </tr>
+            ))}
+            {!totalRows ? (
               <tr>
                 <td colSpan={8}>{loading ? "Loading" : "No equity positions"}</td>
               </tr>
@@ -250,6 +274,7 @@ function TradeTable({ title, trades, loading }: { title: string; trades: LiveTra
 function OptionTradeTable({
   title,
   trades,
+  closedTrades,
   drafts,
   savingId,
   loading,
@@ -260,6 +285,7 @@ function OptionTradeTable({
 }: {
   title: string;
   trades: LiveTrade[];
+  closedTrades: LiveTrade[];
   drafts: Record<string, DraftLevels>;
   savingId: string | null;
   loading: boolean;
@@ -268,12 +294,13 @@ function OptionTradeTable({
   onClose: (trade: LiveTrade) => void;
   showRemainingProfit: boolean;
 }) {
-  const emptyColSpan = showRemainingProfit ? 16 : 13;
+  const columnCount = showRemainingProfit ? 16 : 14;
+  const totalRows = trades.length + closedTrades.length;
   return (
     <section className="table-section">
       <div className="section-title">
         <h2>{title}</h2>
-        <span>{trades.length}</span>
+        <span>{totalRows}</span>
       </div>
       <div className="table-wrap">
         <table className={showRemainingProfit ? "wide-table" : ""}>
@@ -291,7 +318,7 @@ function OptionTradeTable({
               {showRemainingProfit ? <th>Remaining</th> : null}
               {showRemainingProfit ? <th>Remain %</th> : null}
               <th>Spot Dist</th>
-              <th>SL</th>
+              <th>SL %</th>
               <th>Target</th>
               <th>Status</th>
               <th>Actions</th>
@@ -322,12 +349,16 @@ function OptionTradeTable({
                     <span className="subtext">{trade.spotDistancePoints === null || trade.spotDistancePoints === undefined ? "-" : `${money(trade.spotDistancePoints)} pts`}</span>
                   </td>
                   <td>
-                    <input
-                      className="level-input"
-                      inputMode="decimal"
-                      value={draft.stopLoss}
-                      onChange={(event) => onDraft(trade.id, "stopLoss", event.target.value)}
-                    />
+                    <div className="level-field">
+                      <input
+                        className="level-input"
+                        inputMode="text"
+                        placeholder="%"
+                        value={draft.stopLoss}
+                        onChange={(event) => onDraft(trade.id, "stopLoss", event.target.value)}
+                      />
+                      <span className="level-preview">{stopLossPreview(trade, draft.stopLoss)}</span>
+                    </div>
                   </td>
                   <td>
                     <input
@@ -338,8 +369,8 @@ function OptionTradeTable({
                     />
                   </td>
                   <td>
-                    <span className={`risk-pill ${trade.riskStatus?.kind ?? "none"}`}>
-                      {(trade.riskStatus?.kind === "stopLoss") ? <ShieldAlert size={13} /> : null}
+                    <span className={`risk-pill ${trade.riskStatus?.kind ?? "none"}`} title={trade.riskStatus?.message ?? undefined}>
+                      {riskSignalKind(trade) === "stopLoss" ? <ShieldAlert size={13} /> : null}
                       {trade.riskStatus?.label ?? "Monitoring"}
                     </span>
                   </td>
@@ -356,15 +387,53 @@ function OptionTradeTable({
                 </tr>
               );
             })}
-            {!trades.length ? (
+            {closedTrades.length ? <ClosedSubsectionRow colSpan={columnCount} count={closedTrades.length} /> : null}
+            {closedTrades.map((trade) => (
+              <ClosedOptionRow key={trade.id} trade={trade} showRemainingProfit={showRemainingProfit} />
+            ))}
+            {!totalRows ? (
               <tr>
-                <td colSpan={emptyColSpan}>{loading ? "Loading" : "No option positions"}</td>
+                <td colSpan={columnCount}>{loading ? "Loading" : "No option positions"}</td>
               </tr>
             ) : null}
           </tbody>
         </table>
       </div>
     </section>
+  );
+}
+
+function ClosedSubsectionRow({ colSpan, count }: { colSpan: number; count: number }) {
+  return (
+    <tr className="subsection-row">
+      <td colSpan={colSpan}>Closed Trades <span>{count}</span></td>
+    </tr>
+  );
+}
+
+function ClosedOptionRow({ trade, showRemainingProfit }: { trade: LiveTrade; showRemainingProfit: boolean }) {
+  return (
+    <tr className="closed-row">
+      <td>
+        <strong>{tradeLabel(trade)}</strong>
+        <span className="subtext">{trade.expiry || "-"} · {trade.productType || "-"}</span>
+      </td>
+      <td><Badge tone={trade.side === "BUY" ? "buy" : "sell"}>{trade.side}</Badge></td>
+      <td>{trade.closedQty ?? trade.absQty}</td>
+      <td>{money(trade.entryAvgPrice ?? trade.avgPrice)}</td>
+      <td>{money(trade.exitAvgPrice ?? trade.ltp)}</td>
+      <td className={tone(trade.dayPnl)}>{money(trade.dayPnl)}</td>
+      <td className={tone(trade.estimatedNetPnl)}>{money(trade.estimatedNetPnl)}</td>
+      <td>{money(trade.estimatedCharges)}</td>
+      <td className={tone(trade.percentChange)}>{percent(trade.percentChange)}</td>
+      {showRemainingProfit ? <td>-</td> : null}
+      {showRemainingProfit ? <td>-</td> : null}
+      <td>-</td>
+      <td>-</td>
+      <td>-</td>
+      <td><span className="risk-pill closed">Closed</span></td>
+      <td>-</td>
+    </tr>
   );
 }
 
@@ -385,7 +454,7 @@ function PriceCell({ trade }: { trade: LiveTrade }) {
 function draftsFromSnapshot(snapshot: LiveTradeSnapshot): Record<string, DraftLevels> {
   const rows = [...snapshot.groups.optionsBuy, ...snapshot.groups.optionsSell];
   return Object.fromEntries(rows.map((trade) => [trade.id, {
-    stopLoss: valueText(trade.levels?.stopLoss),
+    stopLoss: stopLossLevelText(trade),
     target: valueText(trade.levels?.target),
     notes: trade.levels?.notes ?? "",
   }]));
@@ -406,6 +475,50 @@ function draftNumber(value: string): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+function stopLossDraftNumber(trade: LiveTrade, value: string): number | null {
+  const percentValue = stopLossPercentValue(value);
+  return percentValue === null ? null : stopLossFromPercent(trade, percentValue);
+}
+
+function stopLossPreview(trade: LiveTrade, value: string): string {
+  const percentValue = stopLossPercentValue(value);
+  if (percentValue === null) return "";
+  const stopLoss = stopLossFromPercent(trade, percentValue);
+  return stopLoss === null ? "" : `SL ${money(stopLoss)}`;
+}
+
+function stopLossPercentValue(value: string): number | null {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const parsed = Number(trimmed.replace("%", "").replace(",", "").trim());
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+}
+
+function stopLossFromPercent(trade: LiveTrade, percentValue: number): number | null {
+  const avgPrice = trade.avgPrice;
+  if (avgPrice === null || avgPrice === undefined || Number.isNaN(avgPrice) || avgPrice < 0) return null;
+  const multiplier = trade.qty < 0 ? 1 + (percentValue / 100) : 1 - (percentValue / 100);
+  return roundLevel(Math.max(avgPrice * multiplier, 0));
+}
+
+function stopLossLevelText(trade: LiveTrade): string {
+  const stopLoss = trade.levels?.stopLoss;
+  const avgPrice = trade.avgPrice;
+  if (stopLoss === null || stopLoss === undefined || avgPrice === null || avgPrice === undefined || avgPrice <= 0) {
+    return valueText(stopLoss);
+  }
+  const percentValue = trade.qty < 0 ? ((stopLoss / avgPrice) - 1) * 100 : (1 - (stopLoss / avgPrice)) * 100;
+  return percentValue >= 0 ? trimNumber(roundLevel(percentValue)) : valueText(stopLoss);
+}
+
+function roundLevel(value: number): number {
+  return Math.round((value + Number.EPSILON) * 100) / 100;
+}
+
+function trimNumber(value: number): string {
+  return String(value).replace(/\.?0+$/, "");
+}
+
 function tradeLabel(trade: LiveTrade): string {
   const strike = trade.strikePrice ? String(trade.strikePrice).replace(/\.0$/, "") : trade.tradingSymbol;
   return `${trade.symbol} ${strike} ${trade.optionSide ?? ""}`.trim();
@@ -419,6 +532,10 @@ function riskOrderLabel(session: DhanSession | null): string {
   if (!session?.riskOrderMonitorEnabled) return "off";
   if (riskOrdersArmed(session)) return "armed";
   return "dry-run";
+}
+
+function riskSignalKind(trade: LiveTrade): string | null {
+  return trade.riskStatus?.signalKind ?? trade.riskStatus?.kind ?? null;
 }
 
 function money(value: number | null | undefined): string {

@@ -36,8 +36,15 @@ export type AuthSession = AuthStatus & {
 
 export type RiskStatus = {
   kind: "none" | "stopLoss" | "target" | string;
+  signalKind?: "stopLoss" | "target" | string | null;
   label: string;
   level?: number | null;
+  orderStatus?: string | null;
+  orderAction?: string | null;
+  orderId?: string | null;
+  orderAt?: string | null;
+  retryAt?: string | null;
+  message?: string | null;
 };
 
 export type TradeLevels = {
@@ -65,12 +72,23 @@ export type LiveTrade = {
   strikePrice?: number | null;
   optionSide?: "CE" | "PE" | string | null;
   side: "BUY" | "SELL" | string;
+  entrySide?: "BUY" | "SELL" | string | null;
+  status?: "OPEN" | "CLOSED" | string;
   qty: number;
   absQty: number;
+  closedQty?: number | null;
+  buyQty?: number | null;
+  sellQty?: number | null;
+  buyAvg?: number | null;
+  sellAvg?: number | null;
   avgPrice?: number | null;
+  entryAvgPrice?: number | null;
+  exitAvgPrice?: number | null;
   ltp?: number | null;
   ltpDerived?: boolean | null;
   ltpStale?: boolean | null;
+  positionOpenPnl?: number | null;
+  pnlSource?: string | null;
   openPnl: number;
   realizedPnl: number;
   dayPnl: number;
@@ -92,6 +110,7 @@ export type LiveTrade = {
 
 export type LiveTradeSummary = {
   totalPositions: number;
+  closedCount: number;
   equityCount: number;
   optionsBuyCount: number;
   optionsSellCount: number;
@@ -111,6 +130,7 @@ export type LiveTradeSnapshot = {
   updatedAt: string;
   summary: LiveTradeSummary;
   groups: {
+    closed: LiveTrade[];
     equity: LiveTrade[];
     optionsBuy: LiveTrade[];
     optionsSell: LiveTrade[];
