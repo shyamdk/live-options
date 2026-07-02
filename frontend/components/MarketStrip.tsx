@@ -7,6 +7,7 @@ import { getMarketIndices } from "@/lib/api";
 import type { MarketIndex } from "@/types/live";
 
 const numberFormat = new Intl.NumberFormat("en-IN", { maximumFractionDigits: 2, minimumFractionDigits: 2 });
+const MARKET_REFRESH_MS = secondsToMs(process.env.NEXT_PUBLIC_MARKET_REFRESH_SECONDS, 30);
 
 function signed(value: number | null | undefined, suffix = "") {
   if (value === null || value === undefined || Number.isNaN(value)) return "-";
@@ -32,7 +33,7 @@ export default function MarketStrip() {
       }
     }
     load();
-    const timer = window.setInterval(load, 10000);
+    const timer = window.setInterval(load, MARKET_REFRESH_MS);
     return () => {
       active = false;
       window.clearInterval(timer);
@@ -57,4 +58,9 @@ export default function MarketStrip() {
       {status ? <span className="market-empty">{indices.length ? status : "Market strip unavailable"}</span> : null}
     </div>
   );
+}
+
+function secondsToMs(value: string | undefined, fallbackSeconds: number): number {
+  const seconds = Number(value);
+  return Number.isFinite(seconds) && seconds > 0 ? seconds * 1000 : fallbackSeconds * 1000;
 }

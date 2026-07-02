@@ -32,8 +32,8 @@ class Settings(BaseSettings):
     dhan_totp_secret: str | None = None
     dhan_auth_base_url: str = "https://auth.dhan.co"
     dhan_base_url: str = "https://api.dhan.co/v2"
-    dhan_market_quote_cache_seconds: float = 30.0
-    dhan_market_quote_backoff_seconds: float = 60.0
+    dhan_market_quote_cache_seconds: float = 60.0
+    dhan_market_quote_backoff_seconds: float = 120.0
     dhan_nifty_security_id: int = 13
     dhan_sensex_security_id: int = 51
     dhan_india_vix_security_id: int | None = 21
@@ -53,7 +53,7 @@ class Settings(BaseSettings):
     spot_distance_alert_enabled: bool = True
     spot_distance_alert_percent: float = 0.5
     spot_distance_monitor_enabled: bool = True
-    spot_distance_monitor_interval_seconds: int = 60
+    spot_distance_monitor_interval_seconds: int = 120
     telegram_bot_token: str | None = None
     telegram_chat_id: str | None = None
     telegram_bot_username: str | None = None

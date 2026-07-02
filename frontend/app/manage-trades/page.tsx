@@ -13,6 +13,8 @@ type DraftLevels = {
 };
 
 const moneyFormat = new Intl.NumberFormat("en-IN", { maximumFractionDigits: 2, minimumFractionDigits: 2 });
+const TRADE_REFRESH_MS = secondsToMs(process.env.NEXT_PUBLIC_TRADES_REFRESH_SECONDS, 30);
+const SESSION_REFRESH_MS = secondsToMs(process.env.NEXT_PUBLIC_SESSION_REFRESH_SECONDS, 120);
 
 export default function ManageTradesPage() {
   const [session, setSession] = useState<DhanSession | null>(null);
@@ -23,12 +25,19 @@ export default function ManageTradesPage() {
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  async function load() {
+  async function loadSession() {
+    try {
+      setSession(await getDhanSession());
+    } catch {
+      // Trade refresh should not fail just because the status pill could not update.
+    }
+  }
+
+  async function loadTrades() {
     setLoading(true);
     setError(null);
     try {
-      const [sessionPayload, tradePayload] = await Promise.all([getDhanSession(), getLiveTrades()]);
-      setSession(sessionPayload);
+      const tradePayload = await getLiveTrades();
       setSnapshot(tradePayload);
       setDrafts(draftsFromSnapshot(tradePayload));
     } catch (exc) {
@@ -38,10 +47,18 @@ export default function ManageTradesPage() {
     }
   }
 
+  async function load() {
+    await Promise.all([loadSession(), loadTrades()]);
+  }
+
   useEffect(() => {
     load();
-    const timer = window.setInterval(load, 15000);
-    return () => window.clearInterval(timer);
+    const tradeTimer = window.setInterval(loadTrades, TRADE_REFRESH_MS);
+    const sessionTimer = window.setInterval(loadSession, SESSION_REFRESH_MS);
+    return () => {
+      window.clearInterval(tradeTimer);
+      window.clearInterval(sessionTimer);
+    };
   }, []);
 
   async function handleLogin(forceRefresh = false) {
@@ -394,6 +411,11 @@ function tradeLabel(trade: LiveTrade): string {
 function money(value: number | null | undefined): string {
   if (value === null || value === undefined || Number.isNaN(value)) return "-";
   return moneyFormat.format(value);
+}
+
+function secondsToMs(value: string | undefined, fallbackSeconds: number): number {
+  const seconds = Number(value);
+  return Number.isFinite(seconds) && seconds > 0 ? seconds * 1000 : fallbackSeconds * 1000;
 }
 
 function percent(value: number | null | undefined): string {
