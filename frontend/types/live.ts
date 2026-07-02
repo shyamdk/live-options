@@ -67,6 +67,7 @@ export type LiveTrade = {
   absQty: number;
   avgPrice?: number | null;
   ltp?: number | null;
+  ltpDerived?: boolean | null;
   ltpStale?: boolean | null;
   openPnl: number;
   realizedPnl: number;

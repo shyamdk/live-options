@@ -154,6 +154,10 @@ def _normalize_position(row: dict[str, Any]) -> dict[str, Any] | None:
     ltp = _number(_first(row, "lastTradedPrice", "ltp", "lastPrice", "last_price"))
     realized = round(_number(_first(row, "realizedProfit", "realizedPnl", "realisedProfit")) or 0, 2)
     position_open_pnl = _number(_first(row, "unrealizedProfit", "unrealizedPnl", "unrealisedProfit"))
+    ltp_derived = False
+    if ltp is None:
+        ltp = _ltp_from_open_pnl(avg_price, position_open_pnl, qty)
+        ltp_derived = ltp is not None
     open_pnl = position_open_pnl
     if open_pnl is None:
         open_pnl = _live_pnl(avg_price, ltp, qty)
@@ -181,6 +185,7 @@ def _normalize_position(row: dict[str, Any]) -> dict[str, Any] | None:
         "absQty": abs(qty),
         "avgPrice": avg_price,
         "ltp": ltp,
+        "ltpDerived": ltp_derived,
         "openPnl": open_pnl,
         "realizedPnl": realized,
         "dayPnl": round(open_pnl + realized, 2),
@@ -215,6 +220,7 @@ async def _apply_live_quotes(service: DhanService, trades: list[dict[str, Any]])
         live_ltp = _number(quote.get("last_price"))
         if live_ltp is not None:
             trade["ltp"] = live_ltp
+            trade["ltpDerived"] = False
             trade["ltpStale"] = False
             _remember_ltp(trade)
             _refresh_metrics(trade)
@@ -477,6 +483,12 @@ def _live_pnl(avg_price: float | None, ltp: float | None, qty: int) -> float:
     if avg_price is None or ltp is None or qty == 0:
         return 0
     return round((ltp - avg_price) * qty, 2)
+
+
+def _ltp_from_open_pnl(avg_price: float | None, open_pnl: float | None, qty: int) -> float | None:
+    if avg_price is None or open_pnl is None or qty == 0:
+        return None
+    return round(avg_price + (open_pnl / qty), 2)
 
 
 def _percent_change(avg_price: float | None, ltp: float | None, qty: int) -> float | None:

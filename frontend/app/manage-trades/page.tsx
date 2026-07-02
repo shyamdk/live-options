@@ -357,6 +357,7 @@ function PriceCell({ trade }: { trade: LiveTrade }) {
     <>
       {money(trade.ltp)}
       {trade.ltpStale ? <span className="subtext">stale</span> : null}
+      {!trade.ltpStale && trade.ltpDerived ? <span className="subtext">derived</span> : null}
     </>
   );
 }
