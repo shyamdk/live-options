@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import copy
+import time
 from typing import Any
 
 import httpx
@@ -16,6 +18,10 @@ class DhanApiError(RuntimeError):
     def __init__(self, message: str, status_code: int | None = None) -> None:
         super().__init__(message)
         self.status_code = status_code
+
+
+_QUOTE_CACHE: dict[tuple[tuple[str, tuple[int, ...]], ...], tuple[float, dict[str, Any]]] = {}
+_QUOTE_BACKOFF_UNTIL: dict[tuple[tuple[str, tuple[int, ...]], ...], float] = {}
 
 
 class DhanService:
@@ -40,8 +46,25 @@ class DhanService:
         body = {segment: sorted(set(ids)) for segment, ids in securities_by_segment.items() if ids}
         if not body:
             return {}
-        payload = await self._request("POST", "/marketfeed/quote", require_client_id=True, json_body=body)
-        return payload.get("data") or {}
+        cache_key = _quote_cache_key(body)
+        now = time.monotonic()
+        cached = _QUOTE_CACHE.get(cache_key)
+        if cached and now - cached[0] < self.settings.dhan_market_quote_cache_seconds:
+            return copy.deepcopy(cached[1])
+        if cached and now < _QUOTE_BACKOFF_UNTIL.get(cache_key, 0):
+            return copy.deepcopy(cached[1])
+
+        try:
+            payload = await self._request("POST", "/marketfeed/quote", require_client_id=True, json_body=body)
+        except DhanApiError as exc:
+            if cached and exc.status_code == 429:
+                _QUOTE_BACKOFF_UNTIL[cache_key] = now + self.settings.dhan_market_quote_backoff_seconds
+                return copy.deepcopy(cached[1])
+            raise
+        data = payload.get("data") or {}
+        _QUOTE_CACHE[cache_key] = (time.monotonic(), copy.deepcopy(data))
+        _QUOTE_BACKOFF_UNTIL.pop(cache_key, None)
+        return data
 
     async def _request(
         self,
@@ -108,3 +131,6 @@ def _response_json(response: httpx.Response) -> Any:
     except ValueError:
         return {"raw": response.text}
 
+
+def _quote_cache_key(body: dict[str, list[int]]) -> tuple[tuple[str, tuple[int, ...]], ...]:
+    return tuple((str(segment), tuple(ids)) for segment, ids in sorted(body.items()))
