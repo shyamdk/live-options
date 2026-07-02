@@ -1,0 +1,23 @@
+Goal - we will use this project to manage live trades on Dhan and this will be deployed on OCI (cloud)
+
+
+On the top panel, common to all pages, show Nifty, Sense, India Vix like in (Options Dash)
+Details,
+1. Create page - 'Manage Trades'
+2. Login in to Dhan
+3. Check all the live trades , segregrate them in to equity, options - buy, options - sell in the UI
+4. I should be able to manage options trades from here
+5. I should be able set stop loss and target for each strike 
+
+
+1. Create another page 'Trade Journals'
+2. Show consolidated details for the day in the page, also add two text field. Strategy Details, Lessons Learnt.
+
+GENERAL Details
+Create python virtail env.
+For front end use Next.JS 
+For Middletier use Fast APIs
+For Database use SQLLite for now
+
+take inspiration (also copy .env) from the below project
+/Users/shyamdk/Developer/options/options-dash

@@ -1,0 +1,110 @@
+from __future__ import annotations
+
+from typing import Any
+
+import httpx
+
+from app.core.config import Settings, get_settings
+from app.services.dhan_auth import DhanAuthError, get_dhan_access_token
+
+
+class DhanClientError(RuntimeError):
+    pass
+
+
+class DhanApiError(RuntimeError):
+    def __init__(self, message: str, status_code: int | None = None) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+
+
+class DhanService:
+    def __init__(self, settings: Settings | None = None) -> None:
+        self.settings = settings or get_settings()
+
+    async def profile(self, *, force_refresh: bool = False) -> dict[str, Any]:
+        payload = await self._request("GET", "/profile", require_client_id=False, force_refresh=force_refresh)
+        return payload if isinstance(payload, dict) else {"data": payload}
+
+    async def positions(self) -> list[dict[str, Any]]:
+        payload = await self._request("GET", "/positions", require_client_id=False)
+        rows = payload if isinstance(payload, list) else payload.get("data", [])
+        return [row for row in rows if isinstance(row, dict)]
+
+    async def holdings(self) -> list[dict[str, Any]]:
+        payload = await self._request("GET", "/holdings", require_client_id=False)
+        rows = payload if isinstance(payload, list) else payload.get("data", [])
+        return [row for row in rows if isinstance(row, dict)]
+
+    async def market_quotes_by_segment(self, securities_by_segment: dict[str, list[int]]) -> dict[str, Any]:
+        body = {segment: sorted(set(ids)) for segment, ids in securities_by_segment.items() if ids}
+        if not body:
+            return {}
+        payload = await self._request("POST", "/marketfeed/quote", require_client_id=True, json_body=body)
+        return payload.get("data") or {}
+
+    async def _request(
+        self,
+        method: str,
+        path: str,
+        *,
+        require_client_id: bool,
+        json_body: dict[str, Any] | None = None,
+        force_refresh: bool = False,
+    ) -> Any:
+        async with httpx.AsyncClient(timeout=20) as client:
+            response = await client.request(
+                method,
+                f"{self.settings.dhan_base_url}{path}",
+                headers=await self._headers(require_client_id=require_client_id, force_refresh=force_refresh),
+                json=json_body,
+            )
+            if response.status_code == 401:
+                response = await client.request(
+                    method,
+                    f"{self.settings.dhan_base_url}{path}",
+                    headers=await self._headers(require_client_id=require_client_id, force_refresh=True),
+                    json=json_body,
+                )
+        if response.is_error:
+            raise self._api_error(response, f"Dhan {method} {path} failed")
+        payload = _response_json(response)
+        self._raise_status_failure(payload, f"Dhan {method} {path} failed")
+        return payload
+
+    async def _headers(self, *, require_client_id: bool, force_refresh: bool = False) -> dict[str, str]:
+        try:
+            token = await get_dhan_access_token(self.settings, force_refresh=force_refresh)
+        except DhanAuthError as exc:
+            raise DhanClientError(str(exc)) from exc
+        headers = {"Accept": "application/json", "Content-Type": "application/json", "access-token": token}
+        if require_client_id:
+            client_id = self.settings.resolved_dhan_client_id
+            if not client_id:
+                raise DhanClientError("Missing DHAN_CLIENT_ID in .env.")
+            headers["client-id"] = client_id
+        return headers
+
+    def _api_error(self, response: httpx.Response, context: str) -> DhanApiError:
+        try:
+            payload = response.json()
+            detail = payload.get("message") or payload.get("remarks") or payload.get("error") or str(payload)
+        except ValueError:
+            detail = response.text[:220]
+        if response.status_code == 401:
+            detail = "401 Unauthorized from Dhan. Check DHAN_ACCESS_TOKEN and DHAN_CLIENT_ID."
+        return DhanApiError(f"{context}: {detail}", response.status_code)
+
+    def _raise_status_failure(self, payload: Any, context: str) -> None:
+        if isinstance(payload, dict) and payload.get("status") == "failed":
+            raise DhanApiError(f"{context}: {payload.get('data') or payload.get('message') or payload}", 429)
+
+
+def _response_json(response: httpx.Response) -> Any:
+    if not response.content:
+        return {}
+    try:
+        return response.json()
+    except ValueError:
+        return {"raw": response.text}
+
