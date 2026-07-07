@@ -13,7 +13,7 @@ type DraftLevels = {
 };
 
 const moneyFormat = new Intl.NumberFormat("en-IN", { maximumFractionDigits: 2, minimumFractionDigits: 2 });
-const TRADE_REFRESH_MS = secondsToMs(process.env.NEXT_PUBLIC_TRADES_REFRESH_SECONDS, 30);
+const TRADE_REFRESH_MS = secondsToMs(process.env.NEXT_PUBLIC_TRADES_REFRESH_SECONDS, 3);
 const SESSION_REFRESH_MS = secondsToMs(process.env.NEXT_PUBLIC_SESSION_REFRESH_SECONDS, 120);
 
 export default function ManageTradesPage() {

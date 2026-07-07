@@ -56,7 +56,8 @@ class Settings(BaseSettings):
     spot_distance_monitor_interval_seconds: int = 120
     risk_order_monitor_enabled: bool = True
     risk_order_execution_enabled: bool = False
-    risk_order_monitor_interval_seconds: int = 5
+    risk_order_monitor_interval_seconds: int = 1
+    dhan_trade_book_cache_seconds: float = 30.0
     risk_order_retry_seconds: int = 60
     risk_order_allow_stale_ltp: bool = False
     telegram_bot_token: str | None = None

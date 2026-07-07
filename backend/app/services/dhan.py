@@ -22,6 +22,7 @@ class DhanApiError(RuntimeError):
 
 _QUOTE_CACHE: dict[tuple[tuple[str, tuple[int, ...]], ...], tuple[float, dict[str, Any]]] = {}
 _QUOTE_BACKOFF_UNTIL: dict[tuple[tuple[str, tuple[int, ...]], ...], float] = {}
+_TRADE_BOOK_CACHE: tuple[float, list[dict[str, Any]]] | None = None
 
 
 class DhanService:
@@ -43,9 +44,15 @@ class DhanService:
         return [row for row in rows if isinstance(row, dict)]
 
     async def trade_book(self) -> list[dict[str, Any]]:
+        global _TRADE_BOOK_CACHE
+        now = time.monotonic()
+        if _TRADE_BOOK_CACHE and now - _TRADE_BOOK_CACHE[0] < self.settings.dhan_trade_book_cache_seconds:
+            return copy.deepcopy(_TRADE_BOOK_CACHE[1])
         payload = await self._request("GET", "/trades", require_client_id=False)
         rows = payload if isinstance(payload, list) else payload.get("data", [])
-        return [row for row in rows if isinstance(row, dict)]
+        result = [row for row in rows if isinstance(row, dict)]
+        _TRADE_BOOK_CACHE = (now, result)
+        return copy.deepcopy(result)
 
     async def market_quotes_by_segment(self, securities_by_segment: dict[str, list[int]]) -> dict[str, Any]:
         body = {segment: sorted(set(ids)) for segment, ids in securities_by_segment.items() if ids}
