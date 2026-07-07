@@ -86,7 +86,7 @@ class DhanService:
                 headers=await self._headers(require_client_id=require_client_id, force_refresh=force_refresh),
                 json=json_body,
             )
-            if response.status_code == 401:
+            if not force_refresh and self._is_invalid_token_response(response):
                 response = await client.request(
                     method,
                     f"{self.settings.dhan_base_url}{path}",
@@ -112,6 +112,11 @@ class DhanService:
             headers["client-id"] = client_id
         return headers
 
+    def _is_invalid_token_response(self, response: httpx.Response) -> bool:
+        if response.status_code == 401:
+            return True
+        return _looks_like_invalid_token(_response_json(response))
+
     def _api_error(self, response: httpx.Response, context: str) -> DhanApiError:
         try:
             payload = response.json()
@@ -125,6 +130,15 @@ class DhanService:
     def _raise_status_failure(self, payload: Any, context: str) -> None:
         if isinstance(payload, dict) and payload.get("status") == "failed":
             raise DhanApiError(f"{context}: {payload.get('data') or payload.get('message') or payload}", 429)
+
+
+def _looks_like_invalid_token(payload: Any) -> bool:
+    if not isinstance(payload, dict):
+        return False
+    text = " ".join(
+        str(payload.get(key) or "") for key in ("errorMessage", "message", "remarks", "error")
+    ).lower()
+    return "token" in text or "invalid access" in text
 
 
 def _response_json(response: httpx.Response) -> Any:

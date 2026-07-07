@@ -21,3 +21,22 @@ For Database use SQLLite for now
 
 take inspiration (also copy .env) from the below project
 /Users/shyamdk/Developer/options/options-dash
+
+
+Take in to consideration, 
+Cost - per transction (sell/ buy) - brokerage - 20 Rs , plus govt. charges (Check internet)
+
+In the sell table, also add, % distance for each of the legs from spot (if it gets closer like .5% or Less , 
+send alarms to telegram)
+
+This will be on public URL, can we introduce authentication and secure this in the best possible way. 
+
+
+
+The top panel is ok, but still %, remaining, Remain % is disappearing now and then...
+
+Are the SL/ Target Dhan Order is also implemented as part of logic?
+
+
+Any closed trade, show be deployed before the in progress trades in a separate section. 
+It should be included in Day P & L section (along with other things)
