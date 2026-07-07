@@ -6,7 +6,13 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
 from app.services.app_auth import require_auth
-from app.services.trades import close_trade, live_trade_snapshot, process_risk_order_check, save_trade_levels
+from app.services.trades import (
+    approve_risk_exit,
+    close_trade,
+    live_trade_snapshot,
+    process_risk_order_check,
+    save_trade_levels,
+)
 
 
 router = APIRouter(prefix="/trades", tags=["trades"])
@@ -40,3 +46,8 @@ async def update_levels(trade_id: str, payload: TradeLevelsIn) -> dict[str, Any]
 @router.post("/{trade_id}/close", dependencies=[Depends(require_auth)])
 async def close(trade_id: str, payload: CloseTradeIn) -> dict[str, Any]:
     return await close_trade(trade_id, payload.quantity)
+
+
+@router.post("/{trade_id}/risk/approve", dependencies=[Depends(require_auth)])
+async def approve_risk(trade_id: str) -> dict[str, Any]:
+    return await approve_risk_exit(trade_id)

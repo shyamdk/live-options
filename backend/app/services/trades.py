@@ -153,7 +153,7 @@ async def process_risk_order_check() -> dict[str, Any]:
     option_trades = [*(groups.get("optionsBuy") or []), *(groups.get("optionsSell") or [])]
     actions = []
     for trade in option_trades:
-        action = await _maybe_execute_risk_exit(trade)
+        action = await _maybe_alert_risk_exit(trade)
         if action:
             actions.append(action)
     return {
@@ -177,58 +177,109 @@ async def _risk_order_monitor_loop() -> None:
             await asyncio.sleep(interval)
 
 
-async def _maybe_execute_risk_exit(trade: dict[str, Any]) -> dict[str, Any] | None:
+async def _maybe_alert_risk_exit(trade: dict[str, Any]) -> dict[str, Any] | None:
+    """Never places orders automatically. Alerts (Telegram + web) and waits for manual approval."""
     settings = get_settings()
     signal = _risk_exit_signal(trade, settings.risk_order_allow_stale_ltp)
     if not signal:
         return None
     if signal.get("status") == "skipped":
         return signal
-    signal["mode"] = "live" if settings.risk_order_execution_enabled and settings.live_order_enabled else "dry-run"
 
-    action_name = f"RISK_EXIT_{str(signal['kind']).upper()}"
+    alert_action_name = f"RISK_ALERT_{str(signal['kind']).upper()}"
+    if not _should_send_risk_alert(trade, signal, alert_action_name, settings.risk_order_alert_repeat_seconds):
+        return {"tradeId": trade.get("id"), "status": "awaiting-approval", **signal}
+
+    record_trade_action(str(trade.get("id")), alert_action_name, "sent", None, {"signal": signal})
+    await _notify_risk_awaiting_approval(trade, signal)
+    return {"tradeId": trade.get("id"), "status": "alerted", **signal}
+
+
+def _should_send_risk_alert(
+    trade: dict[str, Any], signal: dict[str, Any], alert_action_name: str, repeat_seconds: int
+) -> bool:
+    trade_id = str(trade.get("id"))
+    actions = get_trade_actions([trade_id], action_prefix=alert_action_name).get(trade_id) or []
+    level = _number(signal.get("level")) or 0.0
+    latest = _latest_matching_risk_action(trade, actions, alert_action_name, level)
+    if not latest:
+        return True
+    created_at = _parse_datetime(latest.get("createdAt"))
+    if not created_at:
+        return True
+    return datetime.now() >= created_at + timedelta(seconds=max(repeat_seconds, 1))
+
+
+async def approve_risk_exit(trade_id: str) -> dict[str, Any]:
+    """Called only when the user clicks Approve in the UI. Places the actual exit order."""
+    settings = get_settings()
+    snapshot = await _live_trade_snapshot()
+    trade = _find_trade(snapshot, trade_id)
+    if not trade:
+        return {"status": "blocked", "message": "Trade is no longer active.", "tradeId": trade_id}
+
+    status = trade.get("riskStatus") or {}
+    kind = status.get("signalKind") or status.get("kind")
+    if kind not in {"stopLoss", "target"}:
+        return {"status": "blocked", "message": "No active SL/Target signal to approve.", "tradeId": trade_id}
+
+    qty = int(trade.get("qty") or 0)
+    security_id = trade.get("securityId")
+    exchange_segment = trade.get("exchangeSegment")
+    if trade.get("assetClass") != "OPTION" or qty == 0 or not security_id or not exchange_segment:
+        return {"status": "blocked", "message": "Trade is missing option order fields.", "tradeId": trade_id}
+
+    close_side = "SELL" if qty > 0 else "BUY"
+    correlation_id = f"RISK-{kind}-{trade.get('symbol')}-{int(datetime.now().timestamp())}"
+    signal = {
+        "kind": kind,
+        "level": status.get("level"),
+        "ltp": trade.get("ltp"),
+        "quantity": abs(qty),
+        "closeSide": close_side,
+        "correlationId": correlation_id,
+        "mode": "live" if settings.risk_order_execution_enabled and settings.live_order_enabled else "dry-run",
+    }
+
+    action_name = f"RISK_EXIT_{str(kind).upper()}"
     order_service = DhanOrderService(settings)
     try:
         request = order_service.build_market_order_request(
-            transaction_type=str(signal["closeSide"]),
-            exchange_segment=str(trade["exchangeSegment"]),
-            security_id=trade["securityId"],
-            quantity=int(signal["quantity"]),
-            correlation_id=str(signal["correlationId"]),
+            transaction_type=close_side,
+            exchange_segment=str(exchange_segment),
+            security_id=security_id,
+            quantity=abs(qty),
+            correlation_id=correlation_id,
             product_type=trade.get("productType"),
         )
     except Exception as exc:
         result = {"status": "failed", "message": str(exc), "request": None, "order": None}
-        record_trade_action(str(trade.get("id")), action_name, "failed", None, {**result, "signal": signal})
+        record_trade_action(trade_id, action_name, "failed", None, {**result, "signal": signal})
         await _notify_risk_exit(trade, signal, result)
-        return {"tradeId": trade.get("id"), "status": "failed", **signal}
+        return {"tradeId": trade_id, "status": "failed", **signal}
 
     if not settings.risk_order_execution_enabled:
         result = {
             "status": "blocked",
-            "message": "RISK_ORDER_EXECUTION_ENABLED is false. Auto SL/Target order was not sent to Dhan.",
+            "message": "RISK_ORDER_EXECUTION_ENABLED is false. Approved SL/Target order was not sent to Dhan.",
             "request": request,
             "order": None,
         }
     else:
         result = await order_service.place_market_order(
-            transaction_type=str(signal["closeSide"]),
-            exchange_segment=str(trade["exchangeSegment"]),
-            security_id=trade["securityId"],
-            quantity=int(signal["quantity"]),
-            correlation_id=str(signal["correlationId"]),
+            transaction_type=close_side,
+            exchange_segment=str(exchange_segment),
+            security_id=security_id,
+            quantity=abs(qty),
+            correlation_id=correlation_id,
             product_type=trade.get("productType"),
         )
 
     order_success = _is_successful_order_result(result)
     audit_result = {**result, "signal": signal, "orderSuccess": order_success}
-    record_trade_action(str(trade.get("id")), action_name, str(result.get("status") or "unknown"), request, audit_result)
-    if order_success:
-        event_key = _risk_event_key(trade, signal, "confirmed")
-        if not record_alert_once(event_key, {"tradeId": trade.get("id"), "signal": signal, "result": result}):
-            return {"tradeId": trade.get("id"), "status": "duplicate", "reason": "risk order already confirmed", **signal}
+    record_trade_action(trade_id, action_name, str(result.get("status") or "unknown"), request, audit_result)
     await _notify_risk_exit(trade, signal, result)
-    return {"tradeId": trade.get("id"), "status": result.get("status"), "order": result.get("order"), **signal}
+    return {"tradeId": trade_id, "status": result.get("status"), "order": result.get("order"), **signal}
 
 
 def start_spot_distance_monitor_task() -> asyncio.Task | None:
@@ -566,7 +617,8 @@ def _risk_status_for_signal(
     level: float,
     actions: list[dict[str, Any]],
 ) -> dict[str, Any]:
-    success = _latest_matching_risk_action(trade, actions, kind, level, success_only=True)
+    exit_action_name = f"RISK_EXIT_{kind.upper()}"
+    success = _latest_matching_risk_action(trade, actions, exit_action_name, level, success_only=True)
     if success:
         return {
             "kind": kind,
@@ -579,7 +631,7 @@ def _risk_status_for_signal(
             "orderAt": success.get("createdAt"),
         }
 
-    latest = _latest_matching_risk_action(trade, actions, kind, level)
+    latest = _latest_matching_risk_action(trade, actions, exit_action_name, level)
     if latest:
         retry_at = _risk_retry_at(latest)
         retry_active = retry_at is not None and datetime.now() < retry_at
@@ -608,15 +660,14 @@ def _risk_status_for_signal(
 def _latest_matching_risk_action(
     trade: dict[str, Any],
     actions: list[dict[str, Any]],
-    kind: str,
+    action_name: str,
     level: float,
     *,
     success_only: bool = False,
 ) -> dict[str, Any] | None:
-    expected_action = f"RISK_EXIT_{kind.upper()}"
     levels_updated_at = _parse_datetime((trade.get("levels") or {}).get("updatedAt"))
     for action in actions:
-        if action.get("action") != expected_action:
+        if action.get("action") != action_name:
             continue
         created_at = _parse_datetime(action.get("createdAt"))
         if levels_updated_at and created_at and created_at < levels_updated_at:
@@ -781,32 +832,13 @@ def _risk_exit_signal(trade: dict[str, Any], allow_stale_ltp: bool = False) -> d
     }
 
 
-def _risk_event_key(trade: dict[str, Any], signal: dict[str, Any], phase: str) -> str:
-    levels = trade.get("levels") or {}
-    level = _number(signal.get("level"))
-    level_text = f"{level:g}" if level is not None else "NA"
-    level_version = str(levels.get("updatedAt") or "no-level-version")
-    return ":".join(
-        [
-            datetime.now().date().isoformat(),
-            "risk-exit",
-            phase,
-            str(trade.get("id") or "unknown"),
-            str(signal.get("kind") or "unknown"),
-            str(signal.get("mode") or "unknown"),
-            level_text,
-            level_version,
-        ]
-    )
-
-
 async def _notify_risk_exit(trade: dict[str, Any], signal: dict[str, Any], result: dict[str, Any]) -> None:
     status = str(result.get("status") or "unknown").upper()
     level = _number(signal.get("level"))
     ltp = _number(signal.get("ltp"))
     label = _risk_trade_label(trade)
     lines = [
-        f"Auto risk exit {status}",
+        f"Approved risk exit {status}",
         label,
         f"Reason: {signal.get('kind')}, Level: {_text_number(level)}",
         f"LTP: {_text_number(ltp)}, Close: {signal.get('closeSide')} {signal.get('quantity')}",
@@ -815,6 +847,21 @@ async def _notify_risk_exit(trade: dict[str, Any], signal: dict[str, Any], resul
     message = result.get("message")
     if message:
         lines.append(str(message))
+    await TelegramNotifier().send("\n".join(lines))
+
+
+async def _notify_risk_awaiting_approval(trade: dict[str, Any], signal: dict[str, Any]) -> None:
+    level = _number(signal.get("level"))
+    ltp = _number(signal.get("ltp"))
+    label = _risk_trade_label(trade)
+    kind_label = "Target" if signal.get("kind") == "target" else "Stop Loss"
+    lines = [
+        f"⚠️ {kind_label} reached — approval needed",
+        label,
+        f"Level: {_text_number(level)}, LTP: {_text_number(ltp)}",
+        f"Close: {signal.get('closeSide')} {signal.get('quantity')}",
+        "Open Manage Trades and click Approve to send the exit order.",
+    ]
     await TelegramNotifier().send("\n".join(lines))
 
 

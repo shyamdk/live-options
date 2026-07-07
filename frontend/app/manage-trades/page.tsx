@@ -1,9 +1,9 @@
 "use client";
 
-import { LogIn, RefreshCcw, Save, ShieldAlert, SquareArrowOutUpRight } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { LogIn, RefreshCcw, Save, ShieldAlert, ShieldCheck, SquareArrowOutUpRight } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
-import { closeTrade, getDhanSession, getLiveTrades, loginDhan, saveTradeLevels } from "@/lib/api";
+import { approveRiskExit, closeTrade, getDhanSession, getLiveTrades, loginDhan, saveTradeLevels } from "@/lib/api";
 import type { DhanSession, LiveTrade, LiveTradeSnapshot } from "@/types/live";
 
 type DraftLevels = {
@@ -15,6 +15,8 @@ type DraftLevels = {
 const moneyFormat = new Intl.NumberFormat("en-IN", { maximumFractionDigits: 2, minimumFractionDigits: 2 });
 const TRADE_REFRESH_MS = secondsToMs(process.env.NEXT_PUBLIC_TRADES_REFRESH_SECONDS, 3);
 const SESSION_REFRESH_MS = secondsToMs(process.env.NEXT_PUBLIC_SESSION_REFRESH_SECONDS, 120);
+const RISK_ALERT_REPEAT_MS = 15_000;
+const AWAITING_APPROVAL_KINDS = new Set(["stopLossSignal", "targetSignal", "orderFailed"]);
 
 export default function ManageTradesPage() {
   const [session, setSession] = useState<DhanSession | null>(null);
@@ -24,6 +26,7 @@ export default function ManageTradesPage() {
   const [savingId, setSavingId] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const notifiedAtRef = useRef<Record<string, number>>({});
 
   async function loadSession() {
     try {
@@ -40,6 +43,7 @@ export default function ManageTradesPage() {
       const tradePayload = await getLiveTrades();
       setSnapshot(tradePayload);
       setDrafts(draftsFromSnapshot(tradePayload));
+      checkRiskAlerts(tradePayload);
     } catch (exc) {
       setError(exc instanceof Error ? exc.message : "Failed to load trades.");
     } finally {
@@ -51,7 +55,23 @@ export default function ManageTradesPage() {
     await Promise.all([loadSession(), loadTrades()]);
   }
 
+  function checkRiskAlerts(payload: LiveTradeSnapshot) {
+    const trades = [...payload.groups.optionsBuy, ...payload.groups.optionsSell];
+    const now = Date.now();
+    for (const trade of trades) {
+      if (!isAwaitingApproval(trade)) continue;
+      const key = `${trade.id}:${trade.riskStatus?.signalKind ?? ""}:${trade.riskStatus?.level ?? ""}`;
+      const lastNotified = notifiedAtRef.current[key];
+      if (lastNotified && now - lastNotified < RISK_ALERT_REPEAT_MS) continue;
+      notifiedAtRef.current[key] = now;
+      notifyRiskSignal(trade);
+    }
+  }
+
   useEffect(() => {
+    if (typeof window !== "undefined" && "Notification" in window && Notification.permission === "default") {
+      Notification.requestPermission();
+    }
     load();
     const tradeTimer = window.setInterval(loadTrades, TRADE_REFRESH_MS);
     const sessionTimer = window.setInterval(loadSession, SESSION_REFRESH_MS);
@@ -110,12 +130,31 @@ export default function ManageTradesPage() {
     }
   }
 
+  async function handleApprove(trade: LiveTrade) {
+    const kindLabel = riskSignalKind(trade) === "target" ? "Target" : "Stop Loss";
+    if (!window.confirm(`Approve ${kindLabel} exit for ${tradeLabel(trade)}? This sends a market order to Dhan.`)) return;
+    setSavingId(trade.id);
+    setMessage(null);
+    setError(null);
+    try {
+      const result = await approveRiskExit(trade.id);
+      const status = String(result.status ?? "submitted");
+      setMessage(`${tradeLabel(trade)} ${kindLabel} exit ${status}.`);
+      await load();
+    } catch (exc) {
+      setError(exc instanceof Error ? exc.message : "Failed to approve risk exit.");
+    } finally {
+      setSavingId(null);
+    }
+  }
+
   function updateDraft(tradeId: string, key: keyof DraftLevels, value: string) {
     setDrafts((current) => ({ ...current, [tradeId]: { ...(current[tradeId] ?? emptyDraft()), [key]: value } }));
   }
 
   const summary = snapshot?.summary;
   const optionTrades = useMemo(() => [...(snapshot?.groups.optionsBuy ?? []), ...(snapshot?.groups.optionsSell ?? [])], [snapshot]);
+  const awaitingApproval = useMemo(() => optionTrades.filter(isAwaitingApproval), [optionTrades]);
   const closedTrades = snapshot?.groups.closed ?? [];
   const closedEquity = closedTrades.filter((trade) => trade.assetClass === "EQUITY");
   const closedOptionsBuy = closedTrades.filter((trade) => trade.assetClass === "OPTION" && trade.side === "BUY");
@@ -142,6 +181,20 @@ export default function ManageTradesPage() {
       {error ? <div className="alert error">{error}</div> : null}
       {snapshot?.warning ? <div className="alert warning">{snapshot.warning}</div> : null}
       {message ? <div className="alert success">{message}</div> : null}
+      {awaitingApproval.length ? (
+        <div className="alert warning risk-approval-banner">
+          <strong>
+            {awaitingApproval.length} position{awaitingApproval.length > 1 ? "s" : ""} awaiting SL/Target approval
+          </strong>
+          <ul>
+            {awaitingApproval.map((trade) => (
+              <li key={trade.id}>
+                {tradeLabel(trade)} — {trade.riskStatus?.label} @ {money(trade.riskStatus?.level)} (LTP {money(trade.ltp)})
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
 
       <div className="status-row">
         <span className={session?.hasAccessToken && session?.hasClientId ? "status-dot ok" : "status-dot warn"} />
@@ -175,6 +228,7 @@ export default function ManageTradesPage() {
         onDraft={updateDraft}
         onSave={handleSave}
         onClose={handleClose}
+        onApprove={handleApprove}
         showRemainingProfit={false}
       />
 
@@ -188,6 +242,7 @@ export default function ManageTradesPage() {
         onDraft={updateDraft}
         onSave={handleSave}
         onClose={handleClose}
+        onApprove={handleApprove}
         showRemainingProfit
       />
 
@@ -281,6 +336,7 @@ function OptionTradeTable({
   onDraft,
   onSave,
   onClose,
+  onApprove,
   showRemainingProfit,
 }: {
   title: string;
@@ -292,6 +348,7 @@ function OptionTradeTable({
   onDraft: (tradeId: string, key: keyof DraftLevels, value: string) => void;
   onSave: (trade: LiveTrade) => void;
   onClose: (trade: LiveTrade) => void;
+  onApprove: (trade: LiveTrade) => void;
   showRemainingProfit: boolean;
 }) {
   const columnCount = showRemainingProfit ? 16 : 14;
@@ -382,6 +439,17 @@ function OptionTradeTable({
                       <button className="icon-button danger" type="button" title="Close position" onClick={() => onClose(trade)} disabled={busy}>
                         <SquareArrowOutUpRight size={15} />
                       </button>
+                      {isAwaitingApproval(trade) ? (
+                        <button
+                          className="icon-button approve"
+                          type="button"
+                          title={`Approve ${riskSignalKind(trade) === "target" ? "Target" : "SL"} exit`}
+                          onClick={() => onApprove(trade)}
+                          disabled={busy}
+                        >
+                          <ShieldCheck size={15} />
+                        </button>
+                      ) : null}
                     </div>
                   </td>
                 </tr>
@@ -536,6 +604,23 @@ function riskOrderLabel(session: DhanSession | null): string {
 
 function riskSignalKind(trade: LiveTrade): string | null {
   return trade.riskStatus?.signalKind ?? trade.riskStatus?.kind ?? null;
+}
+
+function isAwaitingApproval(trade: LiveTrade): boolean {
+  return AWAITING_APPROVAL_KINDS.has(trade.riskStatus?.kind ?? "");
+}
+
+function notifyRiskSignal(trade: LiveTrade): void {
+  if (typeof window === "undefined" || !("Notification" in window) || Notification.permission !== "granted") return;
+  const kindLabel = riskSignalKind(trade) === "target" ? "Target" : "Stop Loss";
+  try {
+    new Notification(`${kindLabel} reached — approval needed`, {
+      body: `${tradeLabel(trade)} · LTP ${money(trade.ltp)} · Level ${money(trade.riskStatus?.level)}`,
+      tag: trade.id,
+    });
+  } catch {
+    // Notification constructor can throw in unsupported contexts; ignore.
+  }
 }
 
 function money(value: number | null | undefined): string {

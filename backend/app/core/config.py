@@ -59,6 +59,7 @@ class Settings(BaseSettings):
     risk_order_monitor_interval_seconds: int = 1
     dhan_trade_book_cache_seconds: float = 30.0
     risk_order_retry_seconds: int = 60
+    risk_order_alert_repeat_seconds: int = 15
     risk_order_allow_stale_ltp: bool = False
     telegram_bot_token: str | None = None
     telegram_chat_id: str | None = None

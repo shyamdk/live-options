@@ -376,6 +376,15 @@ button:disabled {
   background: var(--red-soft);
 }
 
+.icon-button.approve {
+  border-color: #add8bd;
+  color: var(--green);
+}
+
+.icon-button.approve:hover {
+  background: var(--green-soft);
+}
+
 .status-row {
   min-height: 28px;
   color: var(--muted);
@@ -436,6 +445,13 @@ button:disabled {
   border-color: #add8bd;
   background: var(--green-soft);
   color: var(--green);
+}
+
+.risk-approval-banner ul {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 3px;
 }
 
 .metric-grid {

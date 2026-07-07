@@ -103,6 +103,14 @@ export async function closeTrade(tradeId: string, quantity?: number) {
   );
 }
 
+export async function approveRiskExit(tradeId: string) {
+  return apiJson<Record<string, unknown>>(
+    `/api/trades/${encodeURIComponent(tradeId)}/risk/approve`,
+    { method: "POST" },
+    "Failed to approve risk exit",
+  );
+}
+
 export async function getTodayJournal(): Promise<TodayJournalPayload> {
   return apiJson<TodayJournalPayload>("/api/journals/today", undefined, "Failed to load trade journal");
 }
