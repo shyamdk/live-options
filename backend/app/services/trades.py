@@ -13,7 +13,11 @@ from app.db.sqlite import (
     record_trade_action,
     upsert_trade_levels,
 )
-from app.services.charges import apply_closed_option_charge_estimates, apply_option_charge_estimates
+from app.services.charges import (
+    apply_closed_option_charge_estimates,
+    apply_option_charge_estimates,
+    order_counts_from_trade_book,
+)
 from app.services.dhan import DhanService
 from app.services.market import MarketService
 from app.services.orders import DhanOrderService
@@ -39,16 +43,22 @@ async def _live_trade_snapshot() -> dict[str, Any]:
     await _apply_live_quotes(service, open_trades)
     await _apply_spot_distances(open_trades)
 
+    try:
+        trade_book = await service.trade_book()
+    except Exception:
+        trade_book = []
+    order_counts = order_counts_from_trade_book(trade_book)
+
     option_trades = [trade for trade in open_trades if trade["assetClass"] == "OPTION"]
     levels_by_id = get_trade_levels([trade["id"] for trade in option_trades])
     risk_actions_by_id = get_trade_actions([trade["id"] for trade in option_trades], action_prefix="RISK_EXIT_")
     for trade in option_trades:
         trade["levels"] = levels_by_id.get(trade["id"]) or _empty_levels(trade)
         trade["riskStatus"] = _risk_status(trade, risk_actions_by_id.get(trade["id"]) or [])
-        apply_option_charge_estimates(trade)
+        apply_option_charge_estimates(trade, order_counts=order_counts)
     for trade in closed:
         if trade["assetClass"] == "OPTION":
-            apply_closed_option_charge_estimates(trade)
+            apply_closed_option_charge_estimates(trade, order_counts=order_counts)
         else:
             trade["estimatedCharges"] = None
             trade["estimatedNetPnl"] = trade.get("dayPnl")

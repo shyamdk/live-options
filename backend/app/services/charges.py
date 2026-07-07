@@ -5,7 +5,11 @@ from typing import Any
 from app.core.config import Settings, get_settings
 
 
-def apply_option_charge_estimates(trade: dict[str, Any], settings: Settings | None = None) -> None:
+def apply_option_charge_estimates(
+    trade: dict[str, Any],
+    settings: Settings | None = None,
+    order_counts: dict[tuple[str, str], int] | None = None,
+) -> None:
     settings = settings or get_settings()
     qty = int(trade.get("qty") or 0)
     avg_price = _number(trade.get("avgPrice"))
@@ -18,12 +22,14 @@ def apply_option_charge_estimates(trade: dict[str, Any], settings: Settings | No
     entry_side = "BUY" if qty > 0 else "SELL"
     exit_side = "SELL" if qty > 0 else "BUY"
     abs_qty = abs(qty)
+    entry_orders = _order_count(order_counts, trade.get("securityId"), entry_side)
     entry = option_order_charges(
         premium=avg_price,
         quantity=abs_qty,
         side=entry_side,
         exchange_segment=str(trade.get("exchangeSegment") or ""),
         settings=settings,
+        order_count=entry_orders,
     )
     exit_charges = option_order_charges(
         premium=ltp or 0,
@@ -38,7 +44,11 @@ def apply_option_charge_estimates(trade: dict[str, Any], settings: Settings | No
     trade["charges"] = {"entry": entry, "exitAtLtp": exit_charges, "total": total}
 
 
-def apply_closed_option_charge_estimates(trade: dict[str, Any], settings: Settings | None = None) -> None:
+def apply_closed_option_charge_estimates(
+    trade: dict[str, Any],
+    settings: Settings | None = None,
+    order_counts: dict[tuple[str, str], int] | None = None,
+) -> None:
     settings = settings or get_settings()
     if trade.get("assetClass") != "OPTION":
         trade["estimatedCharges"] = None
@@ -49,6 +59,7 @@ def apply_closed_option_charge_estimates(trade: dict[str, Any], settings: Settin
     sell_avg = _number(trade.get("sellAvg"))
     buy_qty = int(_number(trade.get("buyQty")) or 0)
     sell_qty = int(_number(trade.get("sellQty")) or 0)
+    security_id = trade.get("securityId")
 
     buy_charges = option_order_charges(
         premium=buy_avg or 0,
@@ -56,6 +67,7 @@ def apply_closed_option_charge_estimates(trade: dict[str, Any], settings: Settin
         side="BUY",
         exchange_segment=str(trade.get("exchangeSegment") or ""),
         settings=settings,
+        order_count=_order_count(order_counts, security_id, "BUY"),
     )
     sell_charges = option_order_charges(
         premium=sell_avg or 0,
@@ -63,11 +75,32 @@ def apply_closed_option_charge_estimates(trade: dict[str, Any], settings: Settin
         side="SELL",
         exchange_segment=str(trade.get("exchangeSegment") or ""),
         settings=settings,
+        order_count=_order_count(order_counts, security_id, "SELL"),
     )
     total = round(buy_charges["total"] + sell_charges["total"], 2)
     trade["estimatedCharges"] = total
     trade["estimatedNetPnl"] = round((_number(trade.get("dayPnl")) or 0) - total, 2)
     trade["charges"] = {"buy": buy_charges, "sell": sell_charges, "total": total}
+
+
+def order_counts_from_trade_book(trade_book: list[dict[str, Any]]) -> dict[tuple[str, str], int]:
+    counts: dict[tuple[str, str], int] = {}
+    for row in trade_book:
+        security_id = str(row.get("securityId") or "")
+        transaction_type = str(row.get("transactionType") or "").upper()
+        if not security_id or not transaction_type:
+            continue
+        key = (security_id, transaction_type)
+        counts[key] = counts.get(key, 0) + 1
+    return counts
+
+
+def _order_count(
+    order_counts: dict[tuple[str, str], int] | None, security_id: Any, side: str
+) -> int:
+    if not order_counts or not security_id:
+        return 1
+    return max(order_counts.get((str(security_id), side.upper()), 0), 1)
 
 
 def option_order_charges(
@@ -77,6 +110,7 @@ def option_order_charges(
     side: str,
     exchange_segment: str,
     settings: Settings | None = None,
+    order_count: int = 1,
 ) -> dict[str, Any]:
     settings = settings or get_settings()
     turnover = max(premium, 0) * max(quantity, 0)
@@ -85,7 +119,7 @@ def option_order_charges(
         if exchange_segment.upper().startswith("BSE")
         else settings.option_nse_transaction_percent
     )
-    brokerage = settings.option_brokerage_per_order if quantity > 0 else 0
+    brokerage = settings.option_brokerage_per_order * max(order_count, 1) if quantity > 0 else 0
     transaction = _round_money(_percent(turnover, transaction_percent))
     sebi = _round_money(_percent(turnover, settings.option_sebi_turnover_percent))
     ipft = _round_money(_percent(turnover, settings.option_ipft_percent))

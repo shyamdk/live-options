@@ -42,6 +42,11 @@ class DhanService:
         rows = payload if isinstance(payload, list) else payload.get("data", [])
         return [row for row in rows if isinstance(row, dict)]
 
+    async def trade_book(self) -> list[dict[str, Any]]:
+        payload = await self._request("GET", "/trades", require_client_id=False)
+        rows = payload if isinstance(payload, list) else payload.get("data", [])
+        return [row for row in rows if isinstance(row, dict)]
+
     async def market_quotes_by_segment(self, securities_by_segment: dict[str, list[int]]) -> dict[str, Any]:
         body = {segment: sorted(set(ids)) for segment, ids in securities_by_segment.items() if ids}
         if not body:
