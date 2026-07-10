@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime
 from typing import Any
 
 from app.db.sqlite import _DB_LOCK, _connect
+from app.services.gamma_blast_engine import now_ist
 
 
 def upsert_session(
@@ -17,7 +17,7 @@ def upsert_session(
     spot_open: float | None = None,
     payload: dict[str, Any] | None = None,
 ) -> None:
-    now = datetime.now().isoformat(timespec="seconds")
+    now = now_ist().isoformat(timespec="seconds")
     with _DB_LOCK, _connect() as conn:
         conn.execute(
             """
@@ -71,7 +71,7 @@ def record_signal(
     level: float | None = None,
     payload: dict[str, Any] | None = None,
 ) -> int:
-    now = datetime.now().isoformat(timespec="seconds")
+    now = now_ist().isoformat(timespec="seconds")
     with _DB_LOCK, _connect() as conn:
         cursor = conn.execute(
             """
@@ -99,7 +99,7 @@ def record_signal(
 
 
 def update_signal_status(signal_id: int, status: str, *, trade_id: str | None = None) -> None:
-    now = datetime.now().isoformat(timespec="seconds")
+    now = now_ist().isoformat(timespec="seconds")
     with _DB_LOCK, _connect() as conn:
         if trade_id is not None:
             conn.execute(
@@ -150,7 +150,7 @@ def insert_trade(
     entry_signal_id: int | None,
     payload: dict[str, Any] | None = None,
 ) -> None:
-    now = datetime.now().isoformat(timespec="seconds")
+    now = now_ist().isoformat(timespec="seconds")
     with _DB_LOCK, _connect() as conn:
         conn.execute(
             """
@@ -178,7 +178,7 @@ def insert_trade(
 
 
 def record_entry_fill(trade_id: str, *, entry_price: float, entry_qty: int) -> None:
-    now = datetime.now().isoformat(timespec="seconds")
+    now = now_ist().isoformat(timespec="seconds")
     with _DB_LOCK, _connect() as conn:
         conn.execute(
             "UPDATE gamma_blast_trades SET entry_price = ?, entry_qty = ?, entry_at = ?, updated_at = ? WHERE id = ?",
@@ -190,7 +190,7 @@ def record_entry_fill(trade_id: str, *, entry_price: float, entry_qty: int) -> N
 def record_exit_fill(
     trade_id: str, *, exit_price: float, exit_qty: int, exit_reason: str, realized_pnl: float
 ) -> None:
-    now = datetime.now().isoformat(timespec="seconds")
+    now = now_ist().isoformat(timespec="seconds")
     with _DB_LOCK, _connect() as conn:
         conn.execute(
             """
@@ -228,7 +228,7 @@ def get_trades_for_session(session_id: str) -> list[dict[str, Any]]:
 
 
 def record_event(session_id: str, event_type: str, message: str, payload: dict[str, Any] | None = None) -> None:
-    now = datetime.now().isoformat(timespec="seconds")
+    now = now_ist().isoformat(timespec="seconds")
     with _DB_LOCK, _connect() as conn:
         conn.execute(
             """
@@ -252,7 +252,7 @@ def get_events_for_session(session_id: str, limit: int = 200) -> list[dict[str, 
 
 
 def save_retrospective(session_id: str, session_date: str, summary: str, payload: dict[str, Any] | None = None) -> None:
-    now = datetime.now().isoformat(timespec="seconds")
+    now = now_ist().isoformat(timespec="seconds")
     with _DB_LOCK, _connect() as conn:
         conn.execute(
             """

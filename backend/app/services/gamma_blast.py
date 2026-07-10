@@ -8,7 +8,7 @@ waits for the API-triggered manual click.
 from __future__ import annotations
 
 import asyncio
-from datetime import date, datetime
+from datetime import datetime
 from typing import Any
 
 from app.core.config import Settings, get_settings
@@ -22,6 +22,7 @@ from app.services.gamma_blast_engine import (
     evaluate_exit,
     find_walls,
     in_time_window,
+    now_ist,
     quiet_day_status,
 )
 from app.services.gamma_blast_instruments import (
@@ -75,7 +76,7 @@ async def _scheduler_loop() -> None:
 
 
 async def _tick(settings: Settings) -> None:
-    now = datetime.now()
+    now = now_ist()
     for index_symbol in INDICES:
         session = _active.get(index_symbol)
         in_hours = in_time_window(now.time(), settings.gamma_blast_session_start_time, settings.gamma_blast_session_end_time)
@@ -464,10 +465,6 @@ def get_state() -> dict[str, Any]:
             "events": db.get_events_for_session(session_id, limit=100),
         }
     return {"mode": settings.gamma_blast_mode, "indices": indices}
-
-
-def today_session_id(index_symbol: str, on: date | None = None) -> str:
-    return f"{(on or date.today()).isoformat()}:{index_symbol}"
 
 
 def list_past_sessions(limit: int = 30) -> list[dict[str, Any]]:

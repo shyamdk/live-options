@@ -1,6 +1,7 @@
 """Pure gamma-blast strategy logic: wall detection, quiet-day gate, breakout and
 exit signal evaluation. No I/O — takes plain data in, returns plain data out, so
-it can be unit-tested without any Dhan/DB/network dependency.
+it can be unit-tested without any Dhan/DB/network dependency (the one exception
+is now_ist(), a thin clock read shared by the orchestration and DB layers).
 """
 
 from __future__ import annotations
@@ -8,6 +9,18 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, time
 from typing import Any
+from zoneinfo import ZoneInfo
+
+_IST = ZoneInfo("Asia/Kolkata")
+
+
+def now_ist() -> datetime:
+    """Naive datetime whose fields are IST wall-clock time, regardless of the
+    host server's own system timezone (OCI runs GMT). Deliberately returned as
+    naive (tzinfo stripped) so it arithmetics cleanly against timestamps stored
+    via isoformat() elsewhere in this module without any aware/naive mixing.
+    """
+    return datetime.now(_IST).replace(tzinfo=None)
 
 
 @dataclass(frozen=True)

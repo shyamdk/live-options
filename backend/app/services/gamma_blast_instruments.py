@@ -13,13 +13,13 @@ from typing import Any
 
 from app.core.config import Settings
 from app.services.dhan import DhanService
-from app.services.gamma_blast_engine import StrikeState
+from app.services.gamma_blast_engine import StrikeState, now_ist
 
 INDEX_SEGMENT = "IDX_I"
 
 
 async def resolve_todays_expiry(dhan: DhanService, underlying_scrip: int, today: date | None = None) -> str | None:
-    today = today or date.today()
+    today = today or now_ist().date()
     expiries = await dhan.expiry_list(underlying_scrip, INDEX_SEGMENT)
     today_str = today.isoformat()
     return today_str if today_str in expiries else None
