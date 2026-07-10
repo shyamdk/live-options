@@ -26,6 +26,7 @@ from app.services.gamma_blast_engine import (
     quiet_day_status,
 )
 from app.services.gamma_blast_instruments import (
+    expiry_weekday_for,
     fetch_strike_states,
     lot_size_for,
     resolve_todays_expiry,
@@ -94,6 +95,9 @@ async def _tick(settings: Settings) -> None:
 
 
 async def _maybe_start_session(settings: Settings, index_symbol: str, now: datetime) -> None:
+    if now.weekday() != expiry_weekday_for(index_symbol, settings):
+        return
+
     dhan = DhanService(settings)
     underlying_scrip = underlying_scrip_for(index_symbol, settings)
     expiry = await resolve_todays_expiry(dhan, underlying_scrip, today=now.date())
