@@ -20,6 +20,7 @@ class DhanAuthError(RuntimeError):
 
 
 _AUTH_LOCK = asyncio.Lock()
+_last_refresh_attempt: float = 0.0
 
 
 def _generate_totp(secret: str, digits: int = 6, period: int = 30) -> str:
@@ -63,6 +64,7 @@ def _store_env_value(name: str, value: str) -> None:
 
 
 async def get_dhan_access_token(settings: Settings | None = None, *, force_refresh: bool = False) -> str:
+    global _last_refresh_attempt
     settings = settings or get_settings()
     if settings.dhan_access_token and not force_refresh:
         return settings.dhan_access_token
@@ -71,6 +73,19 @@ async def get_dhan_access_token(settings: Settings | None = None, *, force_refre
         if settings.dhan_access_token and not force_refresh:
             return settings.dhan_access_token
 
+        now = time.monotonic()
+        min_interval = settings.dhan_token_refresh_min_interval_seconds
+        if now - _last_refresh_attempt < min_interval:
+            # Another caller (possibly concurrent, within the same poll cycle) already
+            # attempted a refresh moments ago. Don't hammer Dhan's login endpoint again;
+            # Dhan locks out accounts that generate access tokens too frequently.
+            if settings.dhan_access_token:
+                return settings.dhan_access_token
+            raise DhanAuthError(
+                f"Skipping Dhan token refresh; last attempt was less than {int(min_interval)}s ago."
+            )
+
+        _last_refresh_attempt = now
         token = await generate_dhan_access_token(settings)
         settings.dhan_access_token = token
         os.environ["DHAN_ACCESS_TOKEN"] = token
