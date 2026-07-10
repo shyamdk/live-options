@@ -7,6 +7,7 @@ import type {
   TodayJournalPayload,
   TradeLevels,
 } from "@/types/live";
+import type { GammaBlastSessionDetail, GammaBlastState } from "@/types/gamma-blast";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8001";
 const AUTH_TOKEN_KEY = "live-options-auth-token";
@@ -108,6 +109,34 @@ export async function approveRiskExit(tradeId: string) {
     `/api/trades/${encodeURIComponent(tradeId)}/risk/approve`,
     { method: "POST" },
     "Failed to approve risk exit",
+  );
+}
+
+export async function getGammaBlastState(): Promise<GammaBlastState> {
+  return apiJson<GammaBlastState>("/api/gamma-blast/state", undefined, "Failed to load Gamma Blast state");
+}
+
+export async function approveGammaBlastSignal(signalId: number) {
+  return apiJson<Record<string, unknown>>(
+    `/api/gamma-blast/signals/${signalId}/approve`,
+    { method: "POST" },
+    "Failed to approve Gamma Blast signal",
+  );
+}
+
+export async function getGammaBlastSessions() {
+  return apiJson<{ sessions: GammaBlastSessionDetail["session"][] }>(
+    "/api/gamma-blast/sessions",
+    undefined,
+    "Failed to load Gamma Blast sessions",
+  );
+}
+
+export async function getGammaBlastSessionDetail(sessionId: string): Promise<GammaBlastSessionDetail> {
+  return apiJson<GammaBlastSessionDetail>(
+    `/api/gamma-blast/sessions/${encodeURIComponent(sessionId)}`,
+    undefined,
+    "Failed to load Gamma Blast session detail",
   );
 }
 

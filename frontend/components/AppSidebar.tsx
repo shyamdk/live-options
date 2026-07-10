@@ -1,6 +1,6 @@
 "use client";
 
-import { BookOpenText, BriefcaseBusiness, ChevronLeft, ChevronRight } from "lucide-react";
+import { BookOpenText, BriefcaseBusiness, ChevronLeft, ChevronRight, Zap } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -8,6 +8,7 @@ import { useEffect, useState } from "react";
 const navItems = [
   { href: "/manage-trades", label: "Manage Trades", short: "MT", icon: BriefcaseBusiness },
   { href: "/trade-journals", label: "Trade Journals", short: "TJ", icon: BookOpenText },
+  { href: "/gamma-blast", label: "Gamma Blast", short: "GB", icon: Zap },
 ];
 
 const STORAGE_KEY = "live-options-sidebar-collapsed";

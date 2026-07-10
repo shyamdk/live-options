@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import copy
 import time
 from typing import Any
@@ -23,6 +24,9 @@ class DhanApiError(RuntimeError):
 _QUOTE_CACHE: dict[tuple[tuple[str, tuple[int, ...]], ...], tuple[float, dict[str, Any]]] = {}
 _QUOTE_BACKOFF_UNTIL: dict[tuple[tuple[str, tuple[int, ...]], ...], float] = {}
 _TRADE_BOOK_CACHE: tuple[float, list[dict[str, Any]]] | None = None
+_OPTION_CHAIN_LOCK = asyncio.Lock()
+_last_option_chain_call: float = 0.0
+_OPTION_CHAIN_MIN_INTERVAL_SECONDS = 3.1
 
 
 class DhanService:
@@ -42,6 +46,27 @@ class DhanService:
         payload = await self._request("GET", "/holdings", require_client_id=False)
         rows = payload if isinstance(payload, list) else payload.get("data", [])
         return [row for row in rows if isinstance(row, dict)]
+
+    async def expiry_list(self, underlying_scrip: int, underlying_segment: str) -> list[str]:
+        body = {"UnderlyingScrip": underlying_scrip, "UnderlyingSeg": underlying_segment}
+        payload = await self._option_chain_request("/optionchain/expirylist", body)
+        data = payload.get("data") if isinstance(payload, dict) else None
+        return list(data) if isinstance(data, list) else []
+
+    async def option_chain(self, underlying_scrip: int, underlying_segment: str, expiry: str) -> dict[str, Any]:
+        body = {"UnderlyingScrip": underlying_scrip, "UnderlyingSeg": underlying_segment, "Expiry": expiry}
+        payload = await self._option_chain_request("/optionchain", body)
+        data = payload.get("data") if isinstance(payload, dict) else None
+        return data if isinstance(data, dict) else {}
+
+    async def _option_chain_request(self, path: str, body: dict[str, Any]) -> Any:
+        global _last_option_chain_call
+        async with _OPTION_CHAIN_LOCK:
+            wait_for = _OPTION_CHAIN_MIN_INTERVAL_SECONDS - (time.monotonic() - _last_option_chain_call)
+            if wait_for > 0:
+                await asyncio.sleep(wait_for)
+            _last_option_chain_call = time.monotonic()
+            return await self._request("POST", path, require_client_id=True, json_body=body)
 
     async def trade_book(self) -> list[dict[str, Any]]:
         global _TRADE_BOOK_CACHE

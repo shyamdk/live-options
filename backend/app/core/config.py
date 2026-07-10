@@ -66,6 +66,38 @@ class Settings(BaseSettings):
     telegram_chat_id: str | None = None
     telegram_bot_username: str | None = None
 
+    openai_api_key: str | None = None
+    openai_model: str = "gpt-4o"
+
+    gamma_blast_monitor_enabled: bool = True
+    gamma_blast_mode: str = "PAPER"
+    gamma_blast_paper_auto_approve: bool = True
+    gamma_blast_capital_base: float = 200000.0
+    gamma_blast_risk_percent_per_trade: float = 1.5
+    gamma_blast_max_lots_per_trade: int = 3
+    gamma_blast_nifty_expiry_weekday: int = 1
+    gamma_blast_sensex_expiry_weekday: int = 3
+    gamma_blast_strike_range: int = 12
+    gamma_blast_nifty_lot_size: int = 65
+    gamma_blast_sensex_lot_size: int = 20
+    gamma_blast_nifty_strike_step: float = 50.0
+    gamma_blast_sensex_strike_step: float = 100.0
+    gamma_blast_min_oi_threshold: float = 200000.0
+    gamma_blast_wall_buffer_points: float = 5.0
+    gamma_blast_quiet_day_max_percent: float = 1.0
+    gamma_blast_entry_window_start: str = "14:00"
+    gamma_blast_entry_window_end: str = "15:00"
+    gamma_blast_force_exit_time: str = "15:20"
+    gamma_blast_scale_out_percent: float = 45.0
+    gamma_blast_hard_stop_percent: float = -27.0
+    gamma_blast_blast_failed_minutes: int = 15
+    gamma_blast_evaluation_interval_seconds: int = 3
+    gamma_blast_alert_repeat_seconds: int = 15
+    gamma_blast_reconciliation_interval_seconds: int = 45
+    gamma_blast_retrospective_time: str = "15:35"
+    gamma_blast_session_start_time: str = "09:15"
+    gamma_blast_session_end_time: str = "15:40"
+
     model_config = SettingsConfigDict(
         env_file=ROOT_DIR / ".env",
         env_file_encoding="utf-8",

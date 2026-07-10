@@ -75,6 +75,90 @@ def init_db() -> None:
             )
             """
         )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS gamma_blast_sessions (
+                id TEXT PRIMARY KEY,
+                session_date TEXT NOT NULL,
+                index_symbol TEXT NOT NULL,
+                mode TEXT NOT NULL,
+                status TEXT NOT NULL,
+                spot_open REAL,
+                payload_json TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS gamma_blast_signals (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id TEXT NOT NULL,
+                index_symbol TEXT NOT NULL,
+                kind TEXT NOT NULL,
+                status TEXT NOT NULL,
+                strike REAL,
+                option_side TEXT,
+                trigger_price REAL,
+                level REAL,
+                trade_id TEXT,
+                payload_json TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS gamma_blast_trades (
+                id TEXT PRIMARY KEY,
+                session_id TEXT NOT NULL,
+                index_symbol TEXT NOT NULL,
+                strike REAL,
+                option_side TEXT,
+                security_id TEXT,
+                exchange_segment TEXT,
+                mode TEXT NOT NULL,
+                status TEXT NOT NULL,
+                entry_signal_id INTEGER,
+                entry_price REAL,
+                entry_qty INTEGER,
+                entry_at TEXT,
+                exit_price REAL,
+                exit_qty INTEGER,
+                exit_at TEXT,
+                exit_reason TEXT,
+                realized_pnl REAL,
+                payload_json TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS gamma_blast_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id TEXT NOT NULL,
+                event_type TEXT NOT NULL,
+                message TEXT NOT NULL,
+                payload_json TEXT,
+                created_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS gamma_blast_retrospectives (
+                session_id TEXT PRIMARY KEY,
+                session_date TEXT NOT NULL,
+                summary TEXT,
+                payload_json TEXT,
+                created_at TEXT NOT NULL
+            )
+            """
+        )
         conn.commit()
 
 
