@@ -25,6 +25,12 @@ def _connect() -> sqlite3.Connection:
     return conn
 
 
+def _add_column_if_missing(conn: sqlite3.Connection, table: str, column: str, ddl: str) -> None:
+    existing = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})")}
+    if column not in existing:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}")
+
+
 def init_db() -> None:
     with _DB_LOCK, _connect() as conn:
         conn.execute(
@@ -63,6 +69,32 @@ def init_db() -> None:
                 lessons_learnt TEXT NOT NULL DEFAULT '',
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
+            )
+            """
+        )
+        _add_column_if_missing(conn, "trade_journals", "how_i_felt", "TEXT NOT NULL DEFAULT ''")
+        _add_column_if_missing(conn, "trade_journals", "what_happened", "TEXT NOT NULL DEFAULT ''")
+        _add_column_if_missing(conn, "trade_journals", "comments", "TEXT NOT NULL DEFAULT ''")
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS daily_trade_summary (
+                trade_date TEXT PRIMARY KEY,
+                trades_count INTEGER NOT NULL DEFAULT 0,
+                day_pnl REAL,
+                net_pnl REAL,
+                realized_pnl REAL,
+                charges REAL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS journal_insights (
+                id TEXT PRIMARY KEY,
+                bullets_json TEXT NOT NULL,
+                generated_at TEXT NOT NULL
             )
             """
         )
@@ -288,37 +320,168 @@ def get_journal(trade_date: str) -> dict[str, Any]:
         return {
             "tradeDate": trade_date,
             "strategyDetails": "",
+            "howIFelt": "",
+            "whatHappened": "",
             "lessonsLearnt": "",
+            "comments": "",
             "createdAt": now,
             "updatedAt": now,
         }
-    return {
-        "tradeDate": row["trade_date"],
-        "strategyDetails": row["strategy_details"],
-        "lessonsLearnt": row["lessons_learnt"],
-        "createdAt": row["created_at"],
-        "updatedAt": row["updated_at"],
-    }
+    return _journal_from_row(row)
 
 
-def save_journal(trade_date: str, strategy_details: str, lessons_learnt: str) -> dict[str, Any]:
+def save_journal(
+    trade_date: str,
+    *,
+    strategy_details: str,
+    how_i_felt: str,
+    what_happened: str,
+    lessons_learnt: str,
+    comments: str,
+) -> dict[str, Any]:
     now = datetime.now().isoformat(timespec="seconds")
     existing = get_journal(trade_date)
     created_at = existing.get("createdAt") or now
     with _DB_LOCK, _connect() as conn:
         conn.execute(
             """
-            INSERT INTO trade_journals (trade_date, strategy_details, lessons_learnt, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO trade_journals (
+                trade_date, strategy_details, how_i_felt, what_happened, lessons_learnt, comments, created_at, updated_at
+            ) VALUES (:trade_date, :strategy_details, :how_i_felt, :what_happened, :lessons_learnt, :comments, :created_at, :now)
             ON CONFLICT(trade_date) DO UPDATE SET
                 strategy_details = excluded.strategy_details,
+                how_i_felt = excluded.how_i_felt,
+                what_happened = excluded.what_happened,
                 lessons_learnt = excluded.lessons_learnt,
+                comments = excluded.comments,
                 updated_at = excluded.updated_at
             """,
-            (trade_date, strategy_details, lessons_learnt, created_at, now),
+            {
+                "trade_date": trade_date,
+                "strategy_details": strategy_details,
+                "how_i_felt": how_i_felt,
+                "what_happened": what_happened,
+                "lessons_learnt": lessons_learnt,
+                "comments": comments,
+                "created_at": created_at,
+                "now": now,
+            },
         )
         conn.commit()
     return get_journal(trade_date)
+
+
+def get_journals_for_dates(trade_dates: list[str]) -> dict[str, dict[str, Any]]:
+    if not trade_dates:
+        return {}
+    placeholders = ",".join("?" for _ in trade_dates)
+    with _DB_LOCK, _connect() as conn:
+        rows = conn.execute(f"SELECT * FROM trade_journals WHERE trade_date IN ({placeholders})", trade_dates).fetchall()
+    return {row["trade_date"]: _journal_from_row(row) for row in rows}
+
+
+def get_journals_with_content(limit: int = 200) -> list[dict[str, Any]]:
+    with _DB_LOCK, _connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT * FROM trade_journals
+            WHERE strategy_details != '' OR how_i_felt != '' OR what_happened != '' OR lessons_learnt != '' OR comments != ''
+            ORDER BY trade_date DESC
+            LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
+    return [_journal_from_row(row) for row in rows]
+
+
+def _journal_from_row(row: sqlite3.Row) -> dict[str, Any]:
+    return {
+        "tradeDate": row["trade_date"],
+        "strategyDetails": row["strategy_details"],
+        "howIFelt": row["how_i_felt"],
+        "whatHappened": row["what_happened"],
+        "lessonsLearnt": row["lessons_learnt"],
+        "comments": row["comments"],
+        "createdAt": row["created_at"],
+        "updatedAt": row["updated_at"],
+    }
+
+
+def record_daily_trade_summary(
+    trade_date: str, *, trades_count: int, day_pnl: float | None, net_pnl: float | None, realized_pnl: float | None, charges: float | None
+) -> None:
+    now = datetime.now().isoformat(timespec="seconds")
+    with _DB_LOCK, _connect() as conn:
+        conn.execute(
+            """
+            INSERT INTO daily_trade_summary (
+                trade_date, trades_count, day_pnl, net_pnl, realized_pnl, charges, created_at, updated_at
+            ) VALUES (:trade_date, :trades_count, :day_pnl, :net_pnl, :realized_pnl, :charges, :now, :now)
+            ON CONFLICT(trade_date) DO UPDATE SET
+                trades_count = excluded.trades_count,
+                day_pnl = excluded.day_pnl,
+                net_pnl = excluded.net_pnl,
+                realized_pnl = excluded.realized_pnl,
+                charges = excluded.charges,
+                updated_at = excluded.updated_at
+            """,
+            {
+                "trade_date": trade_date,
+                "trades_count": trades_count,
+                "day_pnl": day_pnl,
+                "net_pnl": net_pnl,
+                "realized_pnl": realized_pnl,
+                "charges": charges,
+                "now": now,
+            },
+        )
+        conn.commit()
+
+
+def get_daily_trade_summaries(trade_dates: list[str]) -> dict[str, dict[str, Any]]:
+    if not trade_dates:
+        return {}
+    placeholders = ",".join("?" for _ in trade_dates)
+    with _DB_LOCK, _connect() as conn:
+        rows = conn.execute(
+            f"SELECT * FROM daily_trade_summary WHERE trade_date IN ({placeholders})", trade_dates
+        ).fetchall()
+    return {
+        row["trade_date"]: {
+            "tradeDate": row["trade_date"],
+            "tradesCount": row["trades_count"],
+            "dayPnl": row["day_pnl"],
+            "netPnl": row["net_pnl"],
+            "realizedPnl": row["realized_pnl"],
+            "charges": row["charges"],
+            "updatedAt": row["updated_at"],
+        }
+        for row in rows
+    }
+
+
+def save_journal_insights(bullets: list[str]) -> None:
+    now = datetime.now().isoformat(timespec="seconds")
+    with _DB_LOCK, _connect() as conn:
+        conn.execute(
+            """
+            INSERT INTO journal_insights (id, bullets_json, generated_at)
+            VALUES ('latest', :bullets_json, :now)
+            ON CONFLICT(id) DO UPDATE SET
+                bullets_json = excluded.bullets_json,
+                generated_at = excluded.generated_at
+            """,
+            {"bullets_json": json.dumps(bullets), "now": now},
+        )
+        conn.commit()
+
+
+def get_journal_insights() -> dict[str, Any] | None:
+    with _DB_LOCK, _connect() as conn:
+        row = conn.execute("SELECT * FROM journal_insights WHERE id = 'latest'").fetchone()
+    if not row:
+        return None
+    return {"bullets": _json(row["bullets_json"]) or [], "generatedAt": row["generated_at"]}
 
 
 def record_alert_once(alert_key: str, payload: dict[str, Any] | None = None) -> bool:

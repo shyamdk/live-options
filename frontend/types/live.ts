@@ -140,14 +140,31 @@ export type LiveTradeSnapshot = {
 export type Journal = {
   tradeDate: string;
   strategyDetails: string;
+  howIFelt: string;
+  whatHappened: string;
   lessonsLearnt: string;
-  createdAt: string;
+  comments: string;
+  createdAt: string | null;
+  updatedAt: string | null;
+};
+
+export type DailyTradeSummary = {
+  tradeDate: string;
+  tradesCount: number;
+  dayPnl: number | null;
+  netPnl: number | null;
+  realizedPnl: number | null;
+  charges: number | null;
   updatedAt: string;
 };
 
-export type TodayJournalPayload = {
+export type JournalSession = {
   tradeDate: string;
+  summary: DailyTradeSummary | null;
   journal: Journal;
-  summary: LiveTradeSummary;
-  snapshot: LiveTradeSnapshot;
+};
+
+export type JournalInsights = {
+  bullets: string[];
+  generatedAt: string | null;
 };

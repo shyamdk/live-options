@@ -3,8 +3,8 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from app.core.timeutil import now_ist
 from app.db.sqlite import _DB_LOCK, _connect
-from app.services.gamma_blast_engine import now_ist
 
 
 def upsert_session(

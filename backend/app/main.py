@@ -12,6 +12,7 @@ from app.api.trades import router as trades_router
 from app.core.config import get_settings
 from app.db.sqlite import init_db
 from app.services.gamma_blast import start_gamma_blast_task, stop_gamma_blast_task
+from app.services.journal_insights import start_journal_insights_task, stop_journal_insights_task
 from app.services.trades import (
     start_risk_order_monitor_task,
     start_spot_distance_monitor_task,
@@ -25,6 +26,7 @@ app = FastAPI(title=settings.app_name)
 spot_distance_monitor_task = None
 risk_order_monitor_task = None
 gamma_blast_task = None
+journal_insights_task = None
 
 app.add_middleware(
     CORSMiddleware,
@@ -37,11 +39,12 @@ app.add_middleware(
 
 @app.on_event("startup")
 async def startup() -> None:
-    global risk_order_monitor_task, spot_distance_monitor_task, gamma_blast_task
+    global risk_order_monitor_task, spot_distance_monitor_task, gamma_blast_task, journal_insights_task
     init_db()
     spot_distance_monitor_task = start_spot_distance_monitor_task()
     risk_order_monitor_task = start_risk_order_monitor_task()
     gamma_blast_task = start_gamma_blast_task()
+    journal_insights_task = start_journal_insights_task()
 
 
 @app.on_event("shutdown")
@@ -49,6 +52,7 @@ async def shutdown() -> None:
     await stop_risk_order_monitor_task(risk_order_monitor_task)
     await stop_spot_distance_monitor_task(spot_distance_monitor_task)
     await stop_gamma_blast_task(gamma_blast_task)
+    await stop_journal_insights_task(journal_insights_task)
 
 
 @app.get("/health")

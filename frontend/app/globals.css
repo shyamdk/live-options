@@ -819,6 +819,10 @@ td strong {
     grid-template-columns: 1fr;
   }
 
+  .journal-day-tabs {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
   .compact-row {
     grid-template-columns: 1fr 80px;
     padding: 10px 12px;
@@ -946,4 +950,58 @@ td strong {
   grid-template-columns: 70px 1fr;
   gap: 8px;
   font-size: 12px;
+}
+
+.journal-insights {
+  display: grid;
+  gap: 8px;
+}
+
+.journal-insights-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.journal-insights-header strong {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.journal-insights-list {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 4px;
+}
+
+.journal-day-tabs {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.journal-day-tab {
+  display: grid;
+  gap: 4px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  padding: 10px 12px;
+  text-align: left;
+}
+
+.journal-day-tab:hover {
+  background: var(--blue-soft);
+}
+
+.journal-day-tab.active {
+  border-color: var(--blue);
+  background: var(--blue-soft);
+}
+
+.journal-day-date {
+  font-size: 12px;
+  font-weight: 800;
 }

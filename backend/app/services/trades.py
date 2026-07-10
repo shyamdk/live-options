@@ -5,11 +5,13 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from app.core.config import get_settings
+from app.core.timeutil import today_ist
 from app.db.sqlite import (
     get_trade_actions,
     get_trade_levels,
     has_configured_trade_levels,
     record_alert_once,
+    record_daily_trade_summary,
     record_trade_action,
     upsert_trade_levels,
 )
@@ -29,9 +31,28 @@ _TRADE_LTP_CACHE: dict[str, float] = {}
 
 async def live_trade_snapshot() -> dict[str, Any]:
     try:
-        return await _live_trade_snapshot()
+        snapshot = await _live_trade_snapshot()
     except Exception as exc:
         return _empty_snapshot(str(exc))
+    _capture_daily_summary(snapshot)
+    return snapshot
+
+
+def _capture_daily_summary(snapshot: dict[str, Any]) -> None:
+    summary = snapshot.get("summary") or {}
+    if not summary:
+        return
+    try:
+        record_daily_trade_summary(
+            today_ist(),
+            trades_count=int(summary.get("totalPositions") or 0),
+            day_pnl=summary.get("dayPnl"),
+            net_pnl=summary.get("estimatedNetPnl"),
+            realized_pnl=summary.get("realizedPnl"),
+            charges=summary.get("estimatedCharges"),
+        )
+    except Exception:
+        pass
 
 
 async def _live_trade_snapshot() -> dict[str, Any]:

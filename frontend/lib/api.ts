@@ -2,9 +2,11 @@ import type {
   AuthSession,
   AuthStatus,
   DhanSession,
+  Journal,
+  JournalInsights,
+  JournalSession,
   LiveTradeSnapshot,
   MarketIndicesPayload,
-  TodayJournalPayload,
   TradeLevels,
 } from "@/types/live";
 import type { GammaBlastSessionDetail, GammaBlastState } from "@/types/gamma-blast";
@@ -140,14 +142,29 @@ export async function getGammaBlastSessionDetail(sessionId: string): Promise<Gam
   );
 }
 
-export async function getTodayJournal(): Promise<TodayJournalPayload> {
-  return apiJson<TodayJournalPayload>("/api/journals/today", undefined, "Failed to load trade journal");
+export async function getRecentJournalSessions(): Promise<{ sessions: JournalSession[] }> {
+  return apiJson<{ sessions: JournalSession[] }>("/api/journals/recent", undefined, "Failed to load trade journals");
 }
 
-export async function saveJournal(tradeDate: string, strategyDetails: string, lessonsLearnt: string) {
-  return apiJson<{ journal: TodayJournalPayload["journal"] }>(
+export async function saveJournalEntry(
+  tradeDate: string,
+  fields: Pick<Journal, "strategyDetails" | "howIFelt" | "whatHappened" | "lessonsLearnt" | "comments">,
+) {
+  return apiJson<{ journal: Journal }>(
     `/api/journals/${encodeURIComponent(tradeDate)}`,
-    { method: "PUT", body: JSON.stringify({ strategyDetails, lessonsLearnt }) },
+    { method: "PUT", body: JSON.stringify(fields) },
     "Failed to save journal",
+  );
+}
+
+export async function getJournalInsights(): Promise<JournalInsights> {
+  return apiJson<JournalInsights>("/api/journals/insights", undefined, "Failed to load journal insights");
+}
+
+export async function refreshJournalInsights(): Promise<JournalInsights> {
+  return apiJson<JournalInsights>(
+    "/api/journals/insights/refresh",
+    { method: "POST" },
+    "Failed to refresh journal insights",
   );
 }

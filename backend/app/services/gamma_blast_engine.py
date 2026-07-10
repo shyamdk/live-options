@@ -1,26 +1,16 @@
 """Pure gamma-blast strategy logic: wall detection, quiet-day gate, breakout and
 exit signal evaluation. No I/O — takes plain data in, returns plain data out, so
-it can be unit-tested without any Dhan/DB/network dependency (the one exception
-is now_ist(), a thin clock read shared by the orchestration and DB layers).
+it can be unit-tested without any Dhan/DB/network dependency.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, time
+from datetime import datetime
 from typing import Any
-from zoneinfo import ZoneInfo
 
-_IST = ZoneInfo("Asia/Kolkata")
-
-
-def now_ist() -> datetime:
-    """Naive datetime whose fields are IST wall-clock time, regardless of the
-    host server's own system timezone (OCI runs GMT). Deliberately returned as
-    naive (tzinfo stripped) so it arithmetics cleanly against timestamps stored
-    via isoformat() elsewhere in this module without any aware/naive mixing.
-    """
-    return datetime.now(_IST).replace(tzinfo=None)
+from app.core.timeutil import in_time_window as in_time_window  # re-exported for existing callers
+from app.core.timeutil import now_ist as now_ist  # re-exported for existing callers
 
 
 @dataclass(frozen=True)
@@ -85,17 +75,6 @@ def quiet_day_status(spot: float, session_open: float, max_percent: float) -> di
         return {"isQuiet": False, "movePercent": None}
     move_percent = abs(spot - session_open) / session_open * 100
     return {"isQuiet": move_percent < max_percent, "movePercent": round(move_percent, 3)}
-
-
-def in_time_window(now: time, start: str, end: str) -> bool:
-    start_time = _parse_time(start)
-    end_time = _parse_time(end)
-    return start_time <= now <= end_time
-
-
-def _parse_time(value: str) -> time:
-    hour, minute = value.split(":")
-    return time(int(hour), int(minute))
 
 
 def check_breakouts(

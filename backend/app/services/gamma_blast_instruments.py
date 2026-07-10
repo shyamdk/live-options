@@ -12,8 +12,9 @@ from datetime import date
 from typing import Any
 
 from app.core.config import Settings
+from app.core.timeutil import now_ist
 from app.services.dhan import DhanService
-from app.services.gamma_blast_engine import StrikeState, now_ist
+from app.services.gamma_blast_engine import StrikeState
 
 INDEX_SEGMENT = "IDX_I"
 

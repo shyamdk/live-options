@@ -12,6 +12,7 @@ from datetime import datetime
 from typing import Any
 
 from app.core.config import Settings, get_settings
+from app.core.timeutil import in_time_window, now_ist
 from app.db import gamma_blast as db
 from app.services import gamma_blast_ws as ws_feed
 from app.services.dhan import DhanService
@@ -21,8 +22,6 @@ from app.services.gamma_blast_engine import (
     check_breakouts,
     evaluate_exit,
     find_walls,
-    in_time_window,
-    now_ist,
     quiet_day_status,
 )
 from app.services.gamma_blast_instruments import (
