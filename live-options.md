@@ -259,7 +259,7 @@ Set `NEXT_PUBLIC_API_BASE_URL` if pointing the frontend at a different backend.
 `140.245.25.236` is only needed on trading days and is now automatically
 stopped outside trading hours to save cost/reduce exposure:
 
-- A reconciler script (`.run/trade_instance_scheduler.py` in this repo;
+- A reconciler script (`ops/trade_instance_scheduler.py` in this repo;
   deployed at `~/trade-instance-scheduler/scheduler.py`) runs every 5 minutes
   via cron on `161.118.162.75`, an always-on box in the same OCI compartment.
 - It starts the instance at 8:30 AM IST and soft-stops it at 5:00 PM IST,
