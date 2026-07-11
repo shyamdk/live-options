@@ -175,18 +175,23 @@ happy to help work through it if/when you want to prioritize it.
 
 ---
 
-## Also found while writing this doc (fixed, not yet deployed)
+## Also found while writing this doc (fixed and deployed)
 
 While documenting the AI-insights auto-refresh time (build item #7, default
 18:00 IST) against the trade-instance scheduler (build item #8, stops the
 server at 17:00 IST), the conflict was obvious: the backend would already be
 stopped by 18:00, so the daily insights refresh would never fire. Changed the
 default to `16:00` (comfortably after Gamma Blast's own 15:35 retrospective,
-well before the 17:00 shutdown) and updated `.env.example` to document it —
-committed locally, but **not yet deployed**, since the trade instance is
-currently stopped per its own new schedule. Let me know if you'd like it
-started briefly to deploy this now, or if it can wait for the next natural
-trading-day start (at which point I'll deploy it before market open).
+well before the 17:00 shutdown) and updated `.env.example` to document it.
+
+Deployed immediately rather than waiting for the next natural trading-day
+start: started the trade instance manually via the scheduler's own OCI API
+path, confirmed all systemd services (backend, frontend, nginx) came back up
+correctly on their own on boot, deployed the fixed `config.py`, restarted the
+backend, and confirmed the new `16:00` value took effect. Left the instance
+running afterward — the scheduler's own 5-minute reconciliation loop will
+soft-stop it again automatically since it's still outside trading hours, no
+manual stop needed.
 
 ---
 
