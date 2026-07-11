@@ -254,6 +254,29 @@ http://127.0.0.1:8001
 
 Set `NEXT_PUBLIC_API_BASE_URL` if pointing the frontend at a different backend.
 
+## Trade Instance Scheduling
+
+`140.245.25.236` is only needed on trading days and is now automatically
+stopped outside trading hours to save cost/reduce exposure:
+
+- A reconciler script (`.run/trade_instance_scheduler.py` in this repo;
+  deployed at `~/trade-instance-scheduler/scheduler.py`) runs every 5 minutes
+  via cron on `161.118.162.75`, an always-on box in the same OCI compartment.
+- It starts the instance at 8:30 AM IST and soft-stops it at 5:00 PM IST,
+  Monday-Friday, skipping NSE holidays (maintained as a hardcoded set in the
+  script — update once a year).
+- Auth: instance-principal, via a Dynamic Group (`trade-instance-scheduler`,
+  matching `161.118.162.75` by instance OCID) and a Policy granting it
+  `manage instance-family` in the shared compartment. A tighter
+  `where target.resource.id = '<instance OCID>'` condition was tried first to
+  scope this to only the trade instance, but OCI rejected it as a no-op for
+  this resource type — fell back to compartment-scoped (acceptable, only two
+  instances live there).
+- Since the box is not always on, don't expect health checks, deploys, or SSH
+  to work outside 8:30 AM-5:00 PM IST on a trading day unless manually started
+  (`oci compute instance action --instance-id <OCID> --action START`).
+- Logs: `~/trade-instance-scheduler/scheduler.log` on `161.118.162.75`.
+
 ## OCI Operations
 
 Backend service:
