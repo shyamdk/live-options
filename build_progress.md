@@ -7,6 +7,189 @@ commit sequence.
 
 ---
 
+## Programmer To Do
+
+Everything below requires action from you specifically — either because it
+needs a decision only you can make, a live-market window to observe, or a
+console/account action I can't perform myself. Each item has the full
+step-by-step.
+
+### 1. Watch Gamma Blast's WebSocket feed during a real market session
+
+**Why:** the WebSocket client's packet parsing was verified against Dhan's
+documented byte layout and tested for connect/auth/reconnect, but actual tick
+reception was never observed live — market was closed every time this was
+built and tested, and a rapid-reconnect test during development briefly
+tripped Dhan's own WS rate limit.
+
+**What to do:**
+1. On the next NIFTY Tuesday or SENSEX Thursday expiry, open the Gamma Blast
+   page shortly after 9:15 AM IST (once the trade instance has auto-started).
+2. Confirm the relevant index panel shows **"Live"** (not "Reconnecting") once
+   the session starts (weekday gate means NIFTY only ever starts a session on
+   Tuesday, SENSEX only on Thursday).
+3. Watch the OI-by-strike bars update over the next several minutes — LTP/OI
+   figures should visibly move, not stay frozen.
+4. If it stays on "Reconnecting" for more than a minute or two after market
+   open, check the backend log for WebSocket errors:
+   ```bash
+   ssh opc@140.245.25.236 'journalctl -u live-options-backend.service --since "10 minutes ago" --no-pager | grep -i "gamma\|websocket\|reconnect"'
+   ```
+
+### 2. Test the SL/Target Approve button against a real Dhan order
+
+**Why:** the manual-approval rework (build item #4) was verified end-to-end
+in dry-run/database terms, but the Approve button itself was deliberately
+never clicked against your live Dhan account during development, since it's
+the one action that sends a real market order.
+
+**What to do:**
+1. Next time a real position's SL or Target is reached and the alert/banner
+   appears on Manage Trades, click **Approve** once, on a position/size you're
+   comfortable test-confirming with.
+2. Confirm in the UI that the status moves to `SL hit`/`Target hit` and the
+   order appears in your Dhan order book with a real order ID.
+3. If it fails, the banner will show `SL order failed`/`Target order failed`
+   with Dhan's rejection message — that's expected error reporting, not a bug
+   by itself; send me the message if you want it investigated.
+
+### 3. Set your real capital base before switching Gamma Blast to live money
+
+**Why:** `GAMMA_BLAST_CAPITAL_BASE` is currently a ₹2,00,000 **placeholder**
+used for position sizing (`risk% × capital / premium`). It was never asked to
+match your real trading capital.
+
+**What to do:**
+1. SSH in during trading hours (8:30 AM–5 PM IST, since the instance is now
+   auto-stopped outside that window):
+   ```bash
+   ssh opc@140.245.25.236
+   ```
+2. Edit `/opt/live-options/current/.env` (or wherever your production `.env`
+   lives) and set:
+   ```
+   GAMMA_BLAST_CAPITAL_BASE=<your real number>
+   GAMMA_BLAST_RISK_PERCENT_PER_TRADE=<adjust if 1.5% isn't right for you>
+   GAMMA_BLAST_MAX_LOTS_PER_TRADE=<adjust if 3 lots isn't right for you>
+   ```
+3. Restart the backend to pick up the change:
+   ```bash
+   sudo systemctl restart live-options-backend.service
+   ```
+
+### 4. Decide when to switch Gamma Blast from PAPER to LIVE
+
+**Why:** this is explicitly a decision only you can make — how many paper
+sessions you want to see (there's no automatic evidence-gate in v1 by
+design; see the "Deferred to follow-up" note in build item #6) before trusting
+it with real orders.
+
+**What to do, once you've decided:**
+1. SSH in during trading hours and edit the production `.env`:
+   ```
+   GAMMA_BLAST_MODE=LIVE
+   LIVE_ORDER_ENABLED=true
+   ```
+   (`LIVE_ORDER_ENABLED` is the pre-existing master switch shared with
+   Manage Trades' own manual close/SL/Target orders — if it's already `true`
+   for those, you only need to change `GAMMA_BLAST_MODE`.)
+2. Restart the backend:
+   ```bash
+   sudo systemctl restart live-options-backend.service
+   ```
+3. Remember: in `LIVE` mode, entries and exits still always require your
+   manual Approve click regardless of `GAMMA_BLAST_PAPER_AUTO_APPROVE` — that
+   flag only ever affects paper mode.
+4. To switch back to paper at any point, reverse step 1 and restart again —
+   no code changes needed either direction.
+
+### 5. Don't run other local Dhan-connected apps while relying on OCI for live trading
+
+**Why:** `options-dash` and `the-p5-idea` (other local projects on your
+machine) share the same `DHAN_CLIENT_ID`. Dhan allows only one active access
+token per client — if either of those apps refreshes its own token while OCI
+is live-trading, it silently invalidates OCI's session, reproducing the
+"Invalid Token" / lockout issues fixed in build items #1 and #5.
+
+**What to do:** before/during a trading day where you're relying on OCI,
+check nothing else is running locally:
+```bash
+lsof -iTCP -sTCP:LISTEN -P | grep -E "8000|8008"
+```
+If either shows a process, stop it (or at minimum, don't let it hit an
+endpoint that would trigger its own Dhan token refresh) before trusting OCI's
+session for the day.
+
+### 6. Update the NSE holiday list once 2027's calendar is published
+
+**Why:** `ops/trade_instance_scheduler.py`'s `HOLIDAYS` set only has 2026
+dates. Without an update, the trade instance will simply start/stop on normal
+weekday hours through any 2027 holiday that isn't a Saturday/Sunday — not
+harmful (no real trading happens on a holiday regardless), just not
+"perfectly" skipped.
+
+**What to do (once a year, whenever NSE/BSE publish next year's holidays):**
+1. Get the new list (NSE's official site, or e.g. Zerodha's published holiday
+   calendar page).
+2. Edit `ops/trade_instance_scheduler.py` in this repo, adding the new dates
+   to the `HOLIDAYS` set (keep the existing ones too, or replace entirely if
+   the prior year has fully passed).
+3. Copy the updated file to the always-on box and the repo stays in sync:
+   ```bash
+   scp ops/trade_instance_scheduler.py opc@161.118.162.75:~/trade-instance-scheduler/scheduler.py
+   ```
+4. No restart needed — cron picks up the new file on its next run
+   automatically (every 5 minutes).
+5. Commit the change to this repo too, so `ops/` stays the source of truth.
+
+### 7. Confirm the trade instance actually auto-starts Monday morning
+
+**Why:** the scheduler's `SOFTSTOP` path was manually verified end-to-end
+this session; the unattended cron-triggered `START` path has not yet been
+observed in practice (the box has only ever been manually started so far).
+
+**What to do:** shortly after 8:30 AM IST on the next trading day, try:
+```bash
+curl http://140.245.25.236/health
+```
+If it doesn't respond within a few minutes of 8:30, check the scheduler log
+from the always-on box:
+```bash
+ssh opc@161.118.162.75 'tail -20 ~/trade-instance-scheduler/scheduler.log'
+```
+
+### 8. (Optional, low priority) Tighten the trade-instance-scheduler's IAM policy
+
+**Why:** the `where target.resource.id = '<instance OCID>'` condition meant
+to scope the policy to *only* the trade instance was rejected by OCI as a
+no-op for this resource type, so it currently falls back to compartment-wide
+`manage instance-family` — meaning 161.118.162.75 can technically start/stop
+any instance in that compartment, not just the trade one. Low real risk today
+(only two instances exist there), but worth tightening if you add more
+instances to that compartment later.
+
+**What to do (optional):** if you want to revisit this, Oracle's IAM policy
+reference for compute-specific conditions would need checking for the correct
+variable name (it likely isn't `target.resource.id` for this resource type) —
+happy to help work through it if/when you want to prioritize it.
+
+---
+
+## Also found while writing this doc (fixed, not yet deployed)
+
+While documenting the AI-insights auto-refresh time (build item #7, default
+18:00 IST) against the trade-instance scheduler (build item #8, stops the
+server at 17:00 IST), the conflict was obvious: the backend would already be
+stopped by 18:00, so the daily insights refresh would never fire. Changed the
+default to `16:00` (comfortably after Gamma Blast's own 15:35 retrospective,
+well before the 17:00 shutdown) and updated `.env.example` to document it —
+committed locally, but **not yet deployed**, since the trade instance is
+currently stopped per its own new schedule. Let me know if you'd like it
+started briefly to deploy this now, or if it can wait for the next natural
+trading-day start (at which point I'll deploy it before market open).
+
+---
+
 ## 1. Detect invalid-token Dhan errors beyond HTTP 401
 
 **Commit:** `7beba1a`

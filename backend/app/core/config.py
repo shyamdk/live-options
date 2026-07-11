@@ -70,7 +70,7 @@ class Settings(BaseSettings):
     openai_model: str = "gpt-4o"
 
     journal_insights_monitor_enabled: bool = True
-    journal_insights_refresh_time: str = "18:00"
+    journal_insights_refresh_time: str = "16:00"
     journal_insights_check_interval_seconds: int = 900
 
     gamma_blast_monitor_enabled: bool = True
