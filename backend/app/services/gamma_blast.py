@@ -8,6 +8,7 @@ waits for the API-triggered manual click.
 from __future__ import annotations
 
 import asyncio
+import time
 from datetime import datetime
 from typing import Any
 
@@ -23,8 +24,10 @@ from app.services.gamma_blast_engine import (
     evaluate_exit,
     find_walls,
     quiet_day_status,
+    strike_dicts,
 )
 from app.services.gamma_blast_instruments import (
+    INDEX_SEGMENT,
     expiry_weekday_for,
     fetch_strike_states,
     lot_size_for,
@@ -125,8 +128,9 @@ async def _maybe_start_session(settings: Settings, index_symbol: str, now: datet
     )
     db.record_event(session_id, "SESSION_START", f"{index_symbol} session started, spot {spot:g}, expiry {expiry}")
 
-    instruments = [(EXCHANGE_SEGMENT, s.security_id) for s in strikes]
-    ws_task = ws_feed.start_feed_task(settings, instruments)
+    full_mode_instruments = [(EXCHANGE_SEGMENT, s.security_id) for s in strikes]
+    quote_mode_instruments = [(INDEX_SEGMENT, str(underlying_scrip))]
+    ws_task = ws_feed.start_feed_task(settings, full_mode_instruments, quote_mode_instruments)
 
     _active[index_symbol] = {
         "sessionId": session_id,
@@ -166,7 +170,20 @@ def _compute_snapshot(settings: Settings, index_symbol: str) -> dict[str, Any] |
         live = live_state.get(security_id)
         ltp = live["ltp"] if live else strike.ltp
         oi = live["oi"] if live else strike.oi
-        strikes.append(StrikeState(strike.strike, strike.option_side, security_id, ltp, oi))
+        strikes.append(
+            StrikeState(
+                strike.strike,
+                strike.option_side,
+                security_id,
+                ltp,
+                oi,
+                strike.delta,
+                strike.gamma,
+                strike.theta,
+                strike.vega,
+                strike.iv,
+            )
+        )
 
     index_live = live_state.get(str(underlying_scrip_for(index_symbol, settings)))
     if index_live and index_live.get("ltp"):
@@ -182,12 +199,48 @@ def _compute_snapshot(settings: Settings, index_symbol: str) -> dict[str, Any] |
         strike_range=settings.gamma_blast_strike_range,
         min_oi_threshold=settings.gamma_blast_min_oi_threshold,
     )
-    return {"spot": spot, "walls": walls, "quiet": quiet, "liveState": live_state}
+    strikes.sort(key=lambda s: (s.strike, s.option_side))
+    return {
+        "spot": spot,
+        "walls": walls,
+        "quiet": quiet,
+        "liveState": live_state,
+        "strikes": strike_dicts(strikes, spot),
+    }
+
+
+async def _maybe_reconcile_greeks(settings: Settings, index_symbol: str, session: dict[str, Any]) -> None:
+    """Dhan's WebSocket feed never carries Greeks (only LTP/OI) — periodically
+    re-pull the REST option chain (rate-limited to 1 req/3s, enforced in
+    DhanService._option_chain_request) to keep delta/gamma/theta/vega fresh.
+    WS ticks remain the source of truth for LTP/OI in _compute_snapshot.
+    """
+    last = session.get("lastReconciliation", 0.0)
+    if time.monotonic() - last < settings.gamma_blast_reconciliation_interval_seconds:
+        return
+    session["lastReconciliation"] = time.monotonic()
+    try:
+        dhan = DhanService(settings)
+        underlying_scrip = underlying_scrip_for(index_symbol, settings)
+        _, strikes = await fetch_strike_states(
+            dhan,
+            underlying_scrip=underlying_scrip,
+            expiry=session["expiry"],
+            strike_step=session["strikeStep"],
+            strike_range=settings.gamma_blast_strike_range,
+        )
+        for strike in strikes:
+            session["strikes"][strike.security_id] = strike
+    except Exception:
+        pass
 
 
 async def _evaluate_session(settings: Settings, index_symbol: str, now: datetime) -> None:
     session = _active[index_symbol]
     session_id = session["sessionId"]
+
+    await _maybe_reconcile_greeks(settings, index_symbol, session)
+
     snapshot = _compute_snapshot(settings, index_symbol)
     if not snapshot or snapshot["spot"] is None:
         return
@@ -302,11 +355,9 @@ async def _alert_and_maybe_auto_approve(
 
 
 async def _send_alert(settings: Settings, signal_id: int, session_id: str, index_symbol: str, phase: str) -> None:
-    import time as _time
-
     key = f"{session_id}:{signal_id}"
     last = _last_alert_at.get(key, 0.0)
-    now_monotonic = _time.monotonic()
+    now_monotonic = time.monotonic()
     if now_monotonic - last < settings.gamma_blast_alert_repeat_seconds:
         return
     _last_alert_at[key] = now_monotonic
@@ -454,6 +505,7 @@ def get_state() -> dict[str, Any]:
             continue
         snapshot = session.get("lastSnapshot") or {}
         session_id = session["sessionId"]
+        now = now_ist()
         indices[index_symbol] = {
             "status": "RUNNING",
             "sessionId": session_id,
@@ -463,6 +515,10 @@ def get_state() -> dict[str, Any]:
             "spot": snapshot.get("spot"),
             "walls": snapshot.get("walls"),
             "quietDay": snapshot.get("quiet"),
+            "strikes": snapshot.get("strikes") or [],
+            "entryWindowOk": in_time_window(now.time(), settings.gamma_blast_entry_window_start, settings.gamma_blast_entry_window_end),
+            "entryWindow": f"{settings.gamma_blast_entry_window_start}-{settings.gamma_blast_entry_window_end}",
+            "forceExitTime": settings.gamma_blast_force_exit_time,
             "pendingSignals": db.get_pending_signals(session_id),
             "openTrades": db.get_open_trades(session_id),
             "events": db.get_events_for_session(session_id, limit=100),

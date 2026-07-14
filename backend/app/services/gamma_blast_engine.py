@@ -20,6 +20,11 @@ class StrikeState:
     security_id: str
     ltp: float | None
     oi: float | None
+    delta: float | None = None
+    gamma: float | None = None
+    theta: float | None = None
+    vega: float | None = None
+    iv: float | None = None
 
 
 def find_walls(
@@ -53,21 +58,34 @@ def find_walls(
     call_wall = max(call_candidates, key=lambda s: s.oi or 0) if call_candidates else None
     put_wall = max(put_candidates, key=lambda s: s.oi or 0) if put_candidates else None
     return {
-        "callWall": _strike_dict(call_wall),
-        "putWall": _strike_dict(put_wall),
+        "callWall": _strike_dict(call_wall, spot),
+        "putWall": _strike_dict(put_wall, spot),
     }
 
 
-def _strike_dict(strike: StrikeState | None) -> dict[str, Any] | None:
+def _strike_dict(strike: StrikeState | None, spot: float | None = None) -> dict[str, Any] | None:
     if strike is None:
         return None
-    return {
+    result = {
         "strike": strike.strike,
         "optionSide": strike.option_side,
         "securityId": strike.security_id,
         "ltp": strike.ltp,
         "oi": strike.oi,
+        "delta": strike.delta,
+        "gamma": strike.gamma,
+        "theta": strike.theta,
+        "vega": strike.vega,
+        "iv": strike.iv,
     }
+    if spot is not None:
+        result["distancePoints"] = round(strike.strike - spot, 2)
+        result["distancePercent"] = round((strike.strike - spot) / spot * 100, 3) if spot else None
+    return result
+
+
+def strike_dicts(strikes: list[StrikeState], spot: float | None = None) -> list[dict[str, Any]]:
+    return [d for s in strikes if (d := _strike_dict(s, spot)) is not None]
 
 
 def quiet_day_status(spot: float, session_open: float, max_percent: float) -> dict[str, Any]:

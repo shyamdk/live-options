@@ -4,7 +4,14 @@ Binary protocol confirmed against Dhan's official docs (feed request codes,
 feed response codes, Full-packet byte layout) and cross-checked against the
 working Ticker/Quote parser in strangle/dhan_ws.py. Full mode (RequestCode 21,
 response code 8) carries LTP + Open Interest in a single packet — no separate
-REST poll needed for OI once subscribed.
+REST poll needed for OI once subscribed to option contracts this way.
+
+Indices (segment IDX_I, e.g. NIFTY/SENSEX spot) are a documented exception:
+confirmed by direct testing against the live feed that Dhan sends *zero*
+packets for an index subscribed in Full mode (indices have no OI/depth to
+report), but responds immediately with Quote-mode (RequestCode 17, response
+code 4) packets. So index instruments must be subscribed separately in Quote
+mode; option contracts stay on Full mode for OI.
 
 Rate-limit note: Dhan documents no explicit cap on WS message volume once
 connected (unlike the REST option-chain endpoints), but connection setup competes
@@ -26,7 +33,9 @@ from app.services.dhan_auth import get_dhan_access_token
 
 WSS_URL = "wss://api-feed.dhan.co"
 FULL_MODE_REQUEST_CODE = 21
+QUOTE_MODE_REQUEST_CODE = 17
 FEED_RESPONSE_TICKER = 2
+FEED_RESPONSE_QUOTE = 4
 FEED_RESPONSE_OI = 5
 FEED_RESPONSE_FULL = 8
 FEED_RESPONSE_DISCONNECT = 50
@@ -54,8 +63,12 @@ def seconds_since_last_tick() -> float | None:
     return time.monotonic() - _last_tick_at
 
 
-def start_feed_task(settings: Settings, instruments: list[tuple[str, str]]) -> asyncio.Task:
-    return asyncio.create_task(_run_feed(settings, instruments))
+def start_feed_task(
+    settings: Settings,
+    full_mode_instruments: list[tuple[str, str]],
+    quote_mode_instruments: list[tuple[str, str]] | None = None,
+) -> asyncio.Task:
+    return asyncio.create_task(_run_feed(settings, full_mode_instruments, quote_mode_instruments or []))
 
 
 async def stop_feed_task(task: asyncio.Task | None) -> None:
@@ -70,7 +83,9 @@ async def stop_feed_task(task: asyncio.Task | None) -> None:
         return
 
 
-async def _run_feed(settings: Settings, instruments: list[tuple[str, str]]) -> None:
+async def _run_feed(
+    settings: Settings, full_mode_instruments: list[tuple[str, str]], quote_mode_instruments: list[tuple[str, str]]
+) -> None:
     global _CONNECTED
     import websockets
 
@@ -83,7 +98,8 @@ async def _run_feed(settings: Settings, instruments: list[tuple[str, str]]) -> N
             async with websockets.connect(url, ping_interval=20, ping_timeout=10, close_timeout=5) as ws:
                 _CONNECTED = True
                 attempt = 0
-                await _subscribe_all(ws, instruments)
+                await _subscribe(ws, full_mode_instruments, FULL_MODE_REQUEST_CODE)
+                await _subscribe(ws, quote_mode_instruments, QUOTE_MODE_REQUEST_CODE)
                 async for message in ws:
                     if isinstance(message, bytes):
                         _handle_packet(message)
@@ -98,11 +114,11 @@ async def _run_feed(settings: Settings, instruments: list[tuple[str, str]]) -> N
             _CONNECTED = False
 
 
-async def _subscribe_all(ws: Any, instruments: list[tuple[str, str]]) -> None:
+async def _subscribe(ws: Any, instruments: list[tuple[str, str]], request_code: int) -> None:
     for i in range(0, len(instruments), 100):
         batch = instruments[i : i + 100]
         message = {
-            "RequestCode": FULL_MODE_REQUEST_CODE,
+            "RequestCode": request_code,
             "InstrumentCount": len(batch),
             "InstrumentList": [{"ExchangeSegment": seg, "SecurityId": sid} for seg, sid in batch],
         }
@@ -119,6 +135,12 @@ def _handle_packet(data: bytes) -> None:
     if response_code == FEED_RESPONSE_FULL and len(data) >= 46:
         ltp, _ltq, _ltt, _atp, _volume, _sell, _buy, oi = struct.unpack("<fHIfIIII", data[8:38])
         _LIVE_STATE[key] = {"ltp": round(ltp, 2), "oi": float(oi), "updatedAt": time.monotonic()}
+        _last_tick_at = time.monotonic()
+    elif response_code == FEED_RESPONSE_QUOTE and len(data) >= 12:
+        (ltp,) = struct.unpack("<f", data[8:12])
+        entry = _LIVE_STATE.setdefault(key, {"ltp": None, "oi": None, "updatedAt": 0.0})
+        entry["ltp"] = round(ltp, 2)
+        entry["updatedAt"] = time.monotonic()
         _last_tick_at = time.monotonic()
     elif response_code == FEED_RESPONSE_OI and len(data) >= 12:
         (oi,) = struct.unpack("<I", data[8:12])

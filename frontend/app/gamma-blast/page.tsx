@@ -9,9 +9,9 @@ import type {
   GammaBlastIndexState,
   GammaBlastSessionDetail,
   GammaBlastState,
+  GammaBlastStrikeRow,
   GammaBlastTrade,
   GammaBlastWallStrike,
-  GammaBlastWalls,
 } from "@/types/gamma-blast";
 
 const moneyFormat = new Intl.NumberFormat("en-IN", { maximumFractionDigits: 2, minimumFractionDigits: 2 });
@@ -180,10 +180,8 @@ function IndexPanel({
     );
   }
 
-  const wallBars = buildWallBars(data.walls, data.spot);
-
   return (
-    <section className="gb-panel">
+    <section className="gb-panel gb-panel-active">
       <div className="section-title">
         <h2>{index}</h2>
         <span className={`risk-pill ${data.wsConnected ? "target" : "stopLoss"}`}>
@@ -191,33 +189,26 @@ function IndexPanel({
         </span>
       </div>
       <div className="gb-status-row">
-        <span>Spot: {money(data.spot)}</span>
-        <span>Open: {money(data.sessionOpen)}</span>
-        <span className={data.quietDay?.isQuiet ? "positive" : "negative"}>
-          {data.quietDay?.isQuiet ? "Quiet day" : "Not quiet"}
-          {data.quietDay?.movePercent !== null && data.quietDay?.movePercent !== undefined
-            ? ` (${data.quietDay.movePercent.toFixed(2)}%)`
-            : ""}
+        <span>
+          Spot: <strong>{money(data.spot)}</strong>
         </span>
+        <span>Session open: {money(data.sessionOpen)}</span>
+        <span className={data.quietDay?.isQuiet ? "positive" : "negative"}>
+          {data.quietDay === null || data.quietDay === undefined
+            ? "Quiet-day: waiting for spot…"
+            : data.quietDay.isQuiet
+              ? `Quiet day (moved ${money(data.quietDay.movePercent)}%)`
+              : `Not quiet — moved ${money(data.quietDay.movePercent)}%`}
+        </span>
+        <span className={data.entryWindowOk ? "positive" : ""}>
+          Entry window {data.entryWindow} IST — {data.entryWindowOk ? "open" : "closed"}
+        </span>
+        <span className="subtext">Force exit {data.forceExitTime} IST</span>
       </div>
 
-      {wallBars.length ? (
-        <div className="gb-wall-chart" role="img" aria-label={`${index} open interest by strike`}>
-          {wallBars.map((bar) => (
-            <div key={`${bar.strike}-${bar.side}`} className={`gb-wall-row ${bar.highlight ?? ""}`}>
-              <span className="gb-wall-strike">
-                {bar.strike} {bar.side}
-              </span>
-              <span className="gb-wall-bar-track">
-                <span className="gb-wall-bar-fill" style={{ width: `${bar.widthPercent}%` }} />
-              </span>
-              <span className="gb-wall-oi">{formatOi(bar.oi)}</span>
-            </div>
-          ))}
-        </div>
-      ) : (
-        <p className="subtext">Waiting for OI data…</p>
-      )}
+      <WallSummary walls={data.walls} />
+
+      <StrikesTable strikes={data.strikes} walls={data.walls} />
 
       {data.pendingSignals.length ? (
         <div className="alert warning">
@@ -318,24 +309,103 @@ function SessionDetailCard({ detail, onClose }: { detail: GammaBlastSessionDetai
   );
 }
 
-function buildWallBars(
-  walls: GammaBlastWalls | null | undefined,
-  spot: number | null | undefined,
-): { strike: number; side: string; oi: number; widthPercent: number; highlight?: string }[] {
-  const entries: GammaBlastWallStrike[] = [];
-  if (walls?.callWall) entries.push(walls.callWall);
-  if (walls?.putWall) entries.push(walls.putWall);
-  if (!entries.length) return [];
-  const maxOi = Math.max(...entries.map((e) => e.oi ?? 0), 1);
-  return entries
-    .sort((a, b) => a.strike - b.strike)
-    .map((entry) => ({
-      strike: entry.strike,
-      side: entry.optionSide,
-      oi: entry.oi ?? 0,
-      widthPercent: Math.max(4, ((entry.oi ?? 0) / maxOi) * 100),
-      highlight: entry.optionSide === "CE" ? "gb-wall-call" : "gb-wall-put",
-    }));
+function WallSummary({ walls }: { walls: { callWall: GammaBlastWallStrike | null; putWall: GammaBlastWallStrike | null } | null | undefined }) {
+  if (!walls || (!walls.callWall && !walls.putWall)) {
+    return <p className="subtext">Waiting for OI data to identify walls…</p>;
+  }
+  return (
+    <div className="gb-wall-summary">
+      <WallCard label="Call wall (resistance)" strike={walls.callWall} className="gb-wall-call" />
+      <WallCard label="Put wall (support)" strike={walls.putWall} className="gb-wall-put" />
+    </div>
+  );
+}
+
+function WallCard({ label, strike, className }: { label: string; strike: GammaBlastWallStrike | null; className: string }) {
+  if (!strike) {
+    return (
+      <div className={`gb-wall-card ${className}`}>
+        <span className="subtext">{label}</span>
+        <p className="subtext">No qualifying strike yet</p>
+      </div>
+    );
+  }
+  return (
+    <div className={`gb-wall-card ${className}`}>
+      <span className="subtext">{label}</span>
+      <strong>
+        {strike.strike} {strike.optionSide}
+      </strong>
+      <span>OI {formatOi(strike.oi ?? 0)}</span>
+      <span>
+        {strike.distancePoints !== null && strike.distancePoints !== undefined
+          ? `${strike.distancePoints > 0 ? "+" : ""}${money(strike.distancePoints)} pts (${strike.distancePercent}%) from spot`
+          : "-"}
+      </span>
+      <span className="gb-greeks">
+        Δ {greek(strike.delta)} · Γ {greek(strike.gamma, 4)} · Θ {greek(strike.theta)} · V {greek(strike.vega)}
+        {strike.iv !== null && strike.iv !== undefined ? ` · IV ${money(strike.iv)}%` : ""}
+      </span>
+    </div>
+  );
+}
+
+function StrikesTable({
+  strikes,
+  walls,
+}: {
+  strikes: GammaBlastStrikeRow[];
+  walls: { callWall: GammaBlastWallStrike | null; putWall: GammaBlastWallStrike | null } | null | undefined;
+}) {
+  if (!strikes.length) return null;
+  const wallSecurityIds = new Set([walls?.callWall?.securityId, walls?.putWall?.securityId].filter(Boolean));
+  return (
+    <div className="table-wrap gb-subtable">
+      <table>
+        <thead>
+          <tr>
+            <th>Strike</th>
+            <th>Side</th>
+            <th>LTP</th>
+            <th>OI</th>
+            <th>Dist</th>
+            <th>Delta</th>
+            <th>Gamma</th>
+            <th>Theta</th>
+            <th>Vega</th>
+            <th>IV</th>
+          </tr>
+        </thead>
+        <tbody>
+          {strikes.map((row) => (
+            <tr key={row.securityId} className={wallSecurityIds.has(row.securityId) ? (row.optionSide === "CE" ? "gb-wall-call" : "gb-wall-put") : ""}>
+              <td>{row.strike}</td>
+              <td>
+                <span className={`badge ${row.optionSide === "CE" ? "buy" : "sell"}`}>{row.optionSide}</span>
+              </td>
+              <td>{money(row.ltp)}</td>
+              <td>{formatOi(row.oi ?? 0)}</td>
+              <td>
+                {row.distancePoints !== null && row.distancePoints !== undefined
+                  ? `${row.distancePoints > 0 ? "+" : ""}${row.distancePoints.toFixed(0)}`
+                  : "-"}
+              </td>
+              <td>{greek(row.delta)}</td>
+              <td>{greek(row.gamma, 4)}</td>
+              <td>{greek(row.theta)}</td>
+              <td>{greek(row.vega)}</td>
+              <td>{row.iv !== null && row.iv !== undefined ? `${money(row.iv)}%` : "-"}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function greek(value: number | null | undefined, decimals = 2): string {
+  if (value === null || value === undefined || Number.isNaN(value)) return "-";
+  return value.toFixed(decimals);
 }
 
 function formatOi(value: number): string {

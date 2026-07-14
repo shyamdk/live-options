@@ -842,7 +842,7 @@ td strong {
 
 .gb-index-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
+  grid-template-columns: 1fr;
   gap: 12px;
 }
 
@@ -864,50 +864,43 @@ td strong {
   color: var(--muted);
 }
 
-.gb-wall-chart {
+.gb-wall-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 10px;
+}
+
+.gb-wall-card {
   display: grid;
   gap: 4px;
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 13px;
 }
 
-.gb-wall-row {
-  display: grid;
-  grid-template-columns: 90px 1fr 70px;
-  align-items: center;
-  gap: 8px;
-  border-radius: 6px;
-  padding: 2px 4px;
-}
-
-.gb-wall-row.gb-wall-call {
+.gb-wall-card.gb-wall-call {
   background: var(--blue-soft);
 }
 
-.gb-wall-row.gb-wall-put {
+.gb-wall-card.gb-wall-put {
   background: var(--amber-soft);
 }
 
-.gb-wall-strike {
+.gb-wall-card strong {
+  font-size: 15px;
+}
+
+.gb-greeks {
   font-size: 12px;
-  font-weight: 750;
-  white-space: nowrap;
+  color: var(--muted);
 }
 
-.gb-wall-bar-track {
-  height: 10px;
-  border-radius: 999px;
-  background: var(--line-soft);
-  overflow: hidden;
+.gb-subtable tr.gb-wall-call {
+  background: var(--blue-soft);
 }
 
-.gb-wall-bar-fill {
-  display: block;
-  height: 100%;
-  border-radius: 999px;
-  background: var(--blue);
-}
-
-.gb-wall-row.gb-wall-put .gb-wall-bar-fill {
-  background: var(--amber);
+.gb-subtable tr.gb-wall-put {
+  background: var(--amber-soft);
 }
 
 .gb-wall-oi {

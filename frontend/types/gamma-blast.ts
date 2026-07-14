@@ -4,6 +4,18 @@ export type GammaBlastWallStrike = {
   securityId: string;
   ltp: number | null;
   oi: number | null;
+  delta: number | null;
+  gamma: number | null;
+  theta: number | null;
+  vega: number | null;
+  iv: number | null;
+  distancePoints?: number | null;
+  distancePercent?: number | null;
+};
+
+export type GammaBlastStrikeRow = GammaBlastWallStrike & {
+  distancePoints: number | null;
+  distancePercent: number | null;
 };
 
 export type GammaBlastWalls = {
@@ -76,6 +88,10 @@ export type GammaBlastIndexState =
       spot: number | null;
       walls: GammaBlastWalls | null;
       quietDay: GammaBlastQuietDay | null;
+      strikes: GammaBlastStrikeRow[];
+      entryWindowOk: boolean;
+      entryWindow: string;
+      forceExitTime: string;
       pendingSignals: GammaBlastSignal[];
       openTrades: GammaBlastTrade[];
       events: GammaBlastEvent[];

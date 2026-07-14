@@ -59,12 +59,18 @@ async def fetch_strike_states(
 
 
 def _strike_from_payload(strike: float, side: str, payload: dict[str, Any]) -> StrikeState:
+    greeks = payload.get("greeks") or {}
     return StrikeState(
         strike=strike,
         option_side=side,
         security_id=str(payload.get("security_id")),
         ltp=_number(payload.get("last_price")),
         oi=_number(payload.get("oi")),
+        delta=_number(greeks.get("delta")),
+        gamma=_number(greeks.get("gamma")),
+        theta=_number(greeks.get("theta")),
+        vega=_number(greeks.get("vega")),
+        iv=_number(payload.get("implied_volatility")),
     )
 
 
