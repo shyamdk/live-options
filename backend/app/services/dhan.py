@@ -68,6 +68,49 @@ class DhanService:
             _last_option_chain_call = time.monotonic()
             return await self._request("POST", path, require_client_id=True, json_body=body)
 
+    async def intraday_candles(
+        self,
+        security_id: str,
+        exchange_segment: str,
+        instrument: str,
+        interval: str,
+        from_date: str,
+        to_date: str,
+    ) -> list[dict[str, Any]]:
+        """POST /charts/intraday. Dhan documents no explicit rate limit for this
+        endpoint, but callers should still only poll on real candle-close
+        boundaries (every 5/15 min), not continuously — enforced by the caller
+        (ema5_candles.py), not here.
+        """
+        body = {
+            "securityId": str(security_id),
+            "exchangeSegment": exchange_segment,
+            "instrument": instrument,
+            "interval": str(interval),
+            "fromDate": from_date,
+            "toDate": to_date,
+        }
+        payload = await self._request("POST", "/charts/intraday", require_client_id=True, json_body=body)
+        if not isinstance(payload, dict):
+            return []
+        opens = payload.get("open") or []
+        highs = payload.get("high") or []
+        lows = payload.get("low") or []
+        closes = payload.get("close") or []
+        volumes = payload.get("volume") or []
+        timestamps = payload.get("timestamp") or []
+        return [
+            {
+                "time": int(timestamps[i]),
+                "open": float(opens[i]),
+                "high": float(highs[i]),
+                "low": float(lows[i]),
+                "close": float(closes[i]),
+                "volume": float(volumes[i]) if i < len(volumes) else None,
+            }
+            for i in range(len(timestamps))
+        ]
+
     async def trade_book(self) -> list[dict[str, Any]]:
         global _TRADE_BOOK_CACHE
         now = time.monotonic()

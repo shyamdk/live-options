@@ -10,6 +10,7 @@ import type {
   TradeLevels,
 } from "@/types/live";
 import type { GammaBlastSessionDetail, GammaBlastState } from "@/types/gamma-blast";
+import type { Ema5CandlesResponse, Ema5Session, Ema5SessionDetail, Ema5Side, Ema5State } from "@/types/ema5";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8001";
 const AUTH_TOKEN_KEY = "live-options-auth-token";
@@ -139,6 +140,34 @@ export async function getGammaBlastSessionDetail(sessionId: string): Promise<Gam
     `/api/gamma-blast/sessions/${encodeURIComponent(sessionId)}`,
     undefined,
     "Failed to load Gamma Blast session detail",
+  );
+}
+
+export async function getEma5State(): Promise<Ema5State> {
+  return apiJson<Ema5State>("/api/ema5/state", undefined, "Failed to load ema5 state");
+}
+
+export async function getEma5Candles(side: Ema5Side): Promise<Ema5CandlesResponse> {
+  return apiJson<Ema5CandlesResponse>(`/api/ema5/candles?side=${side}`, undefined, "Failed to load ema5 candles");
+}
+
+export async function approveEma5Signal(signalId: number) {
+  return apiJson<Record<string, unknown>>(
+    `/api/ema5/signals/${signalId}/approve`,
+    { method: "POST" },
+    "Failed to approve ema5 signal",
+  );
+}
+
+export async function getEma5Sessions() {
+  return apiJson<{ sessions: Ema5Session[] }>("/api/ema5/sessions", undefined, "Failed to load ema5 sessions");
+}
+
+export async function getEma5SessionDetail(sessionId: string): Promise<Ema5SessionDetail> {
+  return apiJson<Ema5SessionDetail>(
+    `/api/ema5/sessions/${encodeURIComponent(sessionId)}`,
+    undefined,
+    "Failed to load ema5 session detail",
   );
 }
 

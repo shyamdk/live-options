@@ -1,0 +1,43 @@
+The **5 EMA Scalping Strategy** is a rule-based system designed to capture trend reversals when price deviates significantly from the 5-period Exponential Moving Average (EMA). 
+
+### **Selling Strategy (Short/PE Buying)**
+This setup is used to capture downside moves, often from the top of a rally.
+
+*   **Indicator:** 5-period Exponential Moving Average (5 EMA).
+*   **Time Frame:** **5 minutes**.
+*   **Alert Candle:** A candle must **close above the 5 EMA** and its **low must not touch** the 5 EMA.
+*   **Entry Trigger:** If the **low of the alert candle is broken** by a subsequent candle, enter the trade immediately. If the low is not broken and another candle forms above the EMA without touching it, that new candle becomes the new alert candle.
+*   **Stop Loss (SL):** Place the SL at the **high of the alert candle** or the nearest swing high. For Bank Nifty, a minimum SL of 30-40 points is recommended if the candle is very small.
+*   **Target:** A minimum risk-to-reward ratio of **1:3**.
+
+### **Buying Strategy (Long/CE Buying)**
+The buying setup uses a higher time frame to account for the typically slower nature of upward moves.
+
+*   **Indicator:** 5-period Exponential Moving Average (5 EMA).
+*   **Time Frame:** **15 minutes**.
+*   **Alert Candle:** A candle must **close below the 5 EMA** and its **high must not touch** the 5 EMA.
+*   **Entry Trigger:** Enter the trade once the **high of the alert candle is crossed** by a subsequent candle.
+*   **Stop Loss (SL):** Ideally placed at the **low of the alert candle**. If the alert candle is exceptionally large (e.g., 100-200 points), the SL can be placed at the low of the candle that broke the alert candle's high to keep the risk around 40-50 points.
+*   **Target:** A minimum risk-to-reward ratio of **1:3**.
+
+### **Algorithmic & Risk Management Rules**
+To make this strategy suitable for an algorithm, the following parameters should be programmed:
+
+*   **Maximum Daily Trades:** Limit entries to **3 trades per day** for each side (selling and buying) to avoid overtrading during sideways markets.
+*   **Trailing Stop Loss:** You can implement a step-based trailing logic:
+    *   Move SL to **break-even (cost)** once the trade reaches a 1:1 ratio.
+    *   Move SL to **1:1 profit** once the trade reaches a 1:2 ratio.
+    *   Alternatively, use **candle-by-candle trailing** once the trend is clearly established.
+*   **Exit Logic:** If three consecutive stop losses are hit in a day, the system should stop trading until the next day.
+*   **Asset Selection:** The strategy is most effective in **high-liquidity indices** (like Bank Nifty) or stocks with high liquidity, especially when a news-driven gap-up or gap-down occurs.
+
+
+
+create a new page, ema5, the strategy is in ema5.txt
+paper trades (ready to go live trade)
+make it visual.. use tradingview charting on github
+left chart for PE trades and right side chart CE trades
+paper trades below each of the charts - provide all details
+we will test with 3 lots - nifty , 1 lot is 65
+we will book partial profits for 1 and 2 lots, 3rd we will trail SL
+let me know if you have any questions

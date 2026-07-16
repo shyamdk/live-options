@@ -15,8 +15,8 @@ from typing import Any
 from app.core.config import Settings, get_settings
 from app.core.timeutil import in_time_window, now_ist
 from app.db import gamma_blast as db
-from app.services import gamma_blast_ws as ws_feed
 from app.services.dhan import DhanService
+from app.services.dhan_ws import DhanWsClient
 from app.services.gamma_blast_engine import (
     StrikeState,
     calculate_quantity,
@@ -130,7 +130,8 @@ async def _maybe_start_session(settings: Settings, index_symbol: str, now: datet
 
     full_mode_instruments = [(EXCHANGE_SEGMENT, s.security_id) for s in strikes]
     quote_mode_instruments = [(INDEX_SEGMENT, str(underlying_scrip))]
-    ws_task = ws_feed.start_feed_task(settings, full_mode_instruments, quote_mode_instruments)
+    ws_client = DhanWsClient()
+    ws_client.start(settings, full_mode_instruments, quote_mode_instruments)
 
     _active[index_symbol] = {
         "sessionId": session_id,
@@ -138,7 +139,7 @@ async def _maybe_start_session(settings: Settings, index_symbol: str, now: datet
         "sessionOpen": spot,
         "strikes": {s.security_id: s for s in strikes},
         "strikeStep": strike_step,
-        "wsTask": ws_task,
+        "wsClient": ws_client,
         "breakoutSides": set(),
     }
 
@@ -147,7 +148,7 @@ async def _end_session(index_symbol: str) -> None:
     session = _active.pop(index_symbol, None)
     if not session:
         return
-    await ws_feed.stop_feed_task(session["wsTask"])
+    await session["wsClient"].stop()
     db.upsert_session(session["sessionId"], session_date=session["sessionId"].split(":")[0], index_symbol=index_symbol, mode=get_settings().gamma_blast_mode, status="COMPLETED")
     db.record_event(session["sessionId"], "SESSION_END", f"{index_symbol} session ended")
     from app.services.gamma_blast_retrospective import generate_retrospective
@@ -162,7 +163,7 @@ def _compute_snapshot(settings: Settings, index_symbol: str) -> dict[str, Any] |
     session = _active.get(index_symbol)
     if not session:
         return None
-    live_state = ws_feed.get_all_state()
+    live_state = session["wsClient"].get_all_state()
 
     strikes: list[StrikeState] = []
     spot = None
@@ -264,7 +265,7 @@ async def _evaluate_session(settings: Settings, index_symbol: str, now: datetime
 
 async def _raise_entry_signal(settings: Settings, index_symbol: str, session_id: str, breakout: dict[str, Any]) -> None:
     lot_size = lot_size_for(index_symbol, settings)
-    premium = _strike_ltp(session_id, breakout["securityId"]) or breakout.get("wallLtp") or 0
+    premium = _strike_ltp(index_symbol, breakout["securityId"]) or breakout.get("wallLtp") or 0
     qty = calculate_quantity(
         capital_base=settings.gamma_blast_capital_base,
         risk_percent=settings.gamma_blast_risk_percent_per_trade,
@@ -398,7 +399,12 @@ async def _approve_entry(settings: Settings, signal: dict[str, Any]) -> dict[str
 
     order_side = "BUY"
     fill_price, order_status, order_message = await _place_or_simulate(
-        settings, transaction_type=order_side, security_id=str(security_id), quantity=quantity, correlation_id=f"GB-ENTRY-{signal['id']}"
+        settings,
+        index_symbol=signal["indexSymbol"],
+        transaction_type=order_side,
+        security_id=str(security_id),
+        quantity=quantity,
+        correlation_id=f"GB-ENTRY-{signal['id']}",
     )
     if fill_price is None:
         db.update_signal_status(signal["id"], "FAILED")
@@ -435,6 +441,7 @@ async def _approve_exit(settings: Settings, signal: dict[str, Any]) -> dict[str,
     quantity = int(trade["entryQty"] or 0)
     fill_price, order_status, order_message = await _place_or_simulate(
         settings,
+        index_symbol=signal["indexSymbol"],
         transaction_type="SELL",
         security_id=str(trade["securityId"]),
         quantity=quantity,
@@ -455,9 +462,10 @@ async def _approve_exit(settings: Settings, signal: dict[str, Any]) -> dict[str,
 
 
 async def _place_or_simulate(
-    settings: Settings, *, transaction_type: str, security_id: str, quantity: int, correlation_id: str
+    settings: Settings, *, index_symbol: str, transaction_type: str, security_id: str, quantity: int, correlation_id: str
 ) -> tuple[float | None, str, str | None]:
-    live = ws_feed.get_state(security_id)
+    ws_client = _get_ws_client(index_symbol)
+    live = ws_client.get_state(security_id) if ws_client else None
     ltp = live["ltp"] if live else None
 
     if settings.gamma_blast_mode == "PAPER":
@@ -483,8 +491,14 @@ async def _place_or_simulate(
     return fill_price, "sent", None
 
 
-def _strike_ltp(session_id: str, security_id: str) -> float | None:
-    live = ws_feed.get_state(security_id)
+def _get_ws_client(index_symbol: str) -> DhanWsClient | None:
+    session = _active.get(index_symbol)
+    return session["wsClient"] if session else None
+
+
+def _strike_ltp(index_symbol: str, security_id: str) -> float | None:
+    ws_client = _get_ws_client(index_symbol)
+    live = ws_client.get_state(security_id) if ws_client else None
     return live["ltp"] if live else None
 
 
@@ -511,7 +525,7 @@ def get_state() -> dict[str, Any]:
             "sessionId": session_id,
             "expiry": session["expiry"],
             "sessionOpen": session["sessionOpen"],
-            "wsConnected": ws_feed.is_connected(),
+            "wsConnected": session["wsClient"].is_connected(),
             "spot": snapshot.get("spot"),
             "walls": snapshot.get("walls"),
             "quietDay": snapshot.get("quiet"),

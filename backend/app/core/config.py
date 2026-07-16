@@ -102,6 +102,25 @@ class Settings(BaseSettings):
     gamma_blast_session_start_time: str = "09:15"
     gamma_blast_session_end_time: str = "15:40"
 
+    ema5_monitor_enabled: bool = True
+    ema5_mode: str = "PAPER"
+    ema5_paper_auto_approve: bool = True
+    ema5_lot_size: int = 65
+    ema5_lots_per_trade: int = 3
+    ema5_strike_step: float = 50.0
+    ema5_min_sl_points: float = 15.0
+    ema5_max_trades_per_day_per_side: int = 3
+    ema5_max_consecutive_sl_per_side: int = 3
+    ema5_pe_interval_minutes: int = 5
+    ema5_ce_interval_minutes: int = 15
+    ema5_ema_period: int = 5
+    ema5_session_start_time: str = "09:15"
+    ema5_session_end_time: str = "15:25"
+    ema5_force_exit_time: str = "15:20"
+    ema5_evaluation_interval_seconds: int = 3
+    ema5_candle_poll_interval_seconds: int = 30
+    ema5_alert_repeat_seconds: int = 15
+
     model_config = SettingsConfigDict(
         env_file=ROOT_DIR / ".env",
         env_file_encoding="utf-8",
