@@ -856,6 +856,12 @@ td strong {
   min-width: 0;
 }
 
+.ema5-metric-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 10px;
+}
+
 @media (max-width: 1100px) {
   .ema5-grid {
     grid-template-columns: 1fr;

@@ -1,6 +1,6 @@
 "use client";
 
-import { CandlestickSeries, ColorType, createChart, IChartApi, ISeriesApi, LineSeries, UTCTimestamp } from "lightweight-charts";
+import { CandlestickSeries, ColorType, createChart, IChartApi, ISeriesApi, LineSeries, Time, UTCTimestamp } from "lightweight-charts";
 import { RefreshCcw, ShieldCheck } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
@@ -237,7 +237,6 @@ function SidePanel({
         </div>
       ) : null}
 
-      <OpenTradeCard trade={openTrade} />
       <PaperTradesTable side={side} state={state} />
     </section>
   );
@@ -282,7 +281,14 @@ function Ema5Chart({ side, openTrade }: { side: Ema5Side; openTrade: Ema5Trade |
       grid: { vertLines: { color: "#edf0f4" }, horzLines: { color: "#edf0f4" } },
       width: containerRef.current.clientWidth,
       height: 340,
-      timeScale: { timeVisible: true, secondsVisible: false },
+      timeScale: {
+        timeVisible: true,
+        secondsVisible: false,
+        tickMarkFormatter: (time: Time) => formatIstTime(time),
+      },
+      localization: {
+        timeFormatter: (time: Time) => formatIstTime(time),
+      },
     });
     const candleSeries = chart.addSeries(CandlestickSeries, {
       upColor: "#168448",
@@ -345,29 +351,6 @@ function Ema5Chart({ side, openTrade }: { side: Ema5Side; openTrade: Ema5Trade |
   );
 }
 
-function OpenTradeCard({ trade }: { trade: Ema5Trade | null }) {
-  if (!trade) return <p className="subtext">No open trade.</p>;
-  const hasUnrealized = trade.unrealizedPnl !== null && trade.unrealizedPnl !== undefined;
-  return (
-    <div className="gb-status-row">
-      <span>
-        Open: strike <strong>{trade.strike}</strong> qty {trade.entryQty} @ {money(trade.entryPremium)}
-      </span>
-      <span>
-        LTP: <strong>{money(trade.currentPremium)}</strong>
-      </span>
-      <span className={hasUnrealized ? (trade.unrealizedPnl! < 0 ? "negative" : "positive") : ""}>
-        Unrealized P&amp;L: {hasUnrealized ? money(trade.unrealizedPnl) : "-"}
-      </span>
-      <span>Phase: {trade.phase}</span>
-      <span>Entry idx: {money(trade.entryIndexLevel)}</span>
-      <span>SL: {money(trade.initialSl)}</span>
-      <span>T1: {money(trade.target1)} · T2: {money(trade.target2)}</span>
-      {trade.lot3TrailSl !== null && trade.lot3TrailSl !== undefined ? <span>Trail SL: {money(trade.lot3TrailSl)}</span> : null}
-    </div>
-  );
-}
-
 function PaperTradesTable({ side, state }: { side: Ema5Side; state: Ema5State | null }) {
   const running = state?.status === "RUNNING";
   const sideState = running ? state.sides[side] : null;
@@ -385,11 +368,28 @@ function PaperTradesTable({ side, state }: { side: Ema5Side; state: Ema5State | 
     );
   }
 
+  const isOpen = trade.status === "OPEN";
+  const pnl = isOpen ? trade.unrealizedPnl : trade.realizedPnl;
+  const pnlTone = pnl === null || pnl === undefined ? undefined : pnl < 0 ? "negative" : "positive";
+
   return (
     <div className="table-section">
       <div className="section-title">
         <h2>Paper Trade Detail — {trade.id}</h2>
         <span>{trade.status}</span>
+      </div>
+      <div className="ema5-metric-grid">
+        <Metric label="Strike / Qty" value={`${trade.strike ?? "-"} × ${trade.entryQty ?? "-"}`} />
+        <Metric label="Entry Price" value={money(trade.entryPremium)} />
+        <Metric label="LTP" value={isOpen ? money(trade.currentPremium) : "-"} />
+        <Metric label={isOpen ? "Unrealized P&L" : "Realized P&L"} value={money(pnl)} tone={pnlTone} />
+        <Metric label="Phase" value={trade.phase.replaceAll("_", " ")} />
+        <Metric label="Entry Index" value={money(trade.entryIndexLevel)} />
+        <Metric label="Stop Loss" value={money(trade.initialSl)} tone="negative" />
+        <Metric label="Target 1 (1R)" value={money(trade.target1)} tone="positive" />
+        <Metric label="Target 2 (2R)" value={money(trade.target2)} tone="positive" />
+        <Metric label="Target 3 (3R)" value={money(trade.target3)} tone="positive" />
+        <Metric label="Trailing SL" value={trade.lot3TrailSl !== null && trade.lot3TrailSl !== undefined ? money(trade.lot3TrailSl) : "-"} />
       </div>
       <div className="table-wrap gb-subtable">
         <table>
@@ -398,8 +398,9 @@ function PaperTradesTable({ side, state }: { side: Ema5Side; state: Ema5State | 
               <th>Lot</th>
               <th>Qty</th>
               <th>Status</th>
-              <th>Exit idx</th>
-              <th>Exit premium</th>
+              <th>Entry Price</th>
+              <th>Exit Index</th>
+              <th>Exit Price</th>
               <th>Reason</th>
               <th>P&amp;L</th>
             </tr>
@@ -410,15 +411,27 @@ function PaperTradesTable({ side, state }: { side: Ema5Side; state: Ema5State | 
                 <td>Lot {leg.lotNumber}</td>
                 <td>{leg.qty}</td>
                 <td>{leg.status}</td>
+                <td>{money(trade.entryPremium)}</td>
                 <td>{money(leg.exitIndexLevel)}</td>
                 <td>{money(leg.exitPremium)}</td>
                 <td>{leg.exitReason ?? "-"}</td>
-                <td className={leg.realizedPnl && leg.realizedPnl < 0 ? "negative" : "positive"}>{money(leg.realizedPnl)}</td>
+                <td className={leg.realizedPnl && leg.realizedPnl < 0 ? "negative" : "positive"}>
+                  {leg.status === "CLOSED" ? money(leg.realizedPnl) : "-"}
+                </td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
+    </div>
+  );
+}
+
+function Metric({ label, value, tone }: { label: string; value: string; tone?: "positive" | "negative" }) {
+  return (
+    <div className="metric">
+      <span>{label}</span>
+      <strong className={tone ?? ""}>{value}</strong>
     </div>
   );
 }
@@ -481,8 +494,17 @@ function SessionDetailCard({ detail, onClose }: { detail: Ema5SessionDetail; onC
 }
 
 function formatCandleTime(epochSeconds: number): string {
-  const date = new Date(epochSeconds * 1000);
-  return date.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", hour12: false });
+  return new Date(epochSeconds * 1000).toLocaleTimeString("en-IN", {
+    timeZone: "Asia/Kolkata",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+}
+
+function formatIstTime(time: Time): string {
+  if (typeof time !== "number") return String(time);
+  return formatCandleTime(time);
 }
 
 function formatTime(iso: string): string {
