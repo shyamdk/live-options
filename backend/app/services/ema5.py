@@ -514,38 +514,49 @@ async def get_state() -> dict[str, Any]:
 
     session_id = _active["sessionId"]
     session = db.get_session(session_id) or {}
+    all_trades = db.get_trades_for_session(session_id)
+    legs_by_trade = db.get_legs_for_trades([t["id"] for t in all_trades])
+
     open_trades: dict[str, dict[str, Any] | None] = {}
-    legs_by_side: dict[str, list[dict[str, Any]]] = {}
+    trades_by_side: dict[str, list[dict[str, Any]]] = {}
     for side in SIDES:
-        trades = [t for t in db.get_open_trades(session_id) if t["side"] == side]
-        trade = trades[0] if trades else None
-        open_trades[side] = trade
-        legs_by_side[side] = db.get_trade_legs(trade["id"]) if trade else []
+        side_trades = [t for t in all_trades if t["side"] == side]
+        trades_by_side[side] = side_trades
+        open_trades[side] = next((t for t in side_trades if t["status"] == "OPEN"), None)
 
     live_premiums = await _fetch_live_premiums(settings, open_trades)
 
     sides: dict[str, Any] = {}
     for side in SIDES:
         side_state = _active["sides"][side]
-        trade = open_trades[side]
-        legs = legs_by_side[side]
-        if trade is not None:
-            trade = dict(trade)
-            current_premium = live_premiums.get(str(trade["securityId"]))
-            open_qty = sum(leg["qty"] for leg in legs if leg["status"] == "OPEN")
-            entry_premium = trade.get("entryPremium")
-            trade["currentPremium"] = current_premium
-            trade["unrealizedPnl"] = (
-                round((current_premium - entry_premium) * open_qty, 2)
-                if current_premium is not None and entry_premium is not None and open_qty
-                else None
-            )
+        side_trades: list[dict[str, Any]] = []
+        open_trade: dict[str, Any] | None = None
+        open_trade_legs: list[dict[str, Any]] = []
+        for raw_trade in trades_by_side[side]:
+            trade = dict(raw_trade)
+            legs = legs_by_trade.get(trade["id"], [])
+            trade["legs"] = legs
+            if trade["status"] == "OPEN":
+                current_premium = live_premiums.get(str(trade["securityId"]))
+                open_qty = sum(leg["qty"] for leg in legs if leg["status"] == "OPEN")
+                entry_premium = trade.get("entryPremium")
+                trade["currentPremium"] = current_premium
+                trade["unrealizedPnl"] = (
+                    round((current_premium - entry_premium) * open_qty, 2)
+                    if current_premium is not None and entry_premium is not None and open_qty
+                    else None
+                )
+                open_trade = trade
+                open_trade_legs = legs
+            side_trades.append(trade)
+
         sides[side] = {
             "alertCandle": _candle_dict(side_state["alertCandle"]),
             "candles": [_candle_dict(c) for c in side_state["candles"]],
             "ema": side_state["ema"],
-            "openTrade": trade,
-            "legs": legs,
+            "openTrade": open_trade,
+            "legs": open_trade_legs,
+            "trades": side_trades,
             "tradesCount": session.get("peTradesCount" if side == "PE" else "ceTradesCount"),
             "consecutiveSl": session.get("peConsecutiveSl" if side == "PE" else "ceConsecutiveSl"),
             "halted": session.get("peHalted" if side == "PE" else "ceHalted"),

@@ -1,6 +1,18 @@
 "use client";
 
-import { CandlestickSeries, ColorType, createChart, IChartApi, ISeriesApi, LineSeries, Time, UTCTimestamp } from "lightweight-charts";
+import {
+  CandlestickSeries,
+  ColorType,
+  ISeriesMarkersPluginApi,
+  SeriesMarker,
+  Time,
+  UTCTimestamp,
+  createChart,
+  createSeriesMarkers,
+  IChartApi,
+  ISeriesApi,
+  LineSeries,
+} from "lightweight-charts";
 import { RefreshCcw, ShieldCheck } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
@@ -186,6 +198,7 @@ function SidePanel({
   const sideState = running ? state.sides[side] : null;
   const pendingSignals = running ? state.pendingSignals.filter((s) => s.side === side) : [];
   const openTrade = sideState?.openTrade ?? null;
+  const trades = sideState?.trades ?? [];
 
   return (
     <section className="gb-panel ema5-panel">
@@ -207,7 +220,7 @@ function SidePanel({
         )}
       </div>
 
-      <Ema5Chart side={side} openTrade={openTrade} />
+      <Ema5Chart side={side} openTrade={openTrade} trades={trades} />
 
       {pendingSignals.length ? (
         <div className="alert warning">
@@ -242,11 +255,12 @@ function SidePanel({
   );
 }
 
-function Ema5Chart({ side, openTrade }: { side: Ema5Side; openTrade: Ema5Trade | null }) {
+function Ema5Chart({ side, openTrade, trades }: { side: Ema5Side; openTrade: Ema5Trade | null; trades: Ema5Trade[] }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const candleSeriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
   const emaSeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
+  const markersRef = useRef<ISeriesMarkersPluginApi<Time> | null>(null);
   const [candles, setCandles] = useState<Ema5Candle[]>([]);
   const [ema, setEma] = useState<(number | null)[]>([]);
   const [intervalMinutes, setIntervalMinutes] = useState<number | null>(null);
@@ -301,6 +315,7 @@ function Ema5Chart({ side, openTrade }: { side: Ema5Side; openTrade: Ema5Trade |
     chartRef.current = chart;
     candleSeriesRef.current = candleSeries;
     emaSeriesRef.current = emaLine;
+    markersRef.current = createSeriesMarkers(candleSeries, []);
 
     const resizeObserver = new ResizeObserver(() => {
       if (containerRef.current) chart.applyOptions({ width: containerRef.current.clientWidth });
@@ -309,10 +324,12 @@ function Ema5Chart({ side, openTrade }: { side: Ema5Side; openTrade: Ema5Trade |
 
     return () => {
       resizeObserver.disconnect();
+      markersRef.current?.detach();
       chart.remove();
       chartRef.current = null;
       candleSeriesRef.current = null;
       emaSeriesRef.current = null;
+      markersRef.current = null;
     };
   }, []);
 
@@ -341,6 +358,11 @@ function Ema5Chart({ side, openTrade }: { side: Ema5Side; openTrade: Ema5Trade |
       series.createPriceLine({ price: openTrade.lot3TrailSl, color: "#a56513", title: "Trail SL" });
     }
   }, [openTrade]);
+
+  useEffect(() => {
+    if (!markersRef.current || !candles.length) return;
+    markersRef.current.setMarkers(buildTradeMarkers(trades, side, candles));
+  }, [trades, side, candles]);
 
   return (
     <div>
@@ -491,6 +513,58 @@ function SessionDetailCard({ detail, onClose }: { detail: Ema5SessionDetail; onC
       </div>
     </section>
   );
+}
+
+function buildTradeMarkers(trades: Ema5Trade[], side: Ema5Side, candles: Ema5Candle[]): SeriesMarker<Time>[] {
+  const markers: SeriesMarker<Time>[] = [];
+  for (const trade of trades) {
+    if (trade.entryAt) {
+      const time = nearestCandleTime(candles, istIsoToEpoch(trade.entryAt));
+      if (time !== null) {
+        markers.push({
+          time: time as UTCTimestamp,
+          position: side === "CE" ? "belowBar" : "aboveBar",
+          color: side === "CE" ? "#168448" : "#c93535",
+          shape: side === "CE" ? "arrowUp" : "arrowDown",
+          text: `Entry ${money(trade.entryPremium)}`,
+        });
+      }
+    }
+    for (const leg of trade.legs ?? []) {
+      if (leg.status !== "CLOSED" || !leg.exitAt) continue;
+      const time = nearestCandleTime(candles, istIsoToEpoch(leg.exitAt));
+      if (time === null) continue;
+      const positive = (leg.realizedPnl ?? 0) >= 0;
+      markers.push({
+        time: time as UTCTimestamp,
+        position: "inBar",
+        color: positive ? "#168448" : "#c93535",
+        shape: "circle",
+        text: `L${leg.lotNumber} ${leg.exitReason ?? "exit"} ${money(leg.exitPremium)}`,
+      });
+    }
+  }
+  markers.sort((a, b) => (a.time as number) - (b.time as number));
+  return markers;
+}
+
+function istIsoToEpoch(iso: string): number {
+  const [datePart, timePart] = iso.split("T");
+  const [year, month, day] = datePart.split("-").map(Number);
+  const [hour, minute, second] = (timePart ?? "00:00:00").split(":").map(Number);
+  const IST_OFFSET_MS = (5 * 60 + 30) * 60 * 1000;
+  const utcMillis = Date.UTC(year, month - 1, day, hour, minute, second || 0) - IST_OFFSET_MS;
+  return Math.floor(utcMillis / 1000);
+}
+
+function nearestCandleTime(candles: Ema5Candle[], epochSeconds: number): number | null {
+  if (!candles.length) return null;
+  let best = candles[0].time;
+  for (const candle of candles) {
+    if (candle.time <= epochSeconds) best = candle.time;
+    else break;
+  }
+  return best;
 }
 
 function formatCandleTime(epochSeconds: number): string {

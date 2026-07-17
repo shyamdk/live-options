@@ -81,6 +81,7 @@ export type Ema5SideState = {
   ema: (number | null)[];
   openTrade: Ema5Trade | null;
   legs: Ema5TradeLeg[];
+  trades: Ema5Trade[];
   tradesCount: number;
   consecutiveSl: number;
   halted: boolean;
