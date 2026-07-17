@@ -347,10 +347,17 @@ function Ema5Chart({ side, openTrade }: { side: Ema5Side; openTrade: Ema5Trade |
 
 function OpenTradeCard({ trade }: { trade: Ema5Trade | null }) {
   if (!trade) return <p className="subtext">No open trade.</p>;
+  const hasUnrealized = trade.unrealizedPnl !== null && trade.unrealizedPnl !== undefined;
   return (
     <div className="gb-status-row">
       <span>
         Open: strike <strong>{trade.strike}</strong> qty {trade.entryQty} @ {money(trade.entryPremium)}
+      </span>
+      <span>
+        LTP: <strong>{money(trade.currentPremium)}</strong>
+      </span>
+      <span className={hasUnrealized ? (trade.unrealizedPnl! < 0 ? "negative" : "positive") : ""}>
+        Unrealized P&amp;L: {hasUnrealized ? money(trade.unrealizedPnl) : "-"}
       </span>
       <span>Phase: {trade.phase}</span>
       <span>Entry idx: {money(trade.entryIndexLevel)}</span>

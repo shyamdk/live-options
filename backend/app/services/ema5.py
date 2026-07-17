@@ -507,24 +507,45 @@ def _number(value: Any) -> float | None:
         return None
 
 
-def get_state() -> dict[str, Any]:
+async def get_state() -> dict[str, Any]:
     settings = get_settings()
     if _active is None:
         return {"mode": settings.ema5_mode, "status": "NOT_STARTED"}
 
     session_id = _active["sessionId"]
     session = db.get_session(session_id) or {}
+    open_trades: dict[str, dict[str, Any] | None] = {}
+    legs_by_side: dict[str, list[dict[str, Any]]] = {}
+    for side in SIDES:
+        trades = [t for t in db.get_open_trades(session_id) if t["side"] == side]
+        trade = trades[0] if trades else None
+        open_trades[side] = trade
+        legs_by_side[side] = db.get_trade_legs(trade["id"]) if trade else []
+
+    live_premiums = await _fetch_live_premiums(settings, open_trades)
+
     sides: dict[str, Any] = {}
     for side in SIDES:
         side_state = _active["sides"][side]
-        open_trades = [t for t in db.get_open_trades(session_id) if t["side"] == side]
-        trade = open_trades[0] if open_trades else None
+        trade = open_trades[side]
+        legs = legs_by_side[side]
+        if trade is not None:
+            trade = dict(trade)
+            current_premium = live_premiums.get(str(trade["securityId"]))
+            open_qty = sum(leg["qty"] for leg in legs if leg["status"] == "OPEN")
+            entry_premium = trade.get("entryPremium")
+            trade["currentPremium"] = current_premium
+            trade["unrealizedPnl"] = (
+                round((current_premium - entry_premium) * open_qty, 2)
+                if current_premium is not None and entry_premium is not None and open_qty
+                else None
+            )
         sides[side] = {
             "alertCandle": _candle_dict(side_state["alertCandle"]),
             "candles": [_candle_dict(c) for c in side_state["candles"]],
             "ema": side_state["ema"],
             "openTrade": trade,
-            "legs": db.get_trade_legs(trade["id"]) if trade else [],
+            "legs": legs,
             "tradesCount": session.get("peTradesCount" if side == "PE" else "ceTradesCount"),
             "consecutiveSl": session.get("peConsecutiveSl" if side == "PE" else "ceConsecutiveSl"),
             "halted": session.get("peHalted" if side == "PE" else "ceHalted"),
@@ -540,6 +561,31 @@ def get_state() -> dict[str, Any]:
         "pendingSignals": db.get_pending_signals(session_id),
         "events": db.get_events_for_session(session_id, limit=100),
     }
+
+
+async def _fetch_live_premiums(settings: Settings, open_trades: dict[str, dict[str, Any] | None]) -> dict[str, float]:
+    securities_by_segment: dict[str, list[int]] = {}
+    for trade in open_trades.values():
+        if trade is None:
+            continue
+        try:
+            security_id = int(trade["securityId"])
+        except (TypeError, ValueError):
+            continue
+        securities_by_segment.setdefault(str(trade["exchangeSegment"]), []).append(security_id)
+    if not securities_by_segment:
+        return {}
+    try:
+        quotes = await DhanService(settings).market_quotes_by_segment(securities_by_segment)
+    except Exception:
+        return {}
+    result: dict[str, float] = {}
+    for by_security in quotes.values():
+        for security_id, quote in (by_security or {}).items():
+            ltp = _number((quote or {}).get("last_price"))
+            if ltp is not None:
+                result[str(security_id)] = ltp
+    return result
 
 
 def _candle_dict(candle: Any) -> dict[str, Any] | None:

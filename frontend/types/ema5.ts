@@ -62,6 +62,8 @@ export type Ema5Trade = {
   createdAt: string;
   updatedAt: string;
   legs?: Ema5TradeLeg[];
+  currentPremium?: number | null;
+  unrealizedPnl?: number | null;
 };
 
 export type Ema5Event = {

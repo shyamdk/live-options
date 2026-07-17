@@ -17,7 +17,7 @@ router = APIRouter(prefix="/ema5", tags=["ema5"])
 
 @router.get("/state", dependencies=[Depends(require_auth)])
 async def state() -> dict[str, Any]:
-    return get_state()
+    return await get_state()
 
 
 @router.get("/candles", dependencies=[Depends(require_auth)])
