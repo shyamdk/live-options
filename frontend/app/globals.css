@@ -872,6 +872,33 @@ td strong {
   font-size: 17px;
 }
 
+.ema5-config-field {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 3px 8px 3px 10px;
+  background: #fff;
+}
+
+.ema5-config-input {
+  width: 48px;
+  height: 26px;
+  padding: 0 6px;
+  text-align: center;
+}
+
+.ema5-config-error {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 6px;
+  white-space: nowrap;
+  z-index: 5;
+}
+
 @media (max-width: 1100px) {
   .ema5-grid {
     grid-template-columns: 1fr;

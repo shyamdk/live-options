@@ -40,6 +40,7 @@ from app.services.telegram import TelegramNotifier
 SIDES = ("PE", "CE")
 EXCHANGE_SEGMENT = "NSE_FNO"
 INDEX_SEGMENT = "IDX_I"
+MAX_TRADES_PER_DAY_SETTING_KEY = "max_trades_per_day_per_side"
 
 _active: dict[str, Any] | None = None
 _last_alert_at: dict[str, float] = {}
@@ -178,7 +179,7 @@ async def _maybe_raise_entry_signal(settings: Settings, session_id: str, side: s
     if halted:
         db.record_event(session_id, "ENTRY_SKIPPED", f"{side} entry skipped: side halted after consecutive SLs")
         return
-    if trades_count >= settings.ema5_max_trades_per_day_per_side:
+    if trades_count >= get_max_trades_per_day_per_side():
         db.record_event(session_id, "ENTRY_SKIPPED", f"{side} entry skipped: max trades/day reached")
         return
     if any(t["side"] == side for t in db.get_open_trades(session_id)):
@@ -507,10 +508,31 @@ def _number(value: Any) -> float | None:
         return None
 
 
+def get_max_trades_per_day_per_side() -> int:
+    raw = db.get_setting(MAX_TRADES_PER_DAY_SETTING_KEY)
+    if raw is not None:
+        try:
+            return int(raw)
+        except ValueError:
+            pass
+    return get_settings().ema5_max_trades_per_day_per_side
+
+
+def set_max_trades_per_day_per_side(value: int) -> int:
+    if value < 1:
+        raise ValueError("Max trades per day must be at least 1.")
+    db.set_setting(MAX_TRADES_PER_DAY_SETTING_KEY, str(value))
+    return value
+
+
+def get_runtime_config() -> dict[str, Any]:
+    return {"maxTradesPerDaySide": get_max_trades_per_day_per_side()}
+
+
 async def get_state() -> dict[str, Any]:
     settings = get_settings()
     if _active is None:
-        return {"mode": settings.ema5_mode, "status": "NOT_STARTED"}
+        return {"mode": settings.ema5_mode, "status": "NOT_STARTED", "maxTradesPerDaySide": get_max_trades_per_day_per_side()}
 
     session_id = _active["sessionId"]
     session = db.get_session(session_id) or {}
@@ -571,6 +593,7 @@ async def get_state() -> dict[str, Any]:
         "sides": sides,
         "pendingSignals": db.get_pending_signals(session_id),
         "events": db.get_events_for_session(session_id, limit=100),
+        "maxTradesPerDaySide": get_max_trades_per_day_per_side(),
     }
 
 

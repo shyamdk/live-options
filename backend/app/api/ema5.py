@@ -3,21 +3,47 @@ from __future__ import annotations
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 
 from app.core.config import get_settings
 from app.core.timeutil import now_ist
 from app.services.app_auth import require_auth
 from app.services.dhan import DhanService
-from app.services.ema5 import approve_ema5_signal, get_session_detail, get_state, list_past_sessions
+from app.services.ema5 import (
+    approve_ema5_signal,
+    get_runtime_config,
+    get_session_detail,
+    get_state,
+    list_past_sessions,
+    set_max_trades_per_day_per_side,
+)
 from app.services.ema5_candles import fetch_today_candles
 from app.services.ema5_engine import compute_ema, filter_completed_candles
 
 router = APIRouter(prefix="/ema5", tags=["ema5"])
 
 
+class Ema5ConfigIn(BaseModel):
+    maxTradesPerDaySide: int
+
+
 @router.get("/state", dependencies=[Depends(require_auth)])
 async def state() -> dict[str, Any]:
     return await get_state()
+
+
+@router.get("/config", dependencies=[Depends(require_auth)])
+async def config() -> dict[str, Any]:
+    return get_runtime_config()
+
+
+@router.put("/config", dependencies=[Depends(require_auth)])
+async def update_config(body: Ema5ConfigIn) -> dict[str, Any]:
+    try:
+        set_max_trades_per_day_per_side(body.maxTradesPerDaySide)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return get_runtime_config()
 
 
 @router.get("/candles", dependencies=[Depends(require_auth)])

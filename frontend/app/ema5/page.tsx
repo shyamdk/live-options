@@ -13,10 +13,10 @@ import {
   ISeriesApi,
   LineSeries,
 } from "lightweight-charts";
-import { RefreshCcw, ShieldCheck } from "lucide-react";
+import { Check, RefreshCcw, ShieldCheck } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { approveEma5Signal, getEma5Candles, getEma5SessionDetail, getEma5Sessions, getEma5State } from "@/lib/api";
+import { approveEma5Signal, getEma5Candles, getEma5SessionDetail, getEma5Sessions, getEma5State, updateEma5Config } from "@/lib/api";
 import type { Ema5Candle, Ema5Session, Ema5SessionDetail, Ema5Side, Ema5State, Ema5Trade, Ema5TradeLeg } from "@/types/ema5";
 
 const moneyFormat = new Intl.NumberFormat("en-IN", { maximumFractionDigits: 2, minimumFractionDigits: 2 });
@@ -102,6 +102,7 @@ export default function Ema5Page() {
           ) : (
             <span className="risk-pill">Not started</span>
           )}
+          <MaxTradesControl value={state?.maxTradesPerDaySide} onSaved={loadState} />
           <button className="icon-button" type="button" title="Refresh" onClick={loadState} disabled={loading}>
             <RefreshCcw size={16} />
           </button>
@@ -178,6 +179,59 @@ export default function Ema5Page() {
 
       {selectedDetail ? <SessionDetailCard detail={selectedDetail} onClose={() => setSelectedDetail(null)} /> : null}
     </section>
+  );
+}
+
+function MaxTradesControl({ value, onSaved }: { value: number | undefined; onSaved: () => void }) {
+  const [draft, setDraft] = useState("");
+  const [dirty, setDirty] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (value !== undefined && !dirty) setDraft(String(value));
+  }, [value, dirty]);
+
+  async function save() {
+    const parsed = Number(draft);
+    if (!Number.isFinite(parsed) || parsed < 1) {
+      setError("Enter a whole number of at least 1.");
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    try {
+      await updateEma5Config(Math.floor(parsed));
+      setDirty(false);
+      onSaved();
+    } catch (exc) {
+      setError(exc instanceof Error ? exc.message : "Failed to save.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <span className="ema5-config-field" title="Max entries per side per day, effective immediately">
+      <span className="subtext">Max trades/day</span>
+      <input
+        className="level-input ema5-config-input"
+        type="number"
+        min={1}
+        step={1}
+        value={draft}
+        onChange={(event) => {
+          setDraft(event.target.value);
+          setDirty(true);
+        }}
+      />
+      {dirty ? (
+        <button className="icon-button approve" type="button" title="Save" onClick={save} disabled={saving}>
+          <Check size={14} />
+        </button>
+      ) : null}
+      {error ? <span className="alert error ema5-config-error">{error}</span> : null}
+    </span>
   );
 }
 

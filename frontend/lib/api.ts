@@ -10,7 +10,7 @@ import type {
   TradeLevels,
 } from "@/types/live";
 import type { GammaBlastSessionDetail, GammaBlastState } from "@/types/gamma-blast";
-import type { Ema5CandlesResponse, Ema5Session, Ema5SessionDetail, Ema5Side, Ema5State } from "@/types/ema5";
+import type { Ema5CandlesResponse, Ema5Config, Ema5Session, Ema5SessionDetail, Ema5Side, Ema5State } from "@/types/ema5";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8001";
 const AUTH_TOKEN_KEY = "live-options-auth-token";
@@ -149,6 +149,18 @@ export async function getEma5State(): Promise<Ema5State> {
 
 export async function getEma5Candles(side: Ema5Side): Promise<Ema5CandlesResponse> {
   return apiJson<Ema5CandlesResponse>(`/api/ema5/candles?side=${side}`, undefined, "Failed to load ema5 candles");
+}
+
+export async function getEma5Config(): Promise<Ema5Config> {
+  return apiJson<Ema5Config>("/api/ema5/config", undefined, "Failed to load ema5 config");
+}
+
+export async function updateEma5Config(maxTradesPerDaySide: number): Promise<Ema5Config> {
+  return apiJson<Ema5Config>(
+    "/api/ema5/config",
+    { method: "PUT", body: JSON.stringify({ maxTradesPerDaySide }) },
+    "Failed to update ema5 config",
+  );
 }
 
 export async function approveEma5Signal(signalId: number) {

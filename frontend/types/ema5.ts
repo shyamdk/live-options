@@ -88,7 +88,7 @@ export type Ema5SideState = {
 };
 
 export type Ema5State =
-  | { mode: "PAPER" | "LIVE"; status: "NOT_STARTED" }
+  | { mode: "PAPER" | "LIVE"; status: "NOT_STARTED"; maxTradesPerDaySide: number }
   | {
       mode: "PAPER" | "LIVE";
       status: "RUNNING";
@@ -98,6 +98,7 @@ export type Ema5State =
       sides: Record<Ema5Side, Ema5SideState>;
       pendingSignals: Ema5Signal[];
       events: Ema5Event[];
+      maxTradesPerDaySide: number;
     };
 
 export type Ema5Session = {
@@ -120,6 +121,10 @@ export type Ema5SessionDetail = {
   signals: Ema5Signal[];
   trades: Ema5Trade[];
   events: Ema5Event[];
+};
+
+export type Ema5Config = {
+  maxTradesPerDaySide: number;
 };
 
 export type Ema5CandlesResponse = {
