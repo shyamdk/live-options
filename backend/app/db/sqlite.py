@@ -294,6 +294,100 @@ def init_db() -> None:
             )
             """
         )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS animesh_sessions (
+                id TEXT PRIMARY KEY,
+                session_date TEXT NOT NULL,
+                mode TEXT NOT NULL,
+                status TEXT NOT NULL,
+                daily_bias TEXT,
+                pe_trades_count INTEGER NOT NULL DEFAULT 0,
+                pe_consecutive_sl INTEGER NOT NULL DEFAULT 0,
+                pe_halted INTEGER NOT NULL DEFAULT 0,
+                ce_trades_count INTEGER NOT NULL DEFAULT 0,
+                ce_consecutive_sl INTEGER NOT NULL DEFAULT 0,
+                ce_halted INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS animesh_signals (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id TEXT NOT NULL,
+                side TEXT NOT NULL,
+                kind TEXT NOT NULL,
+                status TEXT NOT NULL,
+                strike REAL,
+                index_level REAL,
+                trade_id TEXT,
+                payload_json TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS animesh_trades (
+                id TEXT PRIMARY KEY,
+                session_id TEXT NOT NULL,
+                side TEXT NOT NULL,
+                strike REAL,
+                security_id TEXT,
+                exchange_segment TEXT,
+                mode TEXT NOT NULL,
+                status TEXT NOT NULL,
+                entry_signal_id INTEGER,
+                entry_index_level REAL,
+                entry_premium REAL,
+                entry_qty INTEGER,
+                entry_at TEXT,
+                initial_sl REAL,
+                target1 REAL,
+                target2 REAL,
+                phase TEXT NOT NULL DEFAULT 'OPEN_ALL',
+                lot3_trail_sl REAL,
+                realized_pnl REAL,
+                payload_json TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS animesh_trade_legs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                trade_id TEXT NOT NULL,
+                lot_number INTEGER NOT NULL,
+                qty INTEGER NOT NULL,
+                status TEXT NOT NULL DEFAULT 'OPEN',
+                exit_index_level REAL,
+                exit_premium REAL,
+                exit_at TEXT,
+                exit_reason TEXT,
+                realized_pnl REAL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS animesh_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id TEXT NOT NULL,
+                event_type TEXT NOT NULL,
+                message TEXT NOT NULL,
+                payload_json TEXT,
+                created_at TEXT NOT NULL
+            )
+            """
+        )
         conn.commit()
 
 

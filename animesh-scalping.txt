@@ -1,0 +1,56 @@
+To convert Animesh K’s logic into an algorithmic strategy, you must combine his specific indicator settings with his rules for market bias and execution windows. This strategy is designed for **Nifty, Bank Nifty, and Sensex**.
+
+### 1. Pre-Market Setup & Bias Detection
+The algorithm must first establish a directional filter to eliminate "noise" and prevent trading against the primary trend.
+*   **Instrument:** Index (Nifty/Bank Nifty).
+*   **Daily Filter:** Set the daily chart to **Heikin Ashi** candles.
+    *   **Rule:** If the previous day's Heikin Ashi candle was **Green**, the algorithm is restricted to **Buy Call/Long** positions only for the current session.
+    *   **Rule:** If the previous day's Heikin Ashi candle was **Red**, the algorithm is restricted to **Buy Put/Short** positions only.
+*   **Execution Timeframe:** 1-minute (for scalping) or 5-minute (for standard intraday).
+
+### 2. Indicator Parameters (The "Balloons")
+The core logic relies on a modified MACD and an EMA-based "channel" to identify structure breaks.
+*   **Modified MACD:** Set parameters to **8, 21, 8** (replacing the default 12, 26, 9) to better suit index volatility.
+*   **EMA Band:**
+    *   **Upper Band:** 21 EMA (High).
+    *   **Lower Band:** 21 EMA (Low).
+    *   **Median Line:** 21 EMA (Close).
+*   **Market Context:** If the price is trading **inside the EMA band**, the algorithm must identify the market as "sideways" and **stay flat**.
+
+### 3. Entry Logic (Algorithm Trigger)
+The algorithm should only look for entries during high-volatility windows: **9:30 AM – 11:00 AM** and **2:00 PM – 3:30 PM**.
+*   **Gap Filter:** If the index opens with a significant gap (e.g., >100 points), the algorithm must wait **10 minutes** before scanning for signals.
+*   **Bullish Entry (Daily Bias = Green):**
+    1.  Price must be trading **above the 21 EMA High band**.
+    2.  Wait for a **MACD Crossover** (MACD line crosses above the Signal line).
+    3.  **Refinement:** For scalping, look for crossovers occurring **below the zero line** (reversal style) to ensure a tighter entry.
+    4.  **Trigger:** Place a limit order to buy when the **high of the candle** that generated the crossover is broken.
+*   **Option Selection:** Automatically select **At-the-Money (ATM)** or **one-level In-the-Money (ITM)** contracts to avoid excessive theta decay.
+
+### 4. Risk Management & Exit Logic
+The strategy uses a strict capital-protection mechanism to ensure a single loss does not deplete the "mental capital".
+*   **Stop Loss (SL):**
+    *   Set the initial SL at the **low of the 21 EMA Low band** at the time of entry.
+    *   **Exception:** If the entry candle is exceptionally large, set the SL at **50% of that candle's body** or the previous candle's low.
+*   **Profit Targets (Take Profit):**
+    *   **Scalping (1m):** Aim for a Risk-to-Reward (RR) of **1:1 to 1:1.5**.
+    *   **Intraday (5m):** Aim for a RR of **1:1.5 to 1:2**.
+*   **Cost-to-Cost Rule:** Once the trade reaches a profit equal to the initial risk (**1:1 RR**), the algorithm must automatically **move the Stop Loss to the entry price** (Break-even).
+*   **Day End:** Close all open positions by **3:25 PM**; do not carry positions overnight.
+
+### 5. Algorithmic Guardrails
+*   **Capital Buffer:** The algorithm should be deployed only if the account has **5x the required margin** (e.g., if trading 1 lot requires ₹10,000, the account should hold ₹50,000) to ensure a calm trading temperament.
+*   **The 100-Trade Rule:** Do not modify the algorithm’s core logic until it has completed a cycle of **100 trades**, as this is the minimum data set required to determine its "edge".
+*   **Overtrading Filter:** Define "Overtrading" not by the number of trades, but by any trade taken **outside of these specific parameters**. If 10 trades meet the criteria, all 10 are valid; if zero meet them, zero trades should be taken.
+
+
+
+create a new page, animesh-scalping, the strategy is in animesh-scalping.txt
+paper trades (ready to go live trade)
+make it visual.. use tradingview charting on github, plot candles, macd.. all others...
+mark the trades - entry and exit on the charts
+left chart for PE trades and right side chart CE trades
+paper trades below each of the charts - provide all details
+we will test with 3 lots - nifty , 1 lot is 65
+we will book partial profits for 1 and 2 lots, 3rd we will trail SL
+let me know if you have any questions

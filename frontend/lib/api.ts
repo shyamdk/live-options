@@ -11,6 +11,7 @@ import type {
 } from "@/types/live";
 import type { GammaBlastSessionDetail, GammaBlastState } from "@/types/gamma-blast";
 import type { Ema5CandlesResponse, Ema5Config, Ema5Session, Ema5SessionDetail, Ema5Side, Ema5State } from "@/types/ema5";
+import type { AnimeshCandlesResponse, AnimeshSession, AnimeshSessionDetail, AnimeshSide, AnimeshState } from "@/types/animesh";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8001";
 const AUTH_TOKEN_KEY = "live-options-auth-token";
@@ -180,6 +181,34 @@ export async function getEma5SessionDetail(sessionId: string): Promise<Ema5Sessi
     `/api/ema5/sessions/${encodeURIComponent(sessionId)}`,
     undefined,
     "Failed to load ema5 session detail",
+  );
+}
+
+export async function getAnimeshState(): Promise<AnimeshState> {
+  return apiJson<AnimeshState>("/api/animesh/state", undefined, "Failed to load animesh-scalping state");
+}
+
+export async function getAnimeshCandles(side: AnimeshSide): Promise<AnimeshCandlesResponse> {
+  return apiJson<AnimeshCandlesResponse>(`/api/animesh/candles?side=${side}`, undefined, "Failed to load animesh-scalping candles");
+}
+
+export async function approveAnimeshSignal(signalId: number) {
+  return apiJson<Record<string, unknown>>(
+    `/api/animesh/signals/${signalId}/approve`,
+    { method: "POST" },
+    "Failed to approve animesh-scalping signal",
+  );
+}
+
+export async function getAnimeshSessions() {
+  return apiJson<{ sessions: AnimeshSession[] }>("/api/animesh/sessions", undefined, "Failed to load animesh-scalping sessions");
+}
+
+export async function getAnimeshSessionDetail(sessionId: string): Promise<AnimeshSessionDetail> {
+  return apiJson<AnimeshSessionDetail>(
+    `/api/animesh/sessions/${encodeURIComponent(sessionId)}`,
+    undefined,
+    "Failed to load animesh-scalping session detail",
   );
 }
 

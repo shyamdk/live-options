@@ -121,6 +121,33 @@ class Settings(BaseSettings):
     ema5_candle_poll_interval_seconds: int = 30
     ema5_alert_repeat_seconds: int = 15
 
+    animesh_monitor_enabled: bool = True
+    animesh_mode: str = "PAPER"
+    animesh_paper_auto_approve: bool = True
+    animesh_lot_size: int = 65
+    animesh_lots_per_trade: int = 3
+    animesh_strike_step: float = 50.0
+    animesh_execution_interval_minutes: int = 1
+    animesh_macd_fast: int = 8
+    animesh_macd_slow: int = 21
+    animesh_macd_signal: int = 8
+    animesh_ema_band_period: int = 21
+    animesh_large_candle_multiplier: float = 1.5
+    animesh_max_consecutive_sl_per_side: int = 3
+    animesh_gap_threshold_points: float = 100.0
+    animesh_gap_delay_minutes: int = 10
+    animesh_daily_bias_lookback_days: int = 20
+    animesh_session_start_time: str = "09:15"
+    animesh_session_end_time: str = "15:30"
+    animesh_entry_window_1_start: str = "09:30"
+    animesh_entry_window_1_end: str = "11:00"
+    animesh_entry_window_2_start: str = "14:00"
+    animesh_entry_window_2_end: str = "15:30"
+    animesh_force_exit_time: str = "15:25"
+    animesh_evaluation_interval_seconds: int = 3
+    animesh_candle_poll_interval_seconds: int = 15
+    animesh_alert_repeat_seconds: int = 15
+
     model_config = SettingsConfigDict(
         env_file=ROOT_DIR / ".env",
         env_file_encoding="utf-8",
