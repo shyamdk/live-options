@@ -6,6 +6,7 @@ import type {
   JournalInsights,
   JournalSession,
   LiveTradeSnapshot,
+  MarketCandlesResponse,
   MarketIndicesPayload,
   TradeLevels,
 } from "@/types/live";
@@ -75,6 +76,21 @@ export async function loginApp(username: string, password: string): Promise<Auth
 
 export async function getMarketIndices(): Promise<MarketIndicesPayload> {
   return apiJson<MarketIndicesPayload>("/api/market/indices", undefined, "Failed to load market strip");
+}
+
+export async function getTradeCandles(params: {
+  securityId: string;
+  exchangeSegment: string;
+  instrument: string;
+  interval?: string;
+}): Promise<MarketCandlesResponse> {
+  const query = new URLSearchParams({
+    securityId: params.securityId,
+    exchangeSegment: params.exchangeSegment,
+    instrument: params.instrument,
+    interval: params.interval ?? "5",
+  });
+  return apiJson<MarketCandlesResponse>(`/api/market/candles?${query.toString()}`, undefined, "Failed to load chart candles");
 }
 
 export async function getDhanSession(): Promise<DhanSession> {

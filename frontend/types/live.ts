@@ -13,6 +13,19 @@ export type MarketIndicesPayload = {
   indices: MarketIndex[];
 };
 
+export type MarketCandle = {
+  time: number;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+};
+
+export type MarketCandlesResponse = {
+  candles: MarketCandle[];
+  intervalMinutes: number;
+};
+
 export type DhanSession = {
   hasAccessToken: boolean;
   hasClientId: boolean;

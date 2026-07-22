@@ -1,10 +1,11 @@
 "use client";
 
-import { LogIn, RefreshCcw, Save, ShieldAlert, ShieldCheck, SquareArrowOutUpRight } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { CandlestickSeries, ColorType, createChart, IChartApi, ISeriesApi, Time, UTCTimestamp } from "lightweight-charts";
+import { CandlestickChart, LogIn, RefreshCcw, Save, ShieldAlert, ShieldCheck, SquareArrowOutUpRight } from "lucide-react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 
-import { approveRiskExit, closeTrade, getDhanSession, getLiveTrades, loginDhan, saveTradeLevels } from "@/lib/api";
-import type { DhanSession, LiveTrade, LiveTradeSnapshot } from "@/types/live";
+import { approveRiskExit, closeTrade, getDhanSession, getLiveTrades, getTradeCandles, loginDhan, saveTradeLevels } from "@/lib/api";
+import type { DhanSession, LiveTrade, LiveTradeSnapshot, MarketCandle } from "@/types/live";
 
 type DraftLevels = {
   stopLoss: string;
@@ -17,6 +18,7 @@ const TRADE_REFRESH_MS = secondsToMs(process.env.NEXT_PUBLIC_TRADES_REFRESH_SECO
 const SESSION_REFRESH_MS = secondsToMs(process.env.NEXT_PUBLIC_SESSION_REFRESH_SECONDS, 120);
 const RISK_ALERT_REPEAT_MS = 15_000;
 const AWAITING_APPROVAL_KINDS = new Set(["stopLossSignal", "targetSignal", "orderFailed"]);
+const TRADE_CHART_REFRESH_MS = secondsToMs(process.env.NEXT_PUBLIC_TRADE_CHART_REFRESH_SECONDS, 20);
 
 export default function ManageTradesPage() {
   const [session, setSession] = useState<DhanSession | null>(null);
@@ -26,7 +28,17 @@ export default function ManageTradesPage() {
   const [savingId, setSavingId] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const notifiedAtRef = useRef<Record<string, number>>({});
+
+  function toggleExpand(tradeId: string) {
+    setExpandedIds((current) => {
+      const next = new Set(current);
+      if (next.has(tradeId)) next.delete(tradeId);
+      else next.add(tradeId);
+      return next;
+    });
+  }
 
   async function loadSession() {
     try {
@@ -230,6 +242,8 @@ export default function ManageTradesPage() {
         onClose={handleClose}
         onApprove={handleApprove}
         showRemainingProfit={false}
+        expandedIds={expandedIds}
+        onToggleExpand={toggleExpand}
       />
 
       <OptionTradeTable
@@ -244,6 +258,8 @@ export default function ManageTradesPage() {
         onClose={handleClose}
         onApprove={handleApprove}
         showRemainingProfit
+        expandedIds={expandedIds}
+        onToggleExpand={toggleExpand}
       />
 
       {!loading && !closedTrades.length && !optionTrades.length && !snapshot?.groups.equity.length ? <div className="empty-state">No positions returned by Dhan.</div> : null}
@@ -338,6 +354,8 @@ function OptionTradeTable({
   onClose,
   onApprove,
   showRemainingProfit,
+  expandedIds,
+  onToggleExpand,
 }: {
   title: string;
   trades: LiveTrade[];
@@ -350,6 +368,8 @@ function OptionTradeTable({
   onClose: (trade: LiveTrade) => void;
   onApprove: (trade: LiveTrade) => void;
   showRemainingProfit: boolean;
+  expandedIds: Set<string>;
+  onToggleExpand: (tradeId: string) => void;
 }) {
   const columnCount = showRemainingProfit ? 16 : 14;
   const totalRows = trades.length + closedTrades.length;
@@ -385,8 +405,10 @@ function OptionTradeTable({
             {trades.map((trade) => {
               const draft = drafts[trade.id] ?? emptyDraft();
               const busy = savingId === trade.id;
+              const expanded = expandedIds.has(trade.id);
               return (
-                <tr key={trade.id}>
+                <Fragment key={trade.id}>
+                <tr>
                   <td>
                     <strong>{tradeLabel(trade)}</strong>
                     <span className="subtext">{trade.expiry || "-"} · {trade.productType || "-"}</span>
@@ -450,14 +472,37 @@ function OptionTradeTable({
                           <ShieldCheck size={15} />
                         </button>
                       ) : null}
+                      <button
+                        className={`icon-button ${expanded ? "approve" : ""}`}
+                        type="button"
+                        title="Show 5m chart"
+                        onClick={() => onToggleExpand(trade.id)}
+                      >
+                        <CandlestickChart size={15} />
+                      </button>
                     </div>
                   </td>
                 </tr>
+                {expanded ? (
+                  <tr className="chart-row">
+                    <td colSpan={columnCount}>
+                      <TradeChart trade={trade} />
+                    </td>
+                  </tr>
+                ) : null}
+                </Fragment>
               );
             })}
             {closedTrades.length ? <ClosedSubsectionRow colSpan={columnCount} count={closedTrades.length} /> : null}
             {closedTrades.map((trade) => (
-              <ClosedOptionRow key={trade.id} trade={trade} showRemainingProfit={showRemainingProfit} />
+              <ClosedOptionRow
+                key={trade.id}
+                trade={trade}
+                showRemainingProfit={showRemainingProfit}
+                columnCount={columnCount}
+                expanded={expandedIds.has(trade.id)}
+                onToggleExpand={onToggleExpand}
+              />
             ))}
             {!totalRows ? (
               <tr>
@@ -479,8 +524,21 @@ function ClosedSubsectionRow({ colSpan, count }: { colSpan: number; count: numbe
   );
 }
 
-function ClosedOptionRow({ trade, showRemainingProfit }: { trade: LiveTrade; showRemainingProfit: boolean }) {
+function ClosedOptionRow({
+  trade,
+  showRemainingProfit,
+  columnCount,
+  expanded,
+  onToggleExpand,
+}: {
+  trade: LiveTrade;
+  showRemainingProfit: boolean;
+  columnCount: number;
+  expanded: boolean;
+  onToggleExpand: (tradeId: string) => void;
+}) {
   return (
+    <Fragment>
     <tr className="closed-row">
       <td>
         <strong>{tradeLabel(trade)}</strong>
@@ -500,8 +558,25 @@ function ClosedOptionRow({ trade, showRemainingProfit }: { trade: LiveTrade; sho
       <td>-</td>
       <td>-</td>
       <td><span className="risk-pill closed">Closed</span></td>
-      <td>-</td>
+      <td>
+        <button
+          className={`icon-button ${expanded ? "approve" : ""}`}
+          type="button"
+          title="Show 5m chart"
+          onClick={() => onToggleExpand(trade.id)}
+        >
+          <CandlestickChart size={15} />
+        </button>
+      </td>
     </tr>
+    {expanded ? (
+      <tr className="chart-row">
+        <td colSpan={columnCount}>
+          <TradeChart trade={trade} />
+        </td>
+      </tr>
+    ) : null}
+    </Fragment>
   );
 }
 
@@ -517,6 +592,128 @@ function PriceCell({ trade }: { trade: LiveTrade }) {
       {!trade.ltpStale && trade.ltpDerived ? <span className="subtext">derived</span> : null}
     </>
   );
+}
+
+function TradeChart({ trade }: { trade: LiveTrade }) {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const chartRef = useRef<IChartApi | null>(null);
+  const candleSeriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
+  const [candles, setCandles] = useState<MarketCandle[]>([]);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!trade.securityId || !trade.exchangeSegment) {
+      setError("Missing security id / exchange segment for this position.");
+      return;
+    }
+    let cancelled = false;
+    async function load() {
+      try {
+        const payload = await getTradeCandles({
+          securityId: trade.securityId as string,
+          exchangeSegment: trade.exchangeSegment as string,
+          instrument: trade.instrument || "OPTIDX",
+          interval: "5",
+        });
+        if (cancelled) return;
+        setCandles(payload.candles);
+        setError(null);
+      } catch (exc) {
+        if (!cancelled) setError(exc instanceof Error ? exc.message : "Failed to load candles.");
+      }
+    }
+    load();
+    const timer = window.setInterval(load, TRADE_CHART_REFRESH_MS);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [trade.securityId, trade.exchangeSegment, trade.instrument]);
+
+  useEffect(() => {
+    if (!containerRef.current || chartRef.current) return;
+    const chart = createChart(containerRef.current, {
+      layout: { background: { type: ColorType.Solid, color: "#ffffff" }, textColor: "#252a32" },
+      grid: { vertLines: { color: "#edf0f4" }, horzLines: { color: "#edf0f4" } },
+      width: containerRef.current.clientWidth,
+      height: 260,
+      timeScale: {
+        timeVisible: true,
+        secondsVisible: false,
+        tickMarkFormatter: (time: Time) => formatIstTime(time),
+      },
+      localization: { timeFormatter: (time: Time) => formatIstTime(time) },
+    });
+    const candleSeries = chart.addSeries(CandlestickSeries, {
+      upColor: "#168448",
+      downColor: "#c93535",
+      borderVisible: false,
+      wickUpColor: "#168448",
+      wickDownColor: "#c93535",
+    });
+    chartRef.current = chart;
+    candleSeriesRef.current = candleSeries;
+
+    const resizeObserver = new ResizeObserver(() => {
+      if (containerRef.current) chart.applyOptions({ width: containerRef.current.clientWidth });
+    });
+    resizeObserver.observe(containerRef.current);
+
+    return () => {
+      resizeObserver.disconnect();
+      chart.remove();
+      chartRef.current = null;
+      candleSeriesRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!candleSeriesRef.current) return;
+    candleSeriesRef.current.setData(
+      candles.map((c) => ({ time: c.time as UTCTimestamp, open: c.open, high: c.high, low: c.low, close: c.close })),
+    );
+  }, [candles]);
+
+  useEffect(() => {
+    const series = candleSeriesRef.current;
+    if (!series) return;
+    series.priceLines().forEach((line) => series.removePriceLine(line));
+    const entryPrice = trade.entryAvgPrice ?? trade.avgPrice;
+    if (entryPrice !== null && entryPrice !== undefined) {
+      series.createPriceLine({ price: entryPrice, color: "#6f7785", title: "Entry" });
+    }
+    if (trade.status === "CLOSED" && trade.exitAvgPrice !== null && trade.exitAvgPrice !== undefined) {
+      series.createPriceLine({ price: trade.exitAvgPrice, color: "#2368b6", title: "Exit" });
+    }
+    if (trade.levels?.stopLoss !== null && trade.levels?.stopLoss !== undefined) {
+      series.createPriceLine({ price: trade.levels.stopLoss, color: "#c93535", title: "SL" });
+    }
+    if (trade.levels?.target !== null && trade.levels?.target !== undefined) {
+      series.createPriceLine({ price: trade.levels.target, color: "#168448", title: "Target" });
+    }
+  }, [trade.entryAvgPrice, trade.avgPrice, trade.exitAvgPrice, trade.status, trade.levels?.stopLoss, trade.levels?.target]);
+
+  return (
+    <div>
+      <div className="subtext">5m candles — {tradeLabel(trade)}</div>
+      {error ? <div className="alert error">{error}</div> : null}
+      <div ref={containerRef} style={{ width: "100%" }} />
+    </div>
+  );
+}
+
+function formatCandleTime(epochSeconds: number): string {
+  return new Date(epochSeconds * 1000).toLocaleTimeString("en-IN", {
+    timeZone: "Asia/Kolkata",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+}
+
+function formatIstTime(time: Time): string {
+  if (typeof time !== "number") return String(time);
+  return formatCandleTime(time);
 }
 
 function draftsFromSnapshot(snapshot: LiveTradeSnapshot): Record<string, DraftLevels> {
