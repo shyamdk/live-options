@@ -1,6 +1,6 @@
 "use client";
 
-import { Activity, BookOpenText, BriefcaseBusiness, CandlestickChart, ChevronLeft, ChevronRight, Zap } from "lucide-react";
+import { Activity, BookOpenText, BriefcaseBusiness, CandlestickChart, ChevronLeft, ChevronRight, Layers, Zap } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -11,6 +11,7 @@ const navItems = [
   { href: "/gamma-blast", label: "Gamma Blast", short: "GB", icon: Zap },
   { href: "/ema5", label: "ema5", short: "E5", icon: CandlestickChart },
   { href: "/animesh-scalping", label: "animesh-scalping", short: "AS", icon: Activity },
+  { href: "/bank-nifty-credit-spread", label: "BN Credit Spread", short: "CS", icon: Layers },
 ];
 
 const STORAGE_KEY = "live-options-sidebar-collapsed";

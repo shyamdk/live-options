@@ -12,6 +12,7 @@ import type {
 import type { GammaBlastSessionDetail, GammaBlastState } from "@/types/gamma-blast";
 import type { Ema5CandlesResponse, Ema5Config, Ema5Session, Ema5SessionDetail, Ema5Side, Ema5State } from "@/types/ema5";
 import type { AnimeshCandlesResponse, AnimeshSession, AnimeshSessionDetail, AnimeshSide, AnimeshState } from "@/types/animesh";
+import type { CreditSpreadState } from "@/types/credit-spread";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8001";
 const AUTH_TOKEN_KEY = "live-options-auth-token";
@@ -209,6 +210,34 @@ export async function getAnimeshSessionDetail(sessionId: string): Promise<Animes
     `/api/animesh/sessions/${encodeURIComponent(sessionId)}`,
     undefined,
     "Failed to load animesh-scalping session detail",
+  );
+}
+
+export async function getCreditSpreadState(): Promise<CreditSpreadState> {
+  return apiJson<CreditSpreadState>("/api/credit-spread/state", undefined, "Failed to load credit spread state");
+}
+
+export async function approveCreditSpreadSignal(signalId: number) {
+  return apiJson<Record<string, unknown>>(
+    `/api/credit-spread/signals/${signalId}/approve`,
+    { method: "POST" },
+    "Failed to approve credit spread signal",
+  );
+}
+
+export async function evaluateCreditSpread() {
+  return apiJson<Record<string, unknown>>(
+    "/api/credit-spread/evaluate",
+    { method: "POST" },
+    "Failed to evaluate credit spread",
+  );
+}
+
+export async function exitCreditSpread() {
+  return apiJson<Record<string, unknown>>(
+    "/api/credit-spread/exit",
+    { method: "POST" },
+    "Failed to exit credit spread position",
   );
 }
 

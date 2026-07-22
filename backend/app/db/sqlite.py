@@ -388,6 +388,72 @@ def init_db() -> None:
             )
             """
         )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS credit_spread_positions (
+                id TEXT PRIMARY KEY,
+                expiry TEXT NOT NULL,
+                mode TEXT NOT NULL,
+                status TEXT NOT NULL,
+                qty INTEGER NOT NULL,
+                sell_strike REAL NOT NULL,
+                sell_security_id TEXT NOT NULL,
+                sell_entry_price REAL NOT NULL,
+                hedge_strike REAL,
+                hedge_security_id TEXT,
+                hedge_entry_price REAL,
+                net_credit REAL NOT NULL,
+                entry_spot REAL,
+                entry_synthetic_future REAL,
+                entry_vix REAL,
+                planned_exit_date TEXT,
+                entry_signal_id INTEGER,
+                entry_at TEXT NOT NULL,
+                sell_exit_price REAL,
+                hedge_exit_price REAL,
+                exit_reason TEXT,
+                realized_pnl REAL,
+                exit_at TEXT,
+                payload_json TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS credit_spread_signals (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                kind TEXT NOT NULL,
+                status TEXT NOT NULL,
+                position_id TEXT,
+                payload_json TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS credit_spread_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                event_type TEXT NOT NULL,
+                message TEXT NOT NULL,
+                position_id TEXT,
+                payload_json TEXT,
+                created_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS credit_spread_meta (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
         conn.commit()
 
 

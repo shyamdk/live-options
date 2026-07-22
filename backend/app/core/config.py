@@ -37,6 +37,7 @@ class Settings(BaseSettings):
     dhan_market_quote_backoff_seconds: float = 120.0
     dhan_nifty_security_id: int = 13
     dhan_sensex_security_id: int = 51
+    dhan_banknifty_security_id: int = 25
     dhan_india_vix_security_id: int | None = 21
 
     live_order_enabled: bool = False
@@ -147,6 +148,43 @@ class Settings(BaseSettings):
     animesh_evaluation_interval_seconds: int = 3
     animesh_candle_poll_interval_seconds: int = 15
     animesh_alert_repeat_seconds: int = 15
+
+    credit_spread_monitor_enabled: bool = True
+    credit_spread_mode: str = "PAPER"
+    credit_spread_paper_auto_approve: bool = True
+    credit_spread_lot_size: int = 30
+    credit_spread_lots: int = 1
+    credit_spread_capital_base: float = 150000.0
+    credit_spread_entry_time: str = "09:45"
+    credit_spread_entry_window_end: str = "14:30"
+    credit_spread_exit_time: str = "09:20"
+    credit_spread_exit_trading_days_before_expiry: int = 10
+    credit_spread_hedge_premium_target: float = 100.0
+    credit_spread_min_net_credit: float = 500.0
+    credit_spread_min_credit_width_percent: float = 22.0
+    credit_spread_max_entry_vix: float = 24.0
+    credit_spread_profit_target_percent: float = 50.0
+    credit_spread_hard_stop_credit_multiple: float = 0.0
+    credit_spread_allow_late_entry: bool = True
+    credit_spread_min_entry_trading_days_left: int = 12
+    credit_spread_skip_dates: str = ""
+    credit_spread_session_start_time: str = "09:15"
+    credit_spread_session_end_time: str = "15:30"
+    credit_spread_evaluation_interval_seconds: int = 30
+    credit_spread_chain_poll_interval_seconds: int = 180
+    credit_spread_expiry_refresh_seconds: int = 900
+    credit_spread_alert_repeat_seconds: int = 300
+    # NSE trading holidays (yyyy-mm-dd, comma separated). Drives the
+    # trading-days-to-expiry countdown, so keep it current from the official
+    # NSE holiday circular each January — a missing holiday shifts the
+    # T-10 exit one day late.
+    # Defaults mirror ops/trade_instance_scheduler.py (Zerodha holiday calendar);
+    # keep both in sync when the next year's circular is published.
+    nse_holidays: str = (
+        "2026-01-15,2026-01-26,2026-03-03,2026-03-26,2026-03-31,2026-04-03,"
+        "2026-04-14,2026-05-01,2026-05-28,2026-06-26,2026-09-14,2026-10-02,"
+        "2026-10-20,2026-11-10,2026-11-24,2026-12-25"
+    )
 
     model_config = SettingsConfigDict(
         env_file=ROOT_DIR / ".env",
