@@ -11,6 +11,13 @@ type DraftLevels = {
   stopLoss: string;
   target: string;
   notes: string;
+  tag: string;
+};
+
+type TagGroup = {
+  tag: string;
+  openTrades: LiveTrade[];
+  closedTrades: LiveTrade[];
 };
 
 const moneyFormat = new Intl.NumberFormat("en-IN", { maximumFractionDigits: 2, minimumFractionDigits: 2 });
@@ -68,7 +75,7 @@ export default function ManageTradesPage() {
   }
 
   function checkRiskAlerts(payload: LiveTradeSnapshot) {
-    const trades = [...payload.groups.optionsBuy, ...payload.groups.optionsSell];
+    const trades = payload.groups.options;
     const now = Date.now();
     for (const trade of trades) {
       if (!isAwaitingApproval(trade)) continue;
@@ -115,6 +122,7 @@ export default function ManageTradesPage() {
         stopLoss: stopLossDraftNumber(trade, draft.stopLoss),
         target: draftNumber(draft.target),
         notes: draft.notes,
+        tag: draft.tag.trim() || null,
       });
       setMessage(`${tradeLabel(trade)} levels saved.`);
       await load();
@@ -165,12 +173,12 @@ export default function ManageTradesPage() {
   }
 
   const summary = snapshot?.summary;
-  const optionTrades = useMemo(() => [...(snapshot?.groups.optionsBuy ?? []), ...(snapshot?.groups.optionsSell ?? [])], [snapshot]);
+  const optionTrades = snapshot?.groups.options ?? [];
   const awaitingApproval = useMemo(() => optionTrades.filter(isAwaitingApproval), [optionTrades]);
   const closedTrades = snapshot?.groups.closed ?? [];
   const closedEquity = closedTrades.filter((trade) => trade.assetClass === "EQUITY");
-  const closedOptionsBuy = closedTrades.filter((trade) => trade.assetClass === "OPTION" && trade.side === "BUY");
-  const closedOptionsSell = closedTrades.filter((trade) => trade.assetClass === "OPTION" && trade.side === "SELL");
+  const closedOptions = closedTrades.filter((trade) => trade.assetClass === "OPTION");
+  const groupsByTag = useMemo(() => groupOptionsByTag(optionTrades, closedOptions), [optionTrades, closedOptions]);
 
   return (
     <section className="page">
@@ -230,37 +238,20 @@ export default function ManageTradesPage() {
 
       <TradeTable title="Equity" trades={snapshot?.groups.equity ?? []} closedTrades={closedEquity} loading={loading} />
 
-      <OptionTradeTable
-        title="Options Buy"
-        trades={snapshot?.groups.optionsBuy ?? []}
-        closedTrades={closedOptionsBuy}
-        drafts={drafts}
-        savingId={savingId}
-        loading={loading}
-        onDraft={updateDraft}
-        onSave={handleSave}
-        onClose={handleClose}
-        onApprove={handleApprove}
-        showRemainingProfit={false}
-        expandedIds={expandedIds}
-        onToggleExpand={toggleExpand}
-      />
-
-      <OptionTradeTable
-        title="Options Sell"
-        trades={snapshot?.groups.optionsSell ?? []}
-        closedTrades={closedOptionsSell}
-        drafts={drafts}
-        savingId={savingId}
-        loading={loading}
-        onDraft={updateDraft}
-        onSave={handleSave}
-        onClose={handleClose}
-        onApprove={handleApprove}
-        showRemainingProfit
-        expandedIds={expandedIds}
-        onToggleExpand={toggleExpand}
-      />
+      {groupsByTag.map((group) => (
+        <TagGroupTable
+          key={group.tag}
+          group={group}
+          drafts={drafts}
+          savingId={savingId}
+          onDraft={updateDraft}
+          onSave={handleSave}
+          onClose={handleClose}
+          onApprove={handleApprove}
+          expandedIds={expandedIds}
+          onToggleExpand={toggleExpand}
+        />
+      ))}
 
       {!loading && !closedTrades.length && !optionTrades.length && !snapshot?.groups.equity.length ? <div className="empty-state">No positions returned by Dhan.</div> : null}
     </section>
@@ -342,47 +333,54 @@ function TradeTable({ title, trades, closedTrades, loading }: { title: string; t
   );
 }
 
-function OptionTradeTable({
-  title,
-  trades,
-  closedTrades,
+function TagGroupTable({
+  group,
   drafts,
   savingId,
-  loading,
   onDraft,
   onSave,
   onClose,
   onApprove,
-  showRemainingProfit,
   expandedIds,
   onToggleExpand,
 }: {
-  title: string;
-  trades: LiveTrade[];
-  closedTrades: LiveTrade[];
+  group: TagGroup;
   drafts: Record<string, DraftLevels>;
   savingId: string | null;
-  loading: boolean;
   onDraft: (tradeId: string, key: keyof DraftLevels, value: string) => void;
   onSave: (trade: LiveTrade) => void;
   onClose: (trade: LiveTrade) => void;
   onApprove: (trade: LiveTrade) => void;
-  showRemainingProfit: boolean;
   expandedIds: Set<string>;
   onToggleExpand: (tradeId: string) => void;
 }) {
-  const columnCount = showRemainingProfit ? 16 : 14;
-  const totalRows = trades.length + closedTrades.length;
+  const columnCount = 17;
+  const allRows = [...group.openTrades, ...group.closedTrades];
+  const totalRows = allRows.length;
+  const groupDayPnl = sumField(allRows, "dayPnl");
+  const groupCharges = sumField(allRows, "estimatedCharges");
+  const groupNetPnl = sumField(allRows, "estimatedNetPnl");
+
   return (
     <section className="table-section">
       <div className="section-title">
-        <h2>{title}</h2>
+        <h2>{group.tag}</h2>
         <span>{totalRows}</span>
       </div>
+      <div className="gb-status-row">
+        <span>
+          Day P&amp;L: <strong className={tone(groupDayPnl)}>{money(groupDayPnl)}</strong>
+        </span>
+        <span>Charges: {money(groupCharges)}</span>
+        <span>
+          Net: <strong className={tone(groupNetPnl)}>{money(groupNetPnl)}</strong>
+        </span>
+      </div>
       <div className="table-wrap">
-        <table className={showRemainingProfit ? "wide-table" : ""}>
+        <table className="wide-table">
           <thead>
             <tr>
+              <th>Tag</th>
               <th>Strike</th>
               <th>Side</th>
               <th>Qty</th>
@@ -392,8 +390,8 @@ function OptionTradeTable({
               <th>Net</th>
               <th>Charges</th>
               <th>%</th>
-              {showRemainingProfit ? <th>Remaining</th> : null}
-              {showRemainingProfit ? <th>Remain %</th> : null}
+              <th>Remaining</th>
+              <th>Remain %</th>
               <th>Spot Dist</th>
               <th>SL %</th>
               <th>Target</th>
@@ -402,13 +400,22 @@ function OptionTradeTable({
             </tr>
           </thead>
           <tbody>
-            {trades.map((trade) => {
+            {group.openTrades.map((trade) => {
               const draft = drafts[trade.id] ?? emptyDraft();
               const busy = savingId === trade.id;
               const expanded = expandedIds.has(trade.id);
               return (
                 <Fragment key={trade.id}>
                 <tr>
+                  <td>
+                    <input
+                      className="level-input"
+                      inputMode="text"
+                      placeholder="tag"
+                      value={draft.tag}
+                      onChange={(event) => onDraft(trade.id, "tag", event.target.value)}
+                    />
+                  </td>
                   <td>
                     <strong>{tradeLabel(trade)}</strong>
                     <span className="subtext">{trade.expiry || "-"} · {trade.productType || "-"}</span>
@@ -421,8 +428,8 @@ function OptionTradeTable({
                   <td className={tone(trade.estimatedNetPnl)}>{money(trade.estimatedNetPnl)}</td>
                   <td>{money(trade.estimatedCharges)}</td>
                   <td className={tone(trade.percentChange)}>{percent(trade.percentChange)}</td>
-                  {showRemainingProfit ? <td>{money(trade.profitRemaining)}</td> : null}
-                  {showRemainingProfit ? <td>{plainPercent(trade.profitRemainingPercent)}</td> : null}
+                  <td>{money(trade.profitRemaining)}</td>
+                  <td>{plainPercent(trade.profitRemainingPercent)}</td>
                   <td className={spotDistanceClass(trade)}>
                     {plainPercent(trade.spotDistancePercent)}
                     <span className="subtext">{trade.spotDistancePoints === null || trade.spotDistancePoints === undefined ? "-" : `${money(trade.spotDistancePoints)} pts`}</span>
@@ -493,22 +500,20 @@ function OptionTradeTable({
                 </Fragment>
               );
             })}
-            {closedTrades.length ? <ClosedSubsectionRow colSpan={columnCount} count={closedTrades.length} /> : null}
-            {closedTrades.map((trade) => (
+            {group.closedTrades.length ? <ClosedSubsectionRow colSpan={columnCount} count={group.closedTrades.length} /> : null}
+            {group.closedTrades.map((trade) => (
               <ClosedOptionRow
                 key={trade.id}
                 trade={trade}
-                showRemainingProfit={showRemainingProfit}
+                draft={drafts[trade.id] ?? emptyDraft()}
+                busy={savingId === trade.id}
                 columnCount={columnCount}
+                onDraft={onDraft}
+                onSave={onSave}
                 expanded={expandedIds.has(trade.id)}
                 onToggleExpand={onToggleExpand}
               />
             ))}
-            {!totalRows ? (
-              <tr>
-                <td colSpan={columnCount}>{loading ? "Loading" : "No option positions"}</td>
-              </tr>
-            ) : null}
           </tbody>
         </table>
       </div>
@@ -526,20 +531,40 @@ function ClosedSubsectionRow({ colSpan, count }: { colSpan: number; count: numbe
 
 function ClosedOptionRow({
   trade,
-  showRemainingProfit,
+  draft,
+  busy,
   columnCount,
+  onDraft,
+  onSave,
   expanded,
   onToggleExpand,
 }: {
   trade: LiveTrade;
-  showRemainingProfit: boolean;
+  draft: DraftLevels;
+  busy: boolean;
   columnCount: number;
+  onDraft: (tradeId: string, key: keyof DraftLevels, value: string) => void;
+  onSave: (trade: LiveTrade) => void;
   expanded: boolean;
   onToggleExpand: (tradeId: string) => void;
 }) {
   return (
     <Fragment>
     <tr className="closed-row">
+      <td>
+        <div className="row-actions">
+          <input
+            className="level-input"
+            inputMode="text"
+            placeholder="tag"
+            value={draft.tag}
+            onChange={(event) => onDraft(trade.id, "tag", event.target.value)}
+          />
+          <button className="icon-button" type="button" title="Save tag" onClick={() => onSave(trade)} disabled={busy}>
+            <Save size={13} />
+          </button>
+        </div>
+      </td>
       <td>
         <strong>{tradeLabel(trade)}</strong>
         <span className="subtext">{trade.expiry || "-"} · {trade.productType || "-"}</span>
@@ -552,8 +577,8 @@ function ClosedOptionRow({
       <td className={tone(trade.estimatedNetPnl)}>{money(trade.estimatedNetPnl)}</td>
       <td>{money(trade.estimatedCharges)}</td>
       <td className={tone(trade.percentChange)}>{percent(trade.percentChange)}</td>
-      {showRemainingProfit ? <td>-</td> : null}
-      {showRemainingProfit ? <td>-</td> : null}
+      <td>-</td>
+      <td>-</td>
       <td>-</td>
       <td>-</td>
       <td>-</td>
@@ -717,16 +742,49 @@ function formatIstTime(time: Time): string {
 }
 
 function draftsFromSnapshot(snapshot: LiveTradeSnapshot): Record<string, DraftLevels> {
-  const rows = [...snapshot.groups.optionsBuy, ...snapshot.groups.optionsSell];
+  const rows = [...snapshot.groups.options, ...snapshot.groups.closed.filter((trade) => trade.assetClass === "OPTION")];
   return Object.fromEntries(rows.map((trade) => [trade.id, {
     stopLoss: stopLossLevelText(trade),
     target: valueText(trade.levels?.target),
     notes: trade.levels?.notes ?? "",
+    tag: trade.levels?.tag ?? "",
   }]));
 }
 
 function emptyDraft(): DraftLevels {
-  return { stopLoss: "", target: "", notes: "" };
+  return { stopLoss: "", target: "", notes: "", tag: "" };
+}
+
+const UNTAGGED = "Untagged";
+
+function tagOf(trade: LiveTrade): string {
+  return trade.levels?.tag?.trim() || UNTAGGED;
+}
+
+function groupOptionsByTag(openTrades: LiveTrade[], closedTrades: LiveTrade[]): TagGroup[] {
+  const map = new Map<string, TagGroup>();
+  function ensure(tag: string): TagGroup {
+    let group = map.get(tag);
+    if (!group) {
+      group = { tag, openTrades: [], closedTrades: [] };
+      map.set(tag, group);
+    }
+    return group;
+  }
+  for (const trade of openTrades) ensure(tagOf(trade)).openTrades.push(trade);
+  for (const trade of closedTrades) ensure(tagOf(trade)).closedTrades.push(trade);
+
+  const groups = Array.from(map.values());
+  groups.sort((a, b) => {
+    if (a.tag === UNTAGGED) return b.tag === UNTAGGED ? 0 : 1;
+    if (b.tag === UNTAGGED) return -1;
+    return a.tag.localeCompare(b.tag);
+  });
+  return groups;
+}
+
+function sumField(trades: LiveTrade[], field: "dayPnl" | "estimatedCharges" | "estimatedNetPnl"): number {
+  return roundLevel(trades.reduce((total, trade) => total + (Number(trade[field]) || 0), 0));
 }
 
 function valueText(value: number | null | undefined): string {

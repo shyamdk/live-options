@@ -40,3 +40,11 @@ Are the SL/ Target Dhan Order is also implemented as part of logic?
 
 Any closed trade, show be deployed before the in progress trades in a separate section. 
 It should be included in Day P & L section (along with other things)
+
+
+
+Dont separate out Buy and Sell options. I think thats wrong logic.
+I should be able to tag each strike, based on the tag group stikes separately
+and also compute PL and charges separately.. 
+Tag will be some text - eg. bn_monthly, intraday, n_weekly
+I should be able to edit and update tags for each of the strikes

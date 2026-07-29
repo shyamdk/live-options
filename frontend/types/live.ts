@@ -69,6 +69,7 @@ export type TradeLevels = {
   stopLoss?: number | null;
   target?: number | null;
   notes?: string | null;
+  tag?: string | null;
   updatedAt?: string | null;
 };
 
@@ -125,8 +126,7 @@ export type LiveTradeSummary = {
   totalPositions: number;
   closedCount: number;
   equityCount: number;
-  optionsBuyCount: number;
-  optionsSellCount: number;
+  optionsCount: number;
   openPnl: number;
   realizedPnl: number;
   dayPnl: number;
@@ -145,8 +145,7 @@ export type LiveTradeSnapshot = {
   groups: {
     closed: LiveTrade[];
     equity: LiveTrade[];
-    optionsBuy: LiveTrade[];
-    optionsSell: LiveTrade[];
+    options: LiveTrade[];
   };
 };
 

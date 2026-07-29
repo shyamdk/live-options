@@ -22,6 +22,7 @@ class TradeLevelsIn(BaseModel):
     stopLoss: float | None = None
     target: float | None = None
     notes: str | None = None
+    tag: str | None = None
 
 
 class CloseTradeIn(BaseModel):

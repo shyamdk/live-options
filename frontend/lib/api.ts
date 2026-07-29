@@ -109,7 +109,7 @@ export async function getLiveTrades(): Promise<LiveTradeSnapshot> {
   return apiJson<LiveTradeSnapshot>("/api/trades/live", undefined, "Failed to load live trades");
 }
 
-export async function saveTradeLevels(tradeId: string, levels: Pick<TradeLevels, "stopLoss" | "target" | "notes">) {
+export async function saveTradeLevels(tradeId: string, levels: Pick<TradeLevels, "stopLoss" | "target" | "notes" | "tag">) {
   return apiJson<{ tradeId: string; levels: TradeLevels }>(
     `/api/trades/${encodeURIComponent(tradeId)}/levels`,
     { method: "PUT", body: JSON.stringify(levels) },

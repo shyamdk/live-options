@@ -71,7 +71,8 @@ async def _live_trade_snapshot() -> dict[str, Any]:
     order_counts = order_counts_from_trade_book(trade_book)
 
     option_trades = [trade for trade in open_trades if trade["assetClass"] == "OPTION"]
-    levels_by_id = get_trade_levels([trade["id"] for trade in option_trades])
+    closed_options = [trade for trade in closed if trade["assetClass"] == "OPTION"]
+    levels_by_id = get_trade_levels([trade["id"] for trade in [*option_trades, *closed_options]])
     risk_actions_by_id = get_trade_actions([trade["id"] for trade in option_trades], action_prefix="RISK_EXIT_")
     for trade in option_trades:
         trade["levels"] = levels_by_id.get(trade["id"]) or _empty_levels(trade)
@@ -79,16 +80,15 @@ async def _live_trade_snapshot() -> dict[str, Any]:
         apply_option_charge_estimates(trade, order_counts=order_counts)
     for trade in closed:
         if trade["assetClass"] == "OPTION":
+            trade["levels"] = levels_by_id.get(trade["id"]) or _empty_levels(trade)
             apply_closed_option_charge_estimates(trade, order_counts=order_counts)
         else:
             trade["estimatedCharges"] = None
             trade["estimatedNetPnl"] = trade.get("dayPnl")
 
     equity = [trade for trade in open_trades if trade["assetClass"] == "EQUITY"]
-    options_buy = [trade for trade in option_trades if trade["side"] == "BUY"]
-    options_sell = [trade for trade in option_trades if trade["side"] == "SELL"]
-    await _notify_spot_distance_alerts(options_sell)
-    summary = _summary(closed, equity, options_buy, options_sell)
+    await _notify_spot_distance_alerts([trade for trade in option_trades if trade["side"] == "SELL"])
+    summary = _summary(closed, equity, option_trades)
     return {
         "source": "dhan",
         "warning": None,
@@ -97,8 +97,7 @@ async def _live_trade_snapshot() -> dict[str, Any]:
         "groups": {
             "closed": sorted(closed, key=_closed_sort_key),
             "equity": sorted(equity, key=lambda row: row["tradingSymbol"]),
-            "optionsBuy": sorted(options_buy, key=_option_sort_key),
-            "optionsSell": sorted(options_sell, key=_option_sort_key),
+            "options": sorted(option_trades, key=_option_sort_key),
         },
     }
 
@@ -171,7 +170,7 @@ async def process_risk_order_check() -> dict[str, Any]:
 
     snapshot = await _live_trade_snapshot()
     groups = snapshot.get("groups") or {}
-    option_trades = [*(groups.get("optionsBuy") or []), *(groups.get("optionsSell") or [])]
+    option_trades = groups.get("options") or []
     actions = []
     for trade in option_trades:
         action = await _maybe_alert_risk_exit(trade)
@@ -335,7 +334,7 @@ async def _spot_distance_monitor_loop() -> None:
 
 def _find_trade(snapshot: dict[str, Any], trade_id: str) -> dict[str, Any] | None:
     groups = snapshot.get("groups") or {}
-    for key in ("optionsBuy", "optionsSell", "equity"):
+    for key in ("options", "equity", "closed"):
         for trade in groups.get(key) or []:
             if trade.get("id") == trade_id:
                 return trade
@@ -608,27 +607,25 @@ def _remember_ltp(trade: dict[str, Any]) -> None:
 def _summary(
     closed: list[dict[str, Any]],
     equity: list[dict[str, Any]],
-    options_buy: list[dict[str, Any]],
-    options_sell: list[dict[str, Any]],
+    options: list[dict[str, Any]],
 ) -> dict[str, Any]:
-    rows = [*closed, *equity, *options_buy, *options_sell]
+    rows = [*closed, *equity, *options]
     open_pnl = round(sum(_number(row.get("openPnl")) or 0 for row in rows), 2)
     realized = round(sum(_number(row.get("realizedPnl")) or 0 for row in rows), 2)
-    estimated_charges = round(sum(_number(row.get("estimatedCharges")) or 0 for row in [*closed, *options_buy, *options_sell]), 2)
+    estimated_charges = round(sum(_number(row.get("estimatedCharges")) or 0 for row in [*closed, *options]), 2)
     return {
         "totalPositions": len(rows),
         "closedCount": len(closed),
         "equityCount": len(equity),
-        "optionsBuyCount": len(options_buy),
-        "optionsSellCount": len(options_sell),
+        "optionsCount": len(options),
         "openPnl": open_pnl,
         "realizedPnl": realized,
         "dayPnl": round(open_pnl + realized, 2),
         "estimatedCharges": estimated_charges,
         "estimatedNetPnl": round(open_pnl + realized - estimated_charges, 2),
-        "configuredLevels": sum(1 for row in [*options_buy, *options_sell] if (row.get("levels") or {}).get("stopLoss") or (row.get("levels") or {}).get("target")),
-        "stopLossHits": sum(1 for row in [*options_buy, *options_sell] if (row.get("riskStatus") or {}).get("kind") == "stopLoss"),
-        "targetHits": sum(1 for row in [*options_buy, *options_sell] if (row.get("riskStatus") or {}).get("kind") == "target"),
+        "configuredLevels": sum(1 for row in options if (row.get("levels") or {}).get("stopLoss") or (row.get("levels") or {}).get("target")),
+        "stopLossHits": sum(1 for row in options if (row.get("riskStatus") or {}).get("kind") == "stopLoss"),
+        "targetHits": sum(1 for row in options if (row.get("riskStatus") or {}).get("kind") == "target"),
     }
 
 
@@ -902,6 +899,7 @@ def _empty_levels(trade: dict[str, Any]) -> dict[str, Any]:
         "stopLoss": None,
         "target": None,
         "notes": "",
+        "tag": None,
         "updatedAt": None,
     }
 
@@ -915,8 +913,7 @@ def _empty_snapshot(warning: str | None = None) -> dict[str, Any]:
             "totalPositions": 0,
             "closedCount": 0,
             "equityCount": 0,
-            "optionsBuyCount": 0,
-            "optionsSellCount": 0,
+            "optionsCount": 0,
             "openPnl": 0,
             "realizedPnl": 0,
             "dayPnl": 0,
@@ -926,7 +923,7 @@ def _empty_snapshot(warning: str | None = None) -> dict[str, Any]:
             "stopLossHits": 0,
             "targetHits": 0,
         },
-        "groups": {"closed": [], "equity": [], "optionsBuy": [], "optionsSell": []},
+        "groups": {"closed": [], "equity": [], "options": []},
     }
 
 

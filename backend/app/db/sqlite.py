@@ -48,6 +48,7 @@ def init_db() -> None:
             )
             """
         )
+        _add_column_if_missing(conn, "trade_levels", "tag", "TEXT")
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS trade_actions (
@@ -490,15 +491,16 @@ def upsert_trade_levels(trade_id: str, payload: dict[str, Any]) -> dict[str, Any
         "stop_loss": _number(payload.get("stopLoss")),
         "target": _number(payload.get("target")),
         "notes": payload.get("notes") or "",
+        "tag": (payload.get("tag") or "").strip() or None,
         "updated_at": now,
     }
     with _DB_LOCK, _connect() as conn:
         conn.execute(
             """
             INSERT INTO trade_levels (
-                trade_id, symbol, expiry, strike_price, option_side, stop_loss, target, notes, updated_at
+                trade_id, symbol, expiry, strike_price, option_side, stop_loss, target, notes, tag, updated_at
             ) VALUES (
-                :trade_id, :symbol, :expiry, :strike_price, :option_side, :stop_loss, :target, :notes, :updated_at
+                :trade_id, :symbol, :expiry, :strike_price, :option_side, :stop_loss, :target, :notes, :tag, :updated_at
             )
             ON CONFLICT(trade_id) DO UPDATE SET
                 symbol = excluded.symbol,
@@ -508,6 +510,7 @@ def upsert_trade_levels(trade_id: str, payload: dict[str, Any]) -> dict[str, Any
                 stop_loss = excluded.stop_loss,
                 target = excluded.target,
                 notes = excluded.notes,
+                tag = excluded.tag,
                 updated_at = excluded.updated_at
             """,
             normalized,
@@ -778,6 +781,7 @@ def _level_from_mapping(row: dict[str, Any]) -> dict[str, Any]:
         "stopLoss": row.get("stop_loss"),
         "target": row.get("target"),
         "notes": row.get("notes") or "",
+        "tag": row.get("tag"),
         "updatedAt": row.get("updated_at"),
     }
 
