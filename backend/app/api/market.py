@@ -57,6 +57,7 @@ async def indices() -> dict:
             "warning": str(exc),
             "indices": [
                 {"name": "Nifty 50", "lastPrice": None, "change": None, "percentChange": None},
+                {"name": "Bank Nifty", "lastPrice": None, "change": None, "percentChange": None},
                 {"name": "Sensex", "lastPrice": None, "change": None, "percentChange": None},
                 {"name": "India VIX", "lastPrice": None, "change": None, "percentChange": None},
             ],

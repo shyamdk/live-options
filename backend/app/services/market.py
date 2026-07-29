@@ -39,7 +39,11 @@ class MarketService:
 
     async def _quote(self) -> dict[str, Any]:
         india_vix_security_id = self._india_vix_security_id()
-        securities = [self.settings.dhan_nifty_security_id, self.settings.dhan_sensex_security_id]
+        securities = [
+            self.settings.dhan_nifty_security_id,
+            self.settings.dhan_banknifty_security_id,
+            self.settings.dhan_sensex_security_id,
+        ]
         if india_vix_security_id:
             securities.append(india_vix_security_id)
 
@@ -50,6 +54,7 @@ class MarketService:
             "updatedAt": int(time.time()),
             "indices": [
                 self._index("Nifty 50", data.get(str(self.settings.dhan_nifty_security_id), {})),
+                self._index("Bank Nifty", data.get(str(self.settings.dhan_banknifty_security_id), {})),
                 self._index("Sensex", data.get(str(self.settings.dhan_sensex_security_id), {})),
                 self._index("India VIX", data.get(str(india_vix_security_id), {})),
             ],

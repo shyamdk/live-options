@@ -520,6 +520,8 @@ async def _apply_spot_distances(trades: list[dict[str, Any]]) -> None:
             continue
         if "NIFTY 50" in name:
             spots["NIFTY"] = last_price
+        elif "BANK NIFTY" in name:
+            spots["BANKNIFTY"] = last_price
         elif "SENSEX" in name:
             spots["SENSEX"] = last_price
     for trade in option_trades:
