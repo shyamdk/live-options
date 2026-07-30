@@ -360,6 +360,7 @@ function TagGroupTable({
   const groupDayPnl = sumField(allRows, "dayPnl");
   const groupCharges = sumField(allRows, "estimatedCharges");
   const groupNetPnl = sumField(allRows, "estimatedNetPnl");
+  const groupRemaining = sumField(allRows, "profitRemaining");
 
   return (
     <section className="table-section">
@@ -375,6 +376,7 @@ function TagGroupTable({
         <span>
           Net: <strong className={tone(groupNetPnl)}>{money(groupNetPnl)}</strong>
         </span>
+        <span>Remaining Premium: {money(groupRemaining)}</span>
       </div>
       <div className="table-wrap">
         <table className="wide-table">
@@ -783,7 +785,7 @@ function groupOptionsByTag(openTrades: LiveTrade[], closedTrades: LiveTrade[]): 
   return groups;
 }
 
-function sumField(trades: LiveTrade[], field: "dayPnl" | "estimatedCharges" | "estimatedNetPnl"): number {
+function sumField(trades: LiveTrade[], field: "dayPnl" | "estimatedCharges" | "estimatedNetPnl" | "profitRemaining"): number {
   return roundLevel(trades.reduce((total, trade) => total + (Number(trade[field]) || 0), 0));
 }
 
