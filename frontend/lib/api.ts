@@ -14,6 +14,7 @@ import type { GammaBlastSessionDetail, GammaBlastState } from "@/types/gamma-bla
 import type { Ema5CandlesResponse, Ema5Config, Ema5Session, Ema5SessionDetail, Ema5Side, Ema5State } from "@/types/ema5";
 import type { AnimeshCandlesResponse, AnimeshSession, AnimeshSessionDetail, AnimeshSide, AnimeshState } from "@/types/animesh";
 import type { CreditSpreadState } from "@/types/credit-spread";
+import type { ThetaRuntimeConfig, ThetaSession, ThetaSessionDetail, ThetaState } from "@/types/theta";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8001";
 const AUTH_TOKEN_KEY = "live-options-auth-token";
@@ -226,6 +227,50 @@ export async function getAnimeshSessionDetail(sessionId: string): Promise<Animes
     `/api/animesh/sessions/${encodeURIComponent(sessionId)}`,
     undefined,
     "Failed to load animesh-scalping session detail",
+  );
+}
+
+export async function getThetaState(): Promise<ThetaState> {
+  return apiJson<ThetaState>("/api/theta/state", undefined, "Failed to load Theta Book state");
+}
+
+export async function getThetaConfig(): Promise<ThetaRuntimeConfig> {
+  return apiJson<ThetaRuntimeConfig>("/api/theta/config", undefined, "Failed to load Theta Book config");
+}
+
+export async function updateThetaConfig(updates: Partial<ThetaRuntimeConfig>): Promise<ThetaRuntimeConfig> {
+  return apiJson<ThetaRuntimeConfig>(
+    "/api/theta/config",
+    { method: "PUT", body: JSON.stringify(updates) },
+    "Failed to update Theta Book config",
+  );
+}
+
+export async function approveThetaSignal(signalId: number) {
+  return apiJson<Record<string, unknown>>(
+    `/api/theta/signals/${signalId}/approve`,
+    { method: "POST" },
+    "Failed to approve Theta Book signal",
+  );
+}
+
+export async function rejectThetaSignal(signalId: number) {
+  return apiJson<Record<string, unknown>>(
+    `/api/theta/signals/${signalId}/reject`,
+    { method: "POST" },
+    "Failed to reject Theta Book signal",
+  );
+}
+
+export async function getThetaSessions() {
+  return apiJson<{ sessions: ThetaSession[] }>("/api/theta/sessions", undefined, "Failed to load Theta Book sessions");
+}
+
+export async function getThetaSessionDetail(sessionId: string): Promise<ThetaSessionDetail> {
+  return apiJson<ThetaSessionDetail>(
+    `/api/theta/sessions/${encodeURIComponent(sessionId)}`,
+    undefined,
+    "Failed to load Theta Book session detail",
   );
 }
 

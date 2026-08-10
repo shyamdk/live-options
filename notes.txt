@@ -48,3 +48,26 @@ I should be able to tag each strike, based on the tag group stikes separately
 and also compute PL and charges separately.. 
 Tag will be some text - eg. bn_monthly, intraday, n_weekly
 I should be able to edit and update tags for each of the strikes
+
+Create a new tab - real option selling
+I am uploading safe trades (some times taking opportunites when premium increased)
+i did today (sensex expiry) - /Users/shyamdk/Developer/options/live-options/selling_data/30thJulySensexExpiry.csv
+What i did yesterday - Day Before Sensex Expiry - 29thJulySensex.xlsx
+What i did no Tuesday - Nifty Expiry -  28thJulyNiftyExpiry.xlsx
+So, my trades are safe (but with value) theta decay trades. I am at a safe distance
+and when markets move either side and premium increase, i try to capitalize on them.
+As i have only 23L margin money. I start small (but at safe distance) and
+as market moves , I add more trades.
+E.g Some times, if its flat for a long time, i go closure
+If it rpaidly moves down, i move further away and sell etc.
+
+check the option chain data, check the OHCLC 
+
+Now based on these files, can you suggest a strategy for me to sell.
+What is the range of stike i can select
+How we can use the sentimental news coming in
+when to book loss and go further out of money
+How to dtermine if the market is flatish and i can go slightly inside to get more premium 
+etc.
+
+First show me the strategy , we will review before we implement.

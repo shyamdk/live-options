@@ -391,6 +391,102 @@ def init_db() -> None:
         )
         conn.execute(
             """
+            CREATE TABLE IF NOT EXISTS theta_sessions (
+                id TEXT PRIMARY KEY,
+                session_date TEXT NOT NULL,
+                mode TEXT NOT NULL,
+                status TEXT NOT NULL,
+                nifty_day_type TEXT,
+                sensex_day_type TEXT,
+                realized_pnl REAL NOT NULL DEFAULT 0,
+                halted INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS theta_positions (
+                id TEXT PRIMARY KEY,
+                session_id TEXT NOT NULL,
+                underlying TEXT NOT NULL,
+                side TEXT NOT NULL,
+                strike REAL NOT NULL,
+                expiry TEXT NOT NULL,
+                security_id TEXT,
+                exchange_segment TEXT,
+                mode TEXT NOT NULL,
+                status TEXT NOT NULL,
+                day_type TEXT,
+                tranche_count INTEGER NOT NULL DEFAULT 0,
+                total_qty INTEGER NOT NULL DEFAULT 0,
+                avg_entry_premium REAL,
+                entry_spot REAL,
+                estimated_margin REAL,
+                realized_pnl REAL,
+                close_reason TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                closed_at TEXT
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS theta_tranches (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                position_id TEXT NOT NULL,
+                qty INTEGER NOT NULL,
+                premium REAL NOT NULL,
+                spot_at_entry REAL,
+                distance_pct_at_entry REAL,
+                day_type TEXT,
+                created_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS theta_signals (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id TEXT NOT NULL,
+                kind TEXT NOT NULL,
+                status TEXT NOT NULL,
+                underlying TEXT NOT NULL,
+                side TEXT NOT NULL,
+                strike REAL,
+                expiry TEXT,
+                position_id TEXT,
+                payload_json TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS theta_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id TEXT NOT NULL,
+                event_type TEXT NOT NULL,
+                message TEXT NOT NULL,
+                payload_json TEXT,
+                created_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS theta_settings (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
             CREATE TABLE IF NOT EXISTS credit_spread_positions (
                 id TEXT PRIMARY KEY,
                 expiry TEXT NOT NULL,
