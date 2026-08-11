@@ -1,17 +1,17 @@
 "use client";
 
-import { Activity, BookOpenText, BriefcaseBusiness, CandlestickChart, ChevronLeft, ChevronRight, Coins, Layers, Zap } from "lucide-react";
+import { BookOpenText, BriefcaseBusiness, ChevronLeft, ChevronRight, Coins } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 
+// Gamma Blast, ema5, animesh-scalping, and BN Credit Spread are archived --
+// their pages/background monitors still exist (see .env's *_MONITOR_ENABLED
+// flags) but are intentionally kept off the nav to declutter around Theta
+// Book as the active strategy. Re-add the entry + flip the flag to unarchive.
 const navItems = [
   { href: "/manage-trades", label: "Manage Trades", short: "MT", icon: BriefcaseBusiness },
   { href: "/trade-journals", label: "Trade Journals", short: "TJ", icon: BookOpenText },
-  { href: "/gamma-blast", label: "Gamma Blast", short: "GB", icon: Zap },
-  { href: "/ema5", label: "ema5", short: "E5", icon: CandlestickChart },
-  { href: "/animesh-scalping", label: "animesh-scalping", short: "AS", icon: Activity },
-  { href: "/bank-nifty-credit-spread", label: "BN Credit Spread", short: "CS", icon: Layers },
   { href: "/theta-book", label: "Theta Book", short: "TB", icon: Coins },
 ];
 
