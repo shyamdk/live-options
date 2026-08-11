@@ -13,6 +13,32 @@ export type MarketIndicesPayload = {
   indices: MarketIndex[];
 };
 
+export type MarketNewsItem = {
+  headline: string;
+  impact: "high" | "medium";
+  link: string | null;
+};
+
+export type MarketNewsPayload = {
+  items: MarketNewsItem[];
+  generatedAt: string | null;
+};
+
+export type PcrOiSnapshot = {
+  time: number;
+  spot: number | null;
+  pcr: number | null;
+  ceOi: number;
+  peOi: number;
+  ceOiChange: number;
+  peOiChange: number;
+};
+
+export type PcrOiPayload = {
+  NIFTY: PcrOiSnapshot[];
+  SENSEX: PcrOiSnapshot[];
+};
+
 export type MarketCandle = {
   time: number;
   open: number;

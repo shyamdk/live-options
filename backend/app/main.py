@@ -20,6 +20,13 @@ from app.services.credit_spread import start_credit_spread_task, stop_credit_spr
 from app.services.ema5 import start_ema5_task, stop_ema5_task
 from app.services.gamma_blast import start_gamma_blast_task, stop_gamma_blast_task
 from app.services.journal_insights import start_journal_insights_task, stop_journal_insights_task
+from app.services.market_news import (
+    start_market_calendar_task,
+    start_market_news_task,
+    stop_market_calendar_task,
+    stop_market_news_task,
+)
+from app.services.pcr_oi import start_pcr_oi_task, stop_pcr_oi_task
 from app.services.theta import start_theta_task, stop_theta_task
 from app.services.trades import (
     start_risk_order_monitor_task,
@@ -39,6 +46,9 @@ ema5_task = None
 animesh_task = None
 credit_spread_task = None
 theta_task = None
+market_news_task = None
+market_calendar_task = None
+pcr_oi_task = None
 
 app.add_middleware(
     CORSMiddleware,
@@ -51,7 +61,7 @@ app.add_middleware(
 
 @app.on_event("startup")
 async def startup() -> None:
-    global risk_order_monitor_task, spot_distance_monitor_task, gamma_blast_task, journal_insights_task, ema5_task, animesh_task, credit_spread_task, theta_task
+    global risk_order_monitor_task, spot_distance_monitor_task, gamma_blast_task, journal_insights_task, ema5_task, animesh_task, credit_spread_task, theta_task, market_news_task, market_calendar_task, pcr_oi_task
     init_db()
     spot_distance_monitor_task = start_spot_distance_monitor_task()
     risk_order_monitor_task = start_risk_order_monitor_task()
@@ -61,6 +71,9 @@ async def startup() -> None:
     animesh_task = start_animesh_task()
     credit_spread_task = start_credit_spread_task()
     theta_task = start_theta_task()
+    market_news_task = start_market_news_task()
+    market_calendar_task = start_market_calendar_task()
+    pcr_oi_task = start_pcr_oi_task()
 
 
 @app.on_event("shutdown")
@@ -73,6 +86,9 @@ async def shutdown() -> None:
     await stop_animesh_task(animesh_task)
     await stop_credit_spread_task(credit_spread_task)
     await stop_theta_task(theta_task)
+    await stop_market_news_task(market_news_task)
+    await stop_market_calendar_task(market_calendar_task)
+    await stop_pcr_oi_task(pcr_oi_task)
 
 
 @app.get("/health")

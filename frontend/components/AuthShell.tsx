@@ -4,6 +4,7 @@ import { LockKeyhole } from "lucide-react";
 import { FormEvent, useEffect, useState } from "react";
 
 import AppSidebar from "@/components/AppSidebar";
+import MarketNewsTicker from "@/components/MarketNewsTicker";
 import MarketStrip from "@/components/MarketStrip";
 import { clearAuthToken, getAuthSession, getAuthStatus, loginApp } from "@/lib/api";
 import type { AuthStatus } from "@/types/live";
@@ -96,6 +97,7 @@ export default function AuthShell({ children }: Readonly<{ children: React.React
       <AppSidebar />
       <main className="main">
         <MarketStrip />
+        <MarketNewsTicker />
         {children}
       </main>
     </div>

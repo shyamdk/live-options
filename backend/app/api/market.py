@@ -6,9 +6,11 @@ from fastapi import APIRouter, Depends, Query
 
 from app.core.config import get_settings
 from app.core.timeutil import now_ist
+from app.db.sqlite import get_market_calendar, get_market_news, get_pcr_oi_snapshots
 from app.services.app_auth import require_auth
 from app.services.dhan import DhanService
 from app.services.market import MarketService
+from app.services.market_news import refresh_market_calendar, refresh_market_news
 
 
 router = APIRouter(prefix="/market", tags=["market"])
@@ -44,6 +46,41 @@ async def candles(
     now_epoch = int(now.timestamp())
     completed = [c for c in raw if c["time"] + interval_minutes * 60 <= now_epoch]
     return {"candles": completed, "intervalMinutes": interval_minutes}
+
+
+@router.get("/news", dependencies=[Depends(require_auth)])
+async def news() -> dict[str, Any]:
+    return _merged_news_payload()
+
+
+@router.post("/news/refresh", dependencies=[Depends(require_auth)])
+async def refresh_news() -> dict[str, Any]:
+    await refresh_market_calendar()
+    await refresh_market_news()
+    return _merged_news_payload()
+
+
+def _merged_news_payload() -> dict[str, Any]:
+    """Scheduled macro events (Fed/CPI/jobs, from the calendar loop) take
+    priority over reactive RSS-derived headlines, since they're the
+    forward-looking gap the RSS feeds alone don't cover — reactive news
+    fills whatever slots remain up to market_news_max_items total.
+    """
+    settings = get_settings()
+    calendar_payload = get_market_calendar() or {}
+    reactive_payload = get_market_news() or {}
+    calendar = calendar_payload.get("items", [])
+    reactive = reactive_payload.get("items", [])
+    remaining = max(settings.market_news_max_items - len(calendar), 0)
+    items = [*calendar, *reactive[:remaining]]
+    generated_at = max((v for v in (calendar_payload.get("generatedAt"), reactive_payload.get("generatedAt")) if v), default=None)
+    return {"items": items, "generatedAt": generated_at}
+
+
+@router.get("/pcr-oi", dependencies=[Depends(require_auth)])
+async def pcr_oi() -> dict[str, Any]:
+    snapshots = get_pcr_oi_snapshots(now_ist().date().isoformat())
+    return {"NIFTY": snapshots.get("NIFTY", []), "SENSEX": snapshots.get("SENSEX", [])}
 
 
 @router.get("/indices", dependencies=[Depends(require_auth)])

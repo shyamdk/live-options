@@ -8,6 +8,8 @@ import type {
   LiveTradeSnapshot,
   MarketCandlesResponse,
   MarketIndicesPayload,
+  MarketNewsPayload,
+  PcrOiPayload,
   TradeLevels,
 } from "@/types/live";
 import type { GammaBlastSessionDetail, GammaBlastState } from "@/types/gamma-blast";
@@ -77,6 +79,18 @@ export async function loginApp(username: string, password: string): Promise<Auth
 
 export async function getMarketIndices(): Promise<MarketIndicesPayload> {
   return apiJson<MarketIndicesPayload>("/api/market/indices", undefined, "Failed to load market strip");
+}
+
+export async function getMarketNews(): Promise<MarketNewsPayload> {
+  return apiJson<MarketNewsPayload>("/api/market/news", undefined, "Failed to load market news");
+}
+
+export async function refreshMarketNews(): Promise<MarketNewsPayload> {
+  return apiJson<MarketNewsPayload>("/api/market/news/refresh", { method: "POST" }, "Failed to refresh market news");
+}
+
+export async function getPcrOiSnapshots(): Promise<PcrOiPayload> {
+  return apiJson<PcrOiPayload>("/api/market/pcr-oi", undefined, "Failed to load PCR/OI data");
 }
 
 export async function getTradeCandles(params: {

@@ -101,6 +101,41 @@ def init_db() -> None:
         )
         conn.execute(
             """
+            CREATE TABLE IF NOT EXISTS market_news (
+                id TEXT PRIMARY KEY,
+                items_json TEXT NOT NULL,
+                generated_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS market_calendar (
+                id TEXT PRIMARY KEY,
+                items_json TEXT NOT NULL,
+                generated_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS pcr_oi_snapshots (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_date TEXT NOT NULL,
+                underlying TEXT NOT NULL,
+                epoch INTEGER NOT NULL,
+                captured_at TEXT NOT NULL,
+                spot REAL,
+                pcr REAL,
+                ce_oi INTEGER,
+                pe_oi INTEGER,
+                ce_oi_change INTEGER,
+                pe_oi_change INTEGER
+            )
+            """
+        )
+        conn.execute(
+            """
             CREATE TABLE IF NOT EXISTS alert_events (
                 alert_key TEXT PRIMARY KEY,
                 payload_json TEXT,
@@ -844,6 +879,100 @@ def get_journal_insights() -> dict[str, Any] | None:
     if not row:
         return None
     return {"bullets": _json(row["bullets_json"]) or [], "generatedAt": row["generated_at"]}
+
+
+def save_market_news(items: list[dict[str, Any]]) -> None:
+    now = datetime.now().isoformat(timespec="seconds")
+    with _DB_LOCK, _connect() as conn:
+        conn.execute(
+            """
+            INSERT INTO market_news (id, items_json, generated_at)
+            VALUES ('latest', :items_json, :now)
+            ON CONFLICT(id) DO UPDATE SET
+                items_json = excluded.items_json,
+                generated_at = excluded.generated_at
+            """,
+            {"items_json": json.dumps(items), "now": now},
+        )
+        conn.commit()
+
+
+def get_market_news() -> dict[str, Any] | None:
+    with _DB_LOCK, _connect() as conn:
+        row = conn.execute("SELECT * FROM market_news WHERE id = 'latest'").fetchone()
+    if not row:
+        return None
+    return {"items": _json(row["items_json"]) or [], "generatedAt": row["generated_at"]}
+
+
+def save_market_calendar(items: list[dict[str, Any]]) -> None:
+    now = datetime.now().isoformat(timespec="seconds")
+    with _DB_LOCK, _connect() as conn:
+        conn.execute(
+            """
+            INSERT INTO market_calendar (id, items_json, generated_at)
+            VALUES ('latest', :items_json, :now)
+            ON CONFLICT(id) DO UPDATE SET
+                items_json = excluded.items_json,
+                generated_at = excluded.generated_at
+            """,
+            {"items_json": json.dumps(items), "now": now},
+        )
+        conn.commit()
+
+
+def get_market_calendar() -> dict[str, Any] | None:
+    with _DB_LOCK, _connect() as conn:
+        row = conn.execute("SELECT * FROM market_calendar WHERE id = 'latest'").fetchone()
+    if not row:
+        return None
+    return {"items": _json(row["items_json"]) or [], "generatedAt": row["generated_at"]}
+
+
+def record_pcr_oi_snapshot(
+    *,
+    session_date: str,
+    underlying: str,
+    epoch: int,
+    spot: float | None,
+    pcr: float | None,
+    ce_oi: int | None,
+    pe_oi: int | None,
+    ce_oi_change: int | None,
+    pe_oi_change: int | None,
+) -> None:
+    now = datetime.now().isoformat(timespec="seconds")
+    with _DB_LOCK, _connect() as conn:
+        conn.execute(
+            """
+            INSERT INTO pcr_oi_snapshots (
+                session_date, underlying, epoch, captured_at, spot, pcr, ce_oi, pe_oi, ce_oi_change, pe_oi_change
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (session_date, underlying, epoch, now, spot, pcr, ce_oi, pe_oi, ce_oi_change, pe_oi_change),
+        )
+        conn.commit()
+
+
+def get_pcr_oi_snapshots(session_date: str) -> dict[str, list[dict[str, Any]]]:
+    with _DB_LOCK, _connect() as conn:
+        rows = conn.execute(
+            "SELECT * FROM pcr_oi_snapshots WHERE session_date = ? ORDER BY underlying, epoch", (session_date,)
+        ).fetchall()
+    result: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        result.setdefault(row["underlying"], []).append(
+            {
+                "time": row["epoch"],
+                "spot": row["spot"],
+                "pcr": row["pcr"],
+                "ceOi": row["ce_oi"],
+                "peOi": row["pe_oi"],
+                "ceOiChange": row["ce_oi_change"],
+                "peOiChange": row["pe_oi_change"],
+            }
+        )
+    return result
 
 
 def record_alert_once(alert_key: str, payload: dict[str, Any] | None = None) -> bool:

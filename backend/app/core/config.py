@@ -74,6 +74,25 @@ class Settings(BaseSettings):
     journal_insights_refresh_time: str = "16:00"
     journal_insights_check_interval_seconds: int = 900
 
+    market_news_monitor_enabled: bool = True
+    market_news_check_interval_seconds: int = 1200
+    market_news_feed_urls: str = (
+        "https://economictimes.indiatimes.com/markets/rssfeeds/1977021501.cms,"
+        "https://www.livemint.com/rss/markets"
+    )
+    market_news_lookback_hours: int = 6
+    market_news_max_items: int = 3
+
+    market_calendar_monitor_enabled: bool = True
+    market_calendar_check_interval_seconds: int = 14400
+    market_calendar_horizon_hours: int = 48
+    market_calendar_max_items: int = 2
+
+    pcr_oi_monitor_enabled: bool = True
+    pcr_oi_poll_interval_seconds: int = 180
+    pcr_oi_session_start_time: str = "09:15"
+    pcr_oi_session_end_time: str = "15:30"
+
     gamma_blast_monitor_enabled: bool = True
     gamma_blast_mode: str = "PAPER"
     gamma_blast_paper_auto_approve: bool = True
@@ -234,6 +253,10 @@ class Settings(BaseSettings):
     @property
     def cors_origin_list(self) -> list[str]:
         return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
+
+    @property
+    def market_news_feed_url_list(self) -> list[str]:
+        return [url.strip() for url in self.market_news_feed_urls.split(",") if url.strip()]
 
     @property
     def resolved_dhan_client_id(self) -> str | None:

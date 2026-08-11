@@ -6,6 +6,7 @@ import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 
 import { approveRiskExit, closeTrade, getDhanSession, getLiveTrades, getTradeCandles, loginDhan, saveTradeLevels } from "@/lib/api";
 import type { DhanSession, LiveTrade, LiveTradeSnapshot, MarketCandle } from "@/types/live";
+import PcrOiPanel from "@/components/PcrOiPanel";
 
 type DraftLevels = {
   stopLoss: string;
@@ -197,6 +198,8 @@ export default function ManageTradesPage() {
           </button>
         </div>
       </header>
+
+      <PcrOiPanel />
 
       {error ? <div className="alert error">{error}</div> : null}
       {snapshot?.warning ? <div className="alert warning">{snapshot.warning}</div> : null}
