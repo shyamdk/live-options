@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from app.core.config import get_settings
-from app.core.timeutil import now_ist
+from app.core.timeutil import now_ist_epoch
 from app.services.app_auth import require_auth
 from app.services.dhan import DhanService
 from app.services.ema5 import (
@@ -54,8 +54,7 @@ async def candles(side: Literal["PE", "CE"]) -> dict[str, Any]:
     raw = await fetch_today_candles(
         dhan, str(settings.dhan_nifty_security_id), str(interval), settings.ema5_session_start_time
     )
-    now = now_ist()
-    completed = filter_completed_candles(raw, interval, int(now.timestamp()))
+    completed = filter_completed_candles(raw, interval, now_ist_epoch())
     ema = compute_ema([c.close for c in completed], period=settings.ema5_ema_period)
     return {
         "side": side,

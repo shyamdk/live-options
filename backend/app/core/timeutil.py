@@ -16,8 +16,22 @@ def now_ist() -> datetime:
     host server's own system timezone. Deliberately returned as naive (tzinfo
     stripped) so it arithmetics cleanly against timestamps stored via
     isoformat() elsewhere without any aware/naive mixing.
+
+    Do NOT call .timestamp() on this value -- a naive datetime's .timestamp()
+    is interpreted using the HOST's own system timezone (GMT on OCI), not
+    IST, so it silently produces an epoch off by the UTC-IST offset (5.5h).
+    Use now_ist_epoch() instead whenever a true Unix epoch is needed.
     """
     return datetime.now(_IST).replace(tzinfo=None)
+
+
+def now_ist_epoch() -> int:
+    """True Unix epoch (UTC-based) for the current moment. Safe to compare
+    directly against Dhan candle `time` fields or anything else stored as a
+    real epoch -- unlike now_ist().timestamp(), which is wrong whenever the
+    host's system timezone isn't IST (see now_ist()'s docstring).
+    """
+    return int(datetime.now(_IST).timestamp())
 
 
 def today_ist() -> str:

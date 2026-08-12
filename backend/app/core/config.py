@@ -33,6 +33,7 @@ class Settings(BaseSettings):
     dhan_auth_base_url: str = "https://auth.dhan.co"
     dhan_base_url: str = "https://api.dhan.co/v2"
     dhan_token_refresh_min_interval_seconds: float = 120.0
+    dhan_token_par_url: str | None = None
     dhan_market_quote_cache_seconds: float = 60.0
     dhan_market_quote_backoff_seconds: float = 120.0
     dhan_nifty_security_id: int = 13

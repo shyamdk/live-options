@@ -1,6 +1,16 @@
 "use client";
 
-import { ColorType, createChart, IChartApi, ISeriesApi, LineSeries, LineStyle, Time, UTCTimestamp } from "lightweight-charts";
+import {
+  ColorType,
+  createChart,
+  IChartApi,
+  ISeriesApi,
+  LineSeries,
+  LineStyle,
+  MouseEventParams,
+  Time,
+  UTCTimestamp,
+} from "lightweight-charts";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
@@ -29,10 +39,27 @@ const CONFIDENCE_LABEL: Record<ConfidenceLevel, string> = {
   extreme: "Extreme",
 };
 
+type ChartHandle = { chart: IChartApi; series: ISeriesApi<"Line"> };
+
 export default function PcrOiPanel() {
   const [expanded, setExpanded] = useState(false);
   const [data, setData] = useState<PcrOiPayload>({ NIFTY: [], SENSEX: [] });
   const [error, setError] = useState<string | null>(null);
+
+  const [niftyOi, setNiftyOi] = useState<ChartHandle | null>(null);
+  const [niftyRoc, setNiftyRoc] = useState<ChartHandle | null>(null);
+  const [sensexOi, setSensexOi] = useState<ChartHandle | null>(null);
+  const [sensexRoc, setSensexRoc] = useState<ChartHandle | null>(null);
+
+  useEffect(() => {
+    if (!niftyOi || !niftyRoc) return;
+    return linkCrosshairs(niftyOi, niftyRoc);
+  }, [niftyOi, niftyRoc]);
+
+  useEffect(() => {
+    if (!sensexOi || !sensexRoc) return;
+    return linkCrosshairs(sensexOi, sensexRoc);
+  }, [sensexOi, sensexRoc]);
 
   useEffect(() => {
     if (!expanded) return;
@@ -65,33 +92,92 @@ export default function PcrOiPanel() {
           </button>
           Market Internals — PCR &amp; Change in OI
         </h2>
-        <span className="subtext">NIFTY vs SENSEX, nearest expiry</span>
+        <span className="subtext">NIFTY vs SENSEX, nearest expiry · all times IST</span>
       </div>
       {expanded ? (
         <>
           {error ? <div className="alert error">{error}</div> : null}
           <div className="pcr-oi-section">
             <h3>Put-Call Ratio</h3>
+            <Legend items={[{ label: "NIFTY PCR", color: NIFTY_COLOR }, { label: "SENSEX PCR", color: SENSEX_COLOR }]} />
             <PcrChart nifty={data.NIFTY} sensex={data.SENSEX} />
           </div>
           <div className="pcr-oi-section">
             <h3>Change in OI</h3>
+            <Legend items={[{ label: "CE chg OI", color: CE_COLOR }, { label: "PE chg OI", color: PE_COLOR }]} />
             <div className="pcr-oi-split">
-              <OiChangeChart title="NIFTY" points={data.NIFTY} />
-              <OiChangeChart title="SENSEX" points={data.SENSEX} />
+              <OiChangeChart title="NIFTY" points={data.NIFTY} onReady={setNiftyOi} />
+              <OiChangeChart title="SENSEX" points={data.SENSEX} onReady={setSensexOi} />
             </div>
           </div>
           <div className="pcr-oi-section">
             <h3>Rate of Change (OI/min) &amp; Confidence</h3>
+            <Legend
+              items={[
+                { label: "CE roc", color: CE_COLOR },
+                { label: "PE roc", color: PE_COLOR },
+                { label: "±1σ band (today)", color: BAND_COLOR, dashed: true },
+              ]}
+            />
             <div className="pcr-oi-split">
-              <RocChart title="NIFTY" points={data.NIFTY} />
-              <RocChart title="SENSEX" points={data.SENSEX} />
+              <RocChart title="NIFTY" points={data.NIFTY} onReady={setNiftyRoc} />
+              <RocChart title="SENSEX" points={data.SENSEX} onReady={setSensexRoc} />
             </div>
           </div>
         </>
       ) : null}
     </section>
   );
+}
+
+function Legend({ items }: { items: { label: string; color: string; dashed?: boolean }[] }) {
+  return (
+    <div className="pcr-oi-legend">
+      {items.map((item) => (
+        <span className="pcr-oi-legend-item" key={item.label}>
+          <span
+            className="pcr-oi-legend-swatch"
+            style={item.dashed ? { borderTop: `2px dashed ${item.color}` } : { background: item.color }}
+          />
+          {item.label}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+/** Bidirectionally syncs the crosshair (vertical hover line) between two
+ * charts sharing the same time axis, so hovering either the Change-in-OI or
+ * Rate-of-Change chart for an underlying shows the same moment in both.
+ * Guards against the infinite loop that would otherwise happen since
+ * setCrosshairPosition() on the partner chart re-fires its own
+ * subscribeCrosshairMove handler.
+ */
+function linkCrosshairs(a: ChartHandle, b: ChartHandle): () => void {
+  let syncing = false;
+
+  const forward = (source: ChartHandle, target: ChartHandle) => (param: MouseEventParams<Time>) => {
+    if (syncing) return;
+    syncing = true;
+    if (param.time === undefined || !param.point) {
+      target.chart.clearCrosshairPosition();
+    } else {
+      const point = param.seriesData.get(source.series);
+      const price = point && "value" in point ? point.value : 0;
+      target.chart.setCrosshairPosition(price, param.time, target.series);
+    }
+    syncing = false;
+  };
+
+  const onA = forward(a, b);
+  const onB = forward(b, a);
+  a.chart.subscribeCrosshairMove(onA);
+  b.chart.subscribeCrosshairMove(onB);
+
+  return () => {
+    a.chart.unsubscribeCrosshairMove(onA);
+    b.chart.unsubscribeCrosshairMove(onB);
+  };
 }
 
 function PcrChart({ nifty, sensex }: { nifty: PcrOiSnapshot[]; sensex: PcrOiSnapshot[] }) {
@@ -141,7 +227,15 @@ function PcrChart({ nifty, sensex }: { nifty: PcrOiSnapshot[]; sensex: PcrOiSnap
   return <div ref={containerRef} />;
 }
 
-function OiChangeChart({ title, points }: { title: string; points: PcrOiSnapshot[] }) {
+function OiChangeChart({
+  title,
+  points,
+  onReady,
+}: {
+  title: string;
+  points: PcrOiSnapshot[];
+  onReady?: (handle: ChartHandle) => void;
+}) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const ceRef = useRef<ISeriesApi<"Line"> | null>(null);
@@ -157,9 +251,12 @@ function OiChangeChart({ title, points }: { title: string; points: PcrOiSnapshot
       timeScale: { timeVisible: true, secondsVisible: false, tickMarkFormatter: (time: Time) => formatIstTime(time) },
       localization: { timeFormatter: (time: Time) => formatIstTime(time) },
     });
-    ceRef.current = chart.addSeries(LineSeries, { color: CE_COLOR, lineWidth: 2, title: "CE chg OI" });
-    peRef.current = chart.addSeries(LineSeries, { color: PE_COLOR, lineWidth: 2, title: "PE chg OI" });
+    const ce = chart.addSeries(LineSeries, { color: CE_COLOR, lineWidth: 2, title: "CE chg OI" });
+    const pe = chart.addSeries(LineSeries, { color: PE_COLOR, lineWidth: 2, title: "PE chg OI" });
+    ceRef.current = ce;
+    peRef.current = pe;
     chartRef.current = chart;
+    onReady?.({ chart, series: ce });
 
     const resizeObserver = new ResizeObserver(() => {
       if (containerRef.current) chart.applyOptions({ width: containerRef.current.clientWidth });
@@ -173,6 +270,7 @@ function OiChangeChart({ title, points }: { title: string; points: PcrOiSnapshot
       ceRef.current = null;
       peRef.current = null;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -188,7 +286,15 @@ function OiChangeChart({ title, points }: { title: string; points: PcrOiSnapshot
   );
 }
 
-function RocChart({ title, points }: { title: string; points: PcrOiSnapshot[] }) {
+function RocChart({
+  title,
+  points,
+  onReady,
+}: {
+  title: string;
+  points: PcrOiSnapshot[];
+  onReady?: (handle: ChartHandle) => void;
+}) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const ceRef = useRef<ISeriesApi<"Line"> | null>(null);
@@ -213,9 +319,12 @@ function RocChart({ title, points }: { title: string; points: PcrOiSnapshot[] })
     ceLowerRef.current = chart.addSeries(LineSeries, bandOptions);
     peUpperRef.current = chart.addSeries(LineSeries, { ...bandOptions, title: "PE band" });
     peLowerRef.current = chart.addSeries(LineSeries, bandOptions);
-    ceRef.current = chart.addSeries(LineSeries, { color: CE_COLOR, lineWidth: 2, title: "CE roc" });
-    peRef.current = chart.addSeries(LineSeries, { color: PE_COLOR, lineWidth: 2, title: "PE roc" });
+    const ce = chart.addSeries(LineSeries, { color: CE_COLOR, lineWidth: 2, title: "CE roc" });
+    const pe = chart.addSeries(LineSeries, { color: PE_COLOR, lineWidth: 2, title: "PE roc" });
+    ceRef.current = ce;
+    peRef.current = pe;
     chartRef.current = chart;
+    onReady?.({ chart, series: ce });
 
     const resizeObserver = new ResizeObserver(() => {
       if (containerRef.current) chart.applyOptions({ width: containerRef.current.clientWidth });
@@ -233,6 +342,7 @@ function RocChart({ title, points }: { title: string; points: PcrOiSnapshot[] })
       peUpperRef.current = null;
       peLowerRef.current = null;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {

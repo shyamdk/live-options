@@ -22,7 +22,7 @@ from datetime import time as dt_time
 from typing import Any
 
 from app.core.config import Settings, get_settings
-from app.core.timeutil import in_time_window, now_ist
+from app.core.timeutil import in_time_window, now_ist, now_ist_epoch
 from app.db import animesh as db
 from app.services.animesh_candles import fetch_daily_bias_candles, fetch_today_candles
 from app.services.animesh_engine import (
@@ -176,7 +176,7 @@ async def _maybe_refresh_candles(settings: Settings, now: datetime) -> None:
             str(settings.animesh_execution_interval_minutes),
             settings.animesh_session_start_time,
         )
-        completed = filter_completed_candles(raw_candles, settings.animesh_execution_interval_minutes, int(now.timestamp()))
+        completed = filter_completed_candles(raw_candles, settings.animesh_execution_interval_minutes, now_ist_epoch())
         _active["candles"] = completed
         macd_result = compute_macd(
             [c.close for c in completed],
@@ -221,7 +221,7 @@ async def _maybe_raise_entry_signal(settings: Settings, session_id: str, side: s
     if not _entry_window_ok(now.time(), settings):
         return
     blocked_until = _active["scanBlockedUntilEpoch"]
-    if blocked_until is not None and now.timestamp() < blocked_until:
+    if blocked_until is not None and now_ist_epoch() < blocked_until:
         return
 
     side_state = _active["sides"][side]

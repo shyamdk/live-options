@@ -607,6 +607,28 @@ button:disabled {
   padding: 2px 8px;
 }
 
+.pcr-oi-legend {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 8px;
+}
+
+.pcr-oi-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.pcr-oi-legend-swatch {
+  display: inline-block;
+  width: 12px;
+  height: 3px;
+  border-radius: 2px;
+}
+
 .section-title span {
   display: inline-grid;
   place-items: center;

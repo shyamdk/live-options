@@ -5,7 +5,7 @@ from typing import Any, Literal
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.core.config import get_settings
-from app.core.timeutil import now_ist
+from app.core.timeutil import now_ist_epoch
 from app.services.animesh import approve_animesh_signal, get_session_detail, get_state, list_past_sessions
 from app.services.animesh_candles import fetch_today_candles
 from app.services.animesh_engine import compute_ema_band, compute_macd, filter_completed_candles
@@ -27,8 +27,7 @@ async def candles(side: Literal["PE", "CE"]) -> dict[str, Any]:
     raw = await fetch_today_candles(
         dhan, str(settings.dhan_nifty_security_id), str(settings.animesh_execution_interval_minutes), settings.animesh_session_start_time
     )
-    now = now_ist()
-    completed = filter_completed_candles(raw, settings.animesh_execution_interval_minutes, int(now.timestamp()))
+    completed = filter_completed_candles(raw, settings.animesh_execution_interval_minutes, now_ist_epoch())
     macd_result = compute_macd(
         [c.close for c in completed], fast=settings.animesh_macd_fast, slow=settings.animesh_macd_slow, signal=settings.animesh_macd_signal
     )

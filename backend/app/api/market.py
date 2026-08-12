@@ -5,7 +5,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, Query
 
 from app.core.config import get_settings
-from app.core.timeutil import now_ist
+from app.core.timeutil import now_ist, now_ist_epoch
 from app.db.sqlite import get_market_calendar, get_market_news, get_pcr_oi_snapshots
 from app.services.app_auth import require_auth
 from app.services.dhan import DhanService
@@ -44,7 +44,7 @@ async def candles(
         to_date=to_date,
     )
     interval_minutes = int(interval)
-    now_epoch = int(now.timestamp())
+    now_epoch = now_ist_epoch()
     completed = [c for c in raw if c["time"] + interval_minutes * 60 <= now_epoch]
     return {"candles": completed, "intervalMinutes": interval_minutes}
 

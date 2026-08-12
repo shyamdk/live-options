@@ -20,7 +20,7 @@ from datetime import time as dt_time
 from typing import Any
 
 from app.core.config import Settings, get_settings
-from app.core.timeutil import in_time_window, now_ist
+from app.core.timeutil import in_time_window, now_ist, now_ist_epoch
 from app.db import ema5 as db
 from app.services.dhan import DhanService
 from app.services.dhan_ws import DhanWsClient
@@ -149,7 +149,7 @@ async def _maybe_refresh_candles(settings: Settings, side: str, now: datetime) -
         raw_candles = await fetch_today_candles(
             dhan, str(settings.dhan_nifty_security_id), str(interval), settings.ema5_session_start_time
         )
-        completed = filter_completed_candles(raw_candles, interval, int(now.timestamp()))
+        completed = filter_completed_candles(raw_candles, interval, now_ist_epoch())
         side_state["candles"] = completed
         side_state["ema"] = compute_ema([c.close for c in completed], period=settings.ema5_ema_period)
     except Exception:

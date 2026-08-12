@@ -17,7 +17,7 @@ from datetime import date, datetime
 from typing import Any
 
 from app.core.config import Settings, get_settings
-from app.core.timeutil import in_time_window, now_ist
+from app.core.timeutil import in_time_window, now_ist, now_ist_epoch
 from app.db.sqlite import record_pcr_oi_snapshot
 from app.services.dhan import DhanService
 
@@ -84,7 +84,7 @@ async def _resolve_expiries(dhan: DhanService, settings: Settings, today: date) 
 async def _poll_once(settings: Settings, now: datetime) -> None:
     dhan = DhanService(settings)
     session_date = now.date().isoformat()
-    epoch = int(now.timestamp())
+    epoch = now_ist_epoch()
     expiries = await _resolve_expiries(dhan, settings, now.date())
 
     for underlying in UNDERLYINGS:

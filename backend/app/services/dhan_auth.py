@@ -1,3 +1,17 @@
+"""Dhan access-token lifecycle: TOTP-based auto-login and refresh.
+
+Local dev and OCI production share one Dhan account/client ID, and Dhan
+only honors one valid access token per client at a time -- so if both
+sides independently refresh on a 401, whichever refreshes last silently
+invalidates the other. When DHAN_TOKEN_PAR_URL is configured (an OCI
+Object Storage Pre-Authenticated Request URL, same one on both sides),
+get_dhan_access_token() checks that shared object before minting a new
+token: if the other side already refreshed, this side just adopts that
+token instead of logging in again. Purely additive -- unset the setting
+and behavior is identical to before (each side manages its own token via
+local .env only).
+"""
+
 from __future__ import annotations
 
 import asyncio
@@ -5,8 +19,10 @@ import base64
 import hashlib
 import hmac
 import os
+import socket
 import struct
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -63,6 +79,41 @@ def _store_env_value(name: str, value: str) -> None:
     env_path.write_text("\n".join(next_lines) + "\n", encoding="utf-8")
 
 
+async def _fetch_shared_token(par_url: str) -> str | None:
+    """Best-effort read of the shared Dhan token object (OCI Object Storage,
+    accessed via a PAR URL) -- never raises, since this is a race-avoidance
+    optimization, not a hard dependency. See dhan_auth's module docstring
+    for why local dev and OCI production need to agree on one token.
+    """
+    try:
+        async with httpx.AsyncClient(timeout=8) as client:
+            response = await client.get(par_url)
+        if response.is_error:
+            return None
+        token = response.json().get("accessToken")
+        return str(token) if token else None
+    except Exception:
+        return None
+
+
+async def _push_shared_token(par_url: str, token: str) -> None:
+    """Best-effort publish of a freshly-generated token to the shared store
+    so the other side (local <-> OCI) adopts it on its own next 401 instead
+    of independently generating a second one, which would invalidate this
+    one -- Dhan only honors one access token per client at a time.
+    """
+    try:
+        payload = {
+            "accessToken": token,
+            "issuedAt": datetime.now(timezone.utc).isoformat(),
+            "issuedBy": socket.gethostname(),
+        }
+        async with httpx.AsyncClient(timeout=8) as client:
+            await client.put(par_url, json=payload)
+    except Exception:
+        pass
+
+
 async def get_dhan_access_token(settings: Settings | None = None, *, force_refresh: bool = False) -> str:
     global _last_refresh_attempt
     settings = settings or get_settings()
@@ -72,6 +123,17 @@ async def get_dhan_access_token(settings: Settings | None = None, *, force_refre
     async with _AUTH_LOCK:
         if settings.dhan_access_token and not force_refresh:
             return settings.dhan_access_token
+
+        if settings.dhan_token_par_url:
+            shared_token = await _fetch_shared_token(settings.dhan_token_par_url)
+            if shared_token and shared_token != settings.dhan_access_token:
+                # Another instance (local <-> OCI) already refreshed moments
+                # ago -- adopt its token instead of also logging in, which
+                # would just invalidate it again.
+                settings.dhan_access_token = shared_token
+                os.environ["DHAN_ACCESS_TOKEN"] = shared_token
+                _store_env_value("DHAN_ACCESS_TOKEN", shared_token)
+                return shared_token
 
         now = time.monotonic()
         min_interval = settings.dhan_token_refresh_min_interval_seconds
@@ -90,6 +152,8 @@ async def get_dhan_access_token(settings: Settings | None = None, *, force_refre
         settings.dhan_access_token = token
         os.environ["DHAN_ACCESS_TOKEN"] = token
         _store_env_value("DHAN_ACCESS_TOKEN", token)
+        if settings.dhan_token_par_url:
+            await _push_shared_token(settings.dhan_token_par_url, token)
         return token
 
 
