@@ -24,6 +24,8 @@ export type MarketNewsPayload = {
   generatedAt: string | null;
 };
 
+export type ConfidenceLevel = "low" | "medium" | "high" | "extreme";
+
 export type PcrOiSnapshot = {
   time: number;
   spot: number | null;
@@ -32,6 +34,16 @@ export type PcrOiSnapshot = {
   peOi: number;
   ceOiChange: number;
   peOiChange: number;
+  ceRoc: number | null;
+  peRoc: number | null;
+  ceZScore: number | null;
+  peZScore: number | null;
+  ceConfidence: ConfidenceLevel | null;
+  peConfidence: ConfidenceLevel | null;
+  ceRocBandUpper: number | null;
+  ceRocBandLower: number | null;
+  peRocBandUpper: number | null;
+  peRocBandLower: number | null;
 };
 
 export type PcrOiPayload = {

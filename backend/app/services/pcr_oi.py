@@ -136,3 +136,84 @@ def _number(value: Any) -> float | None:
         return float(value) if value is not None else None
     except (TypeError, ValueError):
         return None
+
+
+MIN_ROC_OBSERVATIONS = 5
+CONFIDENCE_THRESHOLDS = (1.0, 2.0, 3.0)  # |z| boundaries for low/medium/high/extreme
+
+
+def enrich_with_roc_and_confidence(points: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Adds, per point, the per-minute rate of change of ceOiChange/peOiChange
+    and a confidence label scoring how unusual that pace is against today's
+    own expanding distribution so far (mean/stdev of every rate-of-change
+    observation from session start up to and including this point). Pure
+    function over the already-stored snapshot list -- no I/O, nothing
+    persisted; cheap enough (~130 points/day at the default poll interval)
+    to recompute on every read.
+    """
+    ce_rocs: list[float] = []
+    pe_rocs: list[float] = []
+    enriched: list[dict[str, Any]] = []
+    prev: dict[str, Any] | None = None
+
+    for point in points:
+        out = dict(point)
+        ce_roc = pe_roc = None
+        if prev is not None:
+            minutes = (point["time"] - prev["time"]) / 60.0
+            if minutes > 0:
+                ce_roc = _roc(prev.get("ceOiChange"), point.get("ceOiChange"), minutes)
+                pe_roc = _roc(prev.get("peOiChange"), point.get("peOiChange"), minutes)
+        if ce_roc is not None:
+            ce_rocs.append(ce_roc)
+        if pe_roc is not None:
+            pe_rocs.append(pe_roc)
+
+        ce_score = _score(ce_rocs, ce_roc)
+        pe_score = _score(pe_rocs, pe_roc)
+
+        out["ceRoc"] = round(ce_roc, 2) if ce_roc is not None else None
+        out["peRoc"] = round(pe_roc, 2) if pe_roc is not None else None
+        out["ceZScore"] = ce_score["zScore"]
+        out["peZScore"] = pe_score["zScore"]
+        out["ceConfidence"] = ce_score["confidence"]
+        out["peConfidence"] = pe_score["confidence"]
+        out["ceRocBandUpper"] = ce_score["upper"]
+        out["ceRocBandLower"] = ce_score["lower"]
+        out["peRocBandUpper"] = pe_score["upper"]
+        out["peRocBandLower"] = pe_score["lower"]
+        enriched.append(out)
+        prev = point
+
+    return enriched
+
+
+def _roc(prev_value: Any, current_value: Any, minutes: float) -> float | None:
+    if prev_value is None or current_value is None:
+        return None
+    return (float(current_value) - float(prev_value)) / minutes
+
+
+def _score(history: list[float], current: float | None) -> dict[str, Any]:
+    empty = {"zScore": None, "confidence": None, "upper": None, "lower": None}
+    if current is None or len(history) < MIN_ROC_OBSERVATIONS:
+        return empty
+    mean = sum(history) / len(history)
+    variance = sum((v - mean) ** 2 for v in history) / len(history)
+    stdev = variance**0.5
+    upper = round(mean + stdev, 2)
+    lower = round(mean - stdev, 2)
+    if stdev == 0:
+        return {"zScore": 0.0, "confidence": "low", "upper": upper, "lower": lower}
+    z = (current - mean) / stdev
+    az = abs(z)
+    low, medium, high = CONFIDENCE_THRESHOLDS
+    if az < low:
+        label = "low"
+    elif az < medium:
+        label = "medium"
+    elif az < high:
+        label = "high"
+    else:
+        label = "extreme"
+    return {"zScore": round(z, 2), "confidence": label, "upper": upper, "lower": lower}
