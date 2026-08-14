@@ -3,11 +3,14 @@
 import {
   ColorType,
   createChart,
+  createSeriesMarkers,
   IChartApi,
   ISeriesApi,
+  ISeriesMarkersPluginApi,
   LineSeries,
   LineStyle,
   MouseEventParams,
+  SeriesMarker,
   Time,
   UTCTimestamp,
 } from "lightweight-charts";
@@ -23,6 +26,8 @@ const NIFTY_COLOR = "#2368b6";
 const SENSEX_COLOR = "#a56513";
 const CE_COLOR = "#168448";
 const PE_COLOR = "#c93535";
+const CE_MUTED = "#a9d4bb";
+const PE_MUTED = "#e3aeae";
 const BAND_COLOR = "#9aa4b2";
 
 const CONFIDENCE_COLOR: Record<ConfidenceLevel, string> = {
@@ -107,8 +112,10 @@ export default function PcrOiPanel() {
           </div>
           <div className="pcr-oi-section">
             <h3>Put-Call Ratio</h3>
-            <Legend items={[{ label: "NIFTY PCR", color: NIFTY_COLOR }, { label: "SENSEX PCR", color: SENSEX_COLOR }]} />
-            <PcrChart nifty={data.NIFTY} sensex={data.SENSEX} />
+            <div className="pcr-oi-split">
+              <PcrChart title="NIFTY" color={NIFTY_COLOR} points={data.NIFTY} />
+              <PcrChart title="SENSEX" color={SENSEX_COLOR} points={data.SENSEX} />
+            </div>
           </div>
           <div className="pcr-oi-section">
             <h3>Change in OI</h3>
@@ -188,11 +195,10 @@ function linkCrosshairs(a: ChartHandle, b: ChartHandle): () => void {
   };
 }
 
-function PcrChart({ nifty, sensex }: { nifty: PcrOiSnapshot[]; sensex: PcrOiSnapshot[] }) {
+function PcrChart({ title, color, points }: { title: string; color: string; points: PcrOiSnapshot[] }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<IChartApi | null>(null);
-  const niftyRef = useRef<ISeriesApi<"Line"> | null>(null);
-  const sensexRef = useRef<ISeriesApi<"Line"> | null>(null);
+  const seriesRef = useRef<ISeriesApi<"Line"> | null>(null);
 
   useEffect(() => {
     if (!containerRef.current || chartRef.current) return;
@@ -200,14 +206,11 @@ function PcrChart({ nifty, sensex }: { nifty: PcrOiSnapshot[]; sensex: PcrOiSnap
       layout: { background: { type: ColorType.Solid, color: "#ffffff" }, textColor: "#252a32" },
       grid: { vertLines: { color: "#edf0f4" }, horzLines: { color: "#edf0f4" } },
       width: containerRef.current.clientWidth,
-      height: 220,
-      leftPriceScale: { visible: true, borderColor: NIFTY_COLOR },
-      rightPriceScale: { visible: true, borderColor: SENSEX_COLOR },
+      height: 200,
       timeScale: { timeVisible: true, secondsVisible: false, tickMarkFormatter: (time: Time) => formatIstTime(time) },
       localization: { timeFormatter: (time: Time) => formatIstTime(time) },
     });
-    niftyRef.current = chart.addSeries(LineSeries, { color: NIFTY_COLOR, lineWidth: 2, priceScaleId: "left", title: "NIFTY PCR" });
-    sensexRef.current = chart.addSeries(LineSeries, { color: SENSEX_COLOR, lineWidth: 2, priceScaleId: "right", title: "SENSEX PCR" });
+    seriesRef.current = chart.addSeries(LineSeries, { color, lineWidth: 2, title: `${title} PCR` });
     chartRef.current = chart;
 
     const resizeObserver = new ResizeObserver(() => {
@@ -219,20 +222,21 @@ function PcrChart({ nifty, sensex }: { nifty: PcrOiSnapshot[]; sensex: PcrOiSnap
       resizeObserver.disconnect();
       chart.remove();
       chartRef.current = null;
-      niftyRef.current = null;
-      sensexRef.current = null;
+      seriesRef.current = null;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
-    niftyRef.current?.setData(toLineData(nifty, (p) => p.pcr));
-  }, [nifty]);
+    seriesRef.current?.setData(toLineData(points, (p) => p.pcr));
+  }, [points]);
 
-  useEffect(() => {
-    sensexRef.current?.setData(toLineData(sensex, (p) => p.pcr));
-  }, [sensex]);
-
-  return <div ref={containerRef} />;
+  return (
+    <div className="pcr-oi-split-item">
+      <span className="subtext">{title}</span>
+      <div ref={containerRef} />
+    </div>
+  );
 }
 
 function OiChangeChart({
@@ -311,6 +315,8 @@ function RocChart({
   const ceLowerRef = useRef<ISeriesApi<"Line"> | null>(null);
   const peUpperRef = useRef<ISeriesApi<"Line"> | null>(null);
   const peLowerRef = useRef<ISeriesApi<"Line"> | null>(null);
+  const ceMarkersRef = useRef<ISeriesMarkersPluginApi<Time> | null>(null);
+  const peMarkersRef = useRef<ISeriesMarkersPluginApi<Time> | null>(null);
 
   useEffect(() => {
     if (!containerRef.current || chartRef.current) return;
@@ -327,10 +333,14 @@ function RocChart({
     ceLowerRef.current = chart.addSeries(LineSeries, bandOptions);
     peUpperRef.current = chart.addSeries(LineSeries, { ...bandOptions, title: "PE band" });
     peLowerRef.current = chart.addSeries(LineSeries, bandOptions);
-    const ce = chart.addSeries(LineSeries, { color: CE_COLOR, lineWidth: 2, title: "CE roc" });
-    const pe = chart.addSeries(LineSeries, { color: PE_COLOR, lineWidth: 2, title: "PE roc" });
+    // Base lines muted -- normal noise shouldn't compete for attention;
+    // the markers below are what should draw the eye.
+    const ce = chart.addSeries(LineSeries, { color: CE_MUTED, lineWidth: 1, title: "CE roc" });
+    const pe = chart.addSeries(LineSeries, { color: PE_MUTED, lineWidth: 1, title: "PE roc" });
     ceRef.current = ce;
     peRef.current = pe;
+    ceMarkersRef.current = createSeriesMarkers(ce, []);
+    peMarkersRef.current = createSeriesMarkers(pe, []);
     chartRef.current = chart;
     onReady?.({ chart, series: ce });
 
@@ -341,6 +351,8 @@ function RocChart({
 
     return () => {
       resizeObserver.disconnect();
+      ceMarkersRef.current?.detach();
+      peMarkersRef.current?.detach();
       chart.remove();
       chartRef.current = null;
       ceRef.current = null;
@@ -349,6 +361,8 @@ function RocChart({
       ceLowerRef.current = null;
       peUpperRef.current = null;
       peLowerRef.current = null;
+      ceMarkersRef.current = null;
+      peMarkersRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -360,6 +374,8 @@ function RocChart({
     ceLowerRef.current?.setData(toLineData(points, (p) => p.ceRocBandLower));
     peUpperRef.current?.setData(toLineData(points, (p) => p.peRocBandUpper));
     peLowerRef.current?.setData(toLineData(points, (p) => p.peRocBandLower));
+    ceMarkersRef.current?.setMarkers(buildConfidenceMarkers(points, "ce"));
+    peMarkersRef.current?.setMarkers(buildConfidenceMarkers(points, "pe"));
   }, [points]);
 
   const latest = points.length ? points[points.length - 1] : null;
@@ -471,6 +487,26 @@ function toLineData(points: PcrOiSnapshot[], pick: (p: PcrOiSnapshot) => number 
   return points
     .filter((p) => pick(p) !== null && pick(p) !== undefined)
     .map((p) => ({ time: p.time as UTCTimestamp, value: pick(p) as number }));
+}
+
+/** Only High/Extreme confidence points get a marker -- the muted base line
+ * carries the normal noise, markers are where the eye should actually go.
+ */
+function buildConfidenceMarkers(points: PcrOiSnapshot[], side: "ce" | "pe"): SeriesMarker<Time>[] {
+  const markers: SeriesMarker<Time>[] = [];
+  for (const p of points) {
+    const confidence = side === "ce" ? p.ceConfidence : p.peConfidence;
+    const roc = side === "ce" ? p.ceRoc : p.peRoc;
+    if (roc === null || (confidence !== "high" && confidence !== "extreme")) continue;
+    markers.push({
+      time: p.time as UTCTimestamp,
+      position: roc >= 0 ? "aboveBar" : "belowBar",
+      color: CONFIDENCE_COLOR[confidence],
+      shape: "circle",
+      text: CONFIDENCE_LABEL[confidence],
+    });
+  }
+  return markers;
 }
 
 function formatIstTime(time: Time): string {
