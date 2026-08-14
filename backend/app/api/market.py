@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, Query
 
 from app.core.config import get_settings
 from app.core.timeutil import now_ist, now_ist_epoch
-from app.db.sqlite import get_market_calendar, get_market_news, get_pcr_oi_snapshots
+from app.db.sqlite import get_market_calendar, get_market_news, get_pcr_oi_session_dates, get_pcr_oi_snapshots
 from app.services.app_auth import require_auth
 from app.services.dhan import DhanService
 from app.services.market import MarketService
@@ -23,18 +23,23 @@ async def candles(
     exchange_segment: str = Query(alias="exchangeSegment"),
     instrument: str = Query(alias="instrument"),
     interval: str = Query(default="5", alias="interval"),
+    session_date: str | None = Query(default=None, alias="date"),
 ) -> dict[str, Any]:
-    """Today's session candles for an arbitrary tradable instrument (an
-    option strike, an index, anything Dhan's /charts/intraday accepts) —
-    unlike ema5_candles.py / animesh_candles.py, which hardcode the NIFTY
-    index, this is a thin generic pass-through for on-demand chart views
-    (e.g. Manage Trades' per-position chart).
+    """Session candles for an arbitrary tradable instrument (an option
+    strike, an index, anything Dhan's /charts/intraday accepts) — unlike
+    ema5_candles.py / animesh_candles.py, which hardcode the NIFTY index,
+    this is a thin generic pass-through for on-demand chart views (e.g.
+    Manage Trades' per-position chart). Defaults to today; an explicit
+    `date` fetches a past, already-completed session instead (e.g. the
+    PCR/OI panel's "Signal vs Price" chart when reviewing a prior day).
     """
     settings = get_settings()
     dhan = DhanService(settings)
     now = now_ist()
-    from_date = f"{now.date().isoformat()} 09:15:00"
-    to_date = now.strftime("%Y-%m-%d %H:%M:%S")
+    today = now.date().isoformat()
+    target_date = session_date or today
+    from_date = f"{target_date} 09:15:00"
+    to_date = now.strftime("%Y-%m-%d %H:%M:%S") if target_date == today else f"{target_date} 15:30:00"
     raw = await dhan.intraday_candles(
         security_id=security_id,
         exchange_segment=exchange_segment,
@@ -79,12 +84,19 @@ def _merged_news_payload() -> dict[str, Any]:
 
 
 @router.get("/pcr-oi", dependencies=[Depends(require_auth)])
-async def pcr_oi() -> dict[str, Any]:
-    snapshots = get_pcr_oi_snapshots(now_ist().date().isoformat())
+async def pcr_oi(session_date: str | None = Query(default=None, alias="date")) -> dict[str, Any]:
+    resolved_date = session_date or now_ist().date().isoformat()
+    snapshots = get_pcr_oi_snapshots(resolved_date)
     return {
+        "sessionDate": resolved_date,
         "NIFTY": enrich_with_signal(enrich_with_roc_and_confidence(snapshots.get("NIFTY", []))),
         "SENSEX": enrich_with_signal(enrich_with_roc_and_confidence(snapshots.get("SENSEX", []))),
     }
+
+
+@router.get("/pcr-oi/sessions", dependencies=[Depends(require_auth)])
+async def pcr_oi_sessions() -> dict[str, Any]:
+    return {"dates": get_pcr_oi_session_dates()}
 
 
 @router.get("/indices", dependencies=[Depends(require_auth)])

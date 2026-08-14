@@ -976,6 +976,14 @@ def record_pcr_oi_snapshot(
         conn.commit()
 
 
+def get_pcr_oi_session_dates() -> list[str]:
+    with _DB_LOCK, _connect() as conn:
+        rows = conn.execute(
+            "SELECT DISTINCT session_date FROM pcr_oi_snapshots ORDER BY session_date DESC"
+        ).fetchall()
+    return [row["session_date"] for row in rows]
+
+
 def get_pcr_oi_snapshots(session_date: str) -> dict[str, list[dict[str, Any]]]:
     with _DB_LOCK, _connect() as conn:
         rows = conn.execute(

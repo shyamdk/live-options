@@ -89,8 +89,18 @@ export async function refreshMarketNews(): Promise<MarketNewsPayload> {
   return apiJson<MarketNewsPayload>("/api/market/news/refresh", { method: "POST" }, "Failed to refresh market news");
 }
 
-export async function getPcrOiSnapshots(): Promise<PcrOiPayload> {
-  return apiJson<PcrOiPayload>("/api/market/pcr-oi", undefined, "Failed to load PCR/OI data");
+export async function getPcrOiSnapshots(sessionDate?: string): Promise<PcrOiPayload> {
+  const query = sessionDate ? `?date=${encodeURIComponent(sessionDate)}` : "";
+  return apiJson<PcrOiPayload>(`/api/market/pcr-oi${query}`, undefined, "Failed to load PCR/OI data");
+}
+
+export async function getPcrOiSessionDates(): Promise<string[]> {
+  const payload = await apiJson<{ dates: string[] }>(
+    "/api/market/pcr-oi/sessions",
+    undefined,
+    "Failed to load PCR/OI session list",
+  );
+  return payload.dates;
 }
 
 export async function getTradeCandles(params: {
@@ -98,6 +108,7 @@ export async function getTradeCandles(params: {
   exchangeSegment: string;
   instrument: string;
   interval?: string;
+  date?: string;
 }): Promise<MarketCandlesResponse> {
   const query = new URLSearchParams({
     securityId: params.securityId,
@@ -105,6 +116,7 @@ export async function getTradeCandles(params: {
     instrument: params.instrument,
     interval: params.interval ?? "5",
   });
+  if (params.date) query.set("date", params.date);
   return apiJson<MarketCandlesResponse>(`/api/market/candles?${query.toString()}`, undefined, "Failed to load chart candles");
 }
 

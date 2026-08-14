@@ -18,7 +18,7 @@ import {
 import { ChevronDown, ChevronRight, Maximize2, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
-import { getPcrOiSnapshots, getTradeCandles } from "@/lib/api";
+import { getPcrOiSessionDates, getPcrOiSnapshots, getTradeCandles } from "@/lib/api";
 import type { ConfidenceLevel, MarketCandle, PcrOiPayload, PcrOiSnapshot } from "@/types/live";
 
 const PANEL_REFRESH_MS = 120000;
@@ -67,6 +67,8 @@ export default function PcrOiPanel() {
   const [data, setData] = useState<PcrOiPayload>({ NIFTY: [], SENSEX: [] });
   const [error, setError] = useState<string | null>(null);
   const [expandedChart, setExpandedChart] = useState<ExpandTarget | null>(null);
+  const [sessionDates, setSessionDates] = useState<string[]>([]);
+  const [selectedDate, setSelectedDate] = useState<string | null>(null);
 
   const [niftyOi, setNiftyOi] = useState<ChartHandle | null>(null);
   const [niftyRoc, setNiftyRoc] = useState<ChartHandle | null>(null);
@@ -88,11 +90,24 @@ export default function PcrOiPanel() {
   }, [sensexOi, sensexRoc, sensexPrice, sensexPcr]);
 
   useEffect(() => {
+    if (!expanded || sessionDates.length) return;
+    let active = true;
+    getPcrOiSessionDates()
+      .then((dates) => {
+        if (active) setSessionDates(dates);
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [expanded, sessionDates.length]);
+
+  useEffect(() => {
     if (!expanded) return;
     let active = true;
     async function load() {
       try {
-        const payload = await getPcrOiSnapshots();
+        const payload = await getPcrOiSnapshots(selectedDate ?? undefined);
         if (active) {
           setData(payload);
           setError(null);
@@ -102,12 +117,19 @@ export default function PcrOiPanel() {
       }
     }
     load();
+    // Only the live/"today" view needs polling -- a past session's data is
+    // final and re-fetching it on a timer would just be wasted work.
+    if (selectedDate !== null) {
+      return () => {
+        active = false;
+      };
+    }
     const timer = window.setInterval(load, PANEL_REFRESH_MS);
     return () => {
       active = false;
       window.clearInterval(timer);
     };
-  }, [expanded]);
+  }, [expanded, selectedDate]);
 
   useEffect(() => {
     if (!expandedChart) return;
@@ -131,6 +153,29 @@ export default function PcrOiPanel() {
       </div>
       {expanded ? (
         <>
+          <div className="pcr-oi-session-row">
+            <label className="subtext" htmlFor="pcr-oi-session-select">
+              Session
+            </label>
+            <select
+              id="pcr-oi-session-select"
+              className="pcr-oi-session-select"
+              value={selectedDate ?? ""}
+              onChange={(event) => setSelectedDate(event.target.value || null)}
+            >
+              <option value="">Today (live)</option>
+              {sessionDates.map((date) => (
+                <option key={date} value={date}>
+                  {date}
+                </option>
+              ))}
+            </select>
+            {selectedDate ? (
+              <span className="pcr-oi-caption" style={{ margin: 0 }}>
+                Viewing a past session — not live, no auto-refresh.
+              </span>
+            ) : null}
+          </div>
           {error ? <div className="alert error">{error}</div> : null}
           <div className="pcr-oi-section">
             <h3>Signal</h3>
@@ -159,12 +204,14 @@ export default function PcrOiPanel() {
                 points={data.NIFTY}
                 onReady={setNiftyPrice}
                 onExpand={() => setExpandedChart({ kind: "price", underlying: "NIFTY" })}
+                sessionDate={selectedDate}
               />
               <PriceSignalChart
                 underlying="SENSEX"
                 points={data.SENSEX}
                 onReady={setSensexPrice}
                 onExpand={() => setExpandedChart({ kind: "price", underlying: "SENSEX" })}
+                sessionDate={selectedDate}
               />
             </div>
           </div>
@@ -247,7 +294,7 @@ export default function PcrOiPanel() {
                 <X size={16} />
               </button>
             </div>
-            {renderExpandedChart(expandedChart, data)}
+            {renderExpandedChart(expandedChart, data, selectedDate)}
           </div>
         </div>
       ) : null}
@@ -255,11 +302,13 @@ export default function PcrOiPanel() {
   );
 }
 
-function renderExpandedChart(target: ExpandTarget, data: PcrOiPayload) {
+function renderExpandedChart(target: ExpandTarget, data: PcrOiPayload, selectedDate: string | null) {
   const points = data[target.underlying];
   switch (target.kind) {
     case "price":
-      return <PriceSignalChart underlying={target.underlying} points={points} height={520} />;
+      return (
+        <PriceSignalChart underlying={target.underlying} points={points} height={520} sessionDate={selectedDate} />
+      );
     case "pcr":
       return (
         <PcrChart
@@ -618,12 +667,14 @@ function PriceSignalChart({
   onReady,
   onExpand,
   height,
+  sessionDate,
 }: {
   underlying: "NIFTY" | "SENSEX";
   points: PcrOiSnapshot[];
   onReady?: (handle: ChartHandle) => void;
   onExpand?: () => void;
   height?: number;
+  sessionDate?: string | null;
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<IChartApi | null>(null);
@@ -641,6 +692,7 @@ function PriceSignalChart({
           exchangeSegment: "IDX_I",
           instrument: "INDEX",
           interval: "5",
+          date: sessionDate ?? undefined,
         });
         if (!cancelled) {
           setCandles(payload.candles);
@@ -651,12 +703,14 @@ function PriceSignalChart({
       }
     }
     load();
+    // A past session's candles are final -- no need to poll them.
+    if (sessionDate) return () => { cancelled = true; };
     const timer = window.setInterval(load, CANDLE_REFRESH_MS);
     return () => {
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [underlying]);
+  }, [underlying, sessionDate]);
 
   useEffect(() => {
     if (!containerRef.current || chartRef.current) return;

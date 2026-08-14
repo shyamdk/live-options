@@ -61,6 +61,7 @@ export type PcrOiSnapshot = {
 };
 
 export type PcrOiPayload = {
+  sessionDate?: string;
   NIFTY: PcrOiSnapshot[];
   SENSEX: PcrOiSnapshot[];
 };
