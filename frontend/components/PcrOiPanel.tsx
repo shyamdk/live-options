@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  CandlestickSeries,
   ColorType,
   createChart,
   createSeriesMarkers,
@@ -17,10 +18,16 @@ import {
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
-import { getPcrOiSnapshots } from "@/lib/api";
-import type { ConfidenceLevel, PcrOiPayload, PcrOiSnapshot } from "@/types/live";
+import { getPcrOiSnapshots, getTradeCandles } from "@/lib/api";
+import type { ConfidenceLevel, MarketCandle, PcrOiPayload, PcrOiSnapshot } from "@/types/live";
 
 const PANEL_REFRESH_MS = 120000;
+const CANDLE_REFRESH_MS = 60000;
+
+// Dhan's own index security IDs (IDX_I / INDEX) -- same constants the
+// backend uses (dhan_nifty_security_id / dhan_sensex_security_id), fixed
+// values that don't need to come from an API.
+const UNDERLYING_SECURITY_ID: Record<"NIFTY" | "SENSEX", string> = { NIFTY: "13", SENSEX: "51" };
 
 const NIFTY_COLOR = "#2368b6";
 const SENSEX_COLOR = "#a56513";
@@ -116,6 +123,16 @@ export default function PcrOiPanel() {
             <div className="pcr-oi-split">
               <SignalHistory title="NIFTY" points={data.NIFTY} />
               <SignalHistory title="SENSEX" points={data.SENSEX} />
+            </div>
+          </div>
+          <div className="pcr-oi-section">
+            <h3>Signal vs Price</h3>
+            <p className="pcr-oi-caption">
+              ▲ Buy CE / ▼ Buy PE markers on the underlying's own candles — check whether price actually moved the way the signal implied.
+            </p>
+            <div className="pcr-oi-split">
+              <PriceSignalChart underlying="NIFTY" points={data.NIFTY} />
+              <PriceSignalChart underlying="SENSEX" points={data.SENSEX} />
             </div>
           </div>
           <div className="pcr-oi-section">
@@ -428,6 +445,130 @@ const SIGNAL_LABEL: Record<"buyCe" | "buyPe" | "neutral", string> = {
   neutral: "Neutral / mixed",
 };
 
+/** Overlays the signal transitions (same ones the "today" log lists) as
+ * arrow markers on the underlying's own spot candles, so you can see with
+ * your own eyes whether price actually moved the way a Buy CE/PE call
+ * implied afterward -- this is the actual verification tool, the badges
+ * and history log are just summaries of the same underlying data.
+ */
+function PriceSignalChart({ underlying, points }: { underlying: "NIFTY" | "SENSEX"; points: PcrOiSnapshot[] }) {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const chartRef = useRef<IChartApi | null>(null);
+  const candleSeriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
+  const markersRef = useRef<ISeriesMarkersPluginApi<Time> | null>(null);
+  const [candles, setCandles] = useState<MarketCandle[]>([]);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      try {
+        const payload = await getTradeCandles({
+          securityId: UNDERLYING_SECURITY_ID[underlying],
+          exchangeSegment: "IDX_I",
+          instrument: "INDEX",
+          interval: "5",
+        });
+        if (!cancelled) {
+          setCandles(payload.candles);
+          setError(null);
+        }
+      } catch (exc) {
+        if (!cancelled) setError(exc instanceof Error ? exc.message : "Failed to load candles.");
+      }
+    }
+    load();
+    const timer = window.setInterval(load, CANDLE_REFRESH_MS);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [underlying]);
+
+  useEffect(() => {
+    if (!containerRef.current || chartRef.current) return;
+    const chart = createChart(containerRef.current, {
+      layout: { background: { type: ColorType.Solid, color: "#ffffff" }, textColor: "#252a32" },
+      grid: { vertLines: { color: "#edf0f4" }, horzLines: { color: "#edf0f4" } },
+      width: containerRef.current.clientWidth,
+      height: 260,
+      timeScale: { timeVisible: true, secondsVisible: false, tickMarkFormatter: (time: Time) => formatIstTime(time) },
+      localization: { timeFormatter: (time: Time) => formatIstTime(time) },
+    });
+    const candleSeries = chart.addSeries(CandlestickSeries, {
+      upColor: "#168448",
+      downColor: "#c93535",
+      borderVisible: false,
+      wickUpColor: "#168448",
+      wickDownColor: "#c93535",
+    });
+    candleSeriesRef.current = candleSeries;
+    markersRef.current = createSeriesMarkers(candleSeries, []);
+    chartRef.current = chart;
+
+    const resizeObserver = new ResizeObserver(() => {
+      if (containerRef.current) chart.applyOptions({ width: containerRef.current.clientWidth });
+    });
+    resizeObserver.observe(containerRef.current);
+
+    return () => {
+      resizeObserver.disconnect();
+      markersRef.current?.detach();
+      chart.remove();
+      chartRef.current = null;
+      candleSeriesRef.current = null;
+      markersRef.current = null;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    candleSeriesRef.current?.setData(
+      candles.map((c) => ({ time: c.time as UTCTimestamp, open: c.open, high: c.high, low: c.low, close: c.close })),
+    );
+  }, [candles]);
+
+  useEffect(() => {
+    if (!markersRef.current || !candles.length) return;
+    markersRef.current.setMarkers(buildSignalMarkers(computeSignalTransitions(points), candles));
+  }, [points, candles]);
+
+  return (
+    <div className="pcr-oi-split-item">
+      <span className="subtext">{underlying} spot (5m)</span>
+      {error ? <div className="alert error">{error}</div> : null}
+      <div ref={containerRef} />
+    </div>
+  );
+}
+
+function buildSignalMarkers(transitions: PcrOiSnapshot[], candles: MarketCandle[]): SeriesMarker<Time>[] {
+  const markers: SeriesMarker<Time>[] = [];
+  for (const p of transitions) {
+    const signal = p.signal as "buyCe" | "buyPe";
+    const time = nearestCandleTime(candles, p.time);
+    if (time === null) continue;
+    markers.push({
+      time: time as UTCTimestamp,
+      position: signal === "buyCe" ? "belowBar" : "aboveBar",
+      color: SIGNAL_COLOR[signal],
+      shape: signal === "buyCe" ? "arrowUp" : "arrowDown",
+      text: SIGNAL_LABEL[signal],
+    });
+  }
+  return markers;
+}
+
+function nearestCandleTime(candles: MarketCandle[], epochSeconds: number): number | null {
+  if (!candles.length) return null;
+  let best = candles[0].time;
+  for (const candle of candles) {
+    if (candle.time <= epochSeconds) best = candle.time;
+    else break;
+  }
+  return best;
+}
+
 function signalReason(point: PcrOiSnapshot): string {
   const skewPart =
     point.oiSkew === null
@@ -511,7 +652,12 @@ function TimingRules() {
  * rather than "what was the read at every poll", which is what the badges/
  * chart already show for the current moment.
  */
-function SignalHistory({ title, points }: { title: string; points: PcrOiSnapshot[] }) {
+/** Points where the signal flips INTO a directional call (buyCe/buyPe),
+ * skipping repeats of the same state and neutral stretches. Shared by the
+ * text history log and the price-chart markers below, so both always
+ * agree on "when did the signal actually change."
+ */
+function computeSignalTransitions(points: PcrOiSnapshot[]): PcrOiSnapshot[] {
   const transitions: PcrOiSnapshot[] = [];
   let lastSignal: string | null = null;
   for (const p of points) {
@@ -520,7 +666,11 @@ function SignalHistory({ title, points }: { title: string; points: PcrOiSnapshot
       lastSignal = p.signal;
     }
   }
-  const history = transitions.slice().reverse();
+  return transitions;
+}
+
+function SignalHistory({ title, points }: { title: string; points: PcrOiSnapshot[] }) {
+  const history = computeSignalTransitions(points).slice().reverse();
 
   return (
     <div className="pcr-oi-split-item">
