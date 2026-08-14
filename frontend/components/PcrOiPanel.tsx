@@ -325,6 +325,15 @@ function renderExpandedChart(target: ExpandTarget, data: PcrOiPayload, selectedD
   }
 }
 
+function NoDataCaption({ count }: { count: number }) {
+  if (count > 0) return null;
+  return (
+    <p className="pcr-oi-caption" style={{ margin: 0 }}>
+      No data yet for this session.
+    </p>
+  );
+}
+
 function Legend({ items }: { items: { label: string; color: string; dashed?: boolean }[] }) {
   return (
     <div className="pcr-oi-legend">
@@ -443,6 +452,7 @@ function PcrChart({
           </button>
         ) : null}
       </div>
+      <NoDataCaption count={points.length} />
       <div ref={containerRef} />
     </div>
   );
@@ -513,6 +523,7 @@ function OiChangeChart({
           </button>
         ) : null}
       </div>
+      <NoDataCaption count={points.length} />
       <div ref={containerRef} />
     </div>
   );
@@ -622,6 +633,7 @@ function RocChart({
           </button>
         ) : null}
       </div>
+      <NoDataCaption count={points.length} />
       <div ref={containerRef} />
     </div>
   );
@@ -682,9 +694,11 @@ function PriceSignalChart({
   const markersRef = useRef<ISeriesMarkersPluginApi<Time> | null>(null);
   const [candles, setCandles] = useState<MarketCandle[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
+    setLoaded(false);
     async function load() {
       try {
         const payload = await getTradeCandles({
@@ -697,9 +711,13 @@ function PriceSignalChart({
         if (!cancelled) {
           setCandles(payload.candles);
           setError(null);
+          setLoaded(true);
         }
       } catch (exc) {
-        if (!cancelled) setError(exc instanceof Error ? exc.message : "Failed to load candles.");
+        if (!cancelled) {
+          setError(exc instanceof Error ? exc.message : "Failed to load candles.");
+          setLoaded(true);
+        }
       }
     }
     load();
@@ -772,6 +790,13 @@ function PriceSignalChart({
         ) : null}
       </div>
       {error ? <div className="alert error">{error}</div> : null}
+      {!error && loaded && candles.length === 0 ? (
+        <p className="pcr-oi-caption" style={{ margin: 0 }}>
+          {sessionDate
+            ? "No candle data yet for this date — Dhan's history for a session usually isn't available until some hours after it ends."
+            : "No candle data yet — check back once the market opens."}
+        </p>
+      ) : null}
       <div ref={containerRef} />
     </div>
   );
