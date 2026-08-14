@@ -111,6 +111,14 @@ export default function PcrOiPanel() {
             </div>
           </div>
           <div className="pcr-oi-section">
+            <h3>Timing Notes</h3>
+            <TimingRules />
+            <div className="pcr-oi-split">
+              <SignalHistory title="NIFTY" points={data.NIFTY} />
+              <SignalHistory title="SENSEX" points={data.SENSEX} />
+            </div>
+          </div>
+          <div className="pcr-oi-section">
             <h3>Put-Call Ratio</h3>
             <div className="pcr-oi-split">
               <PcrChart title="NIFTY" color={NIFTY_COLOR} points={data.NIFTY} />
@@ -473,6 +481,74 @@ function SignalCard({ title, points }: { title: string; points: PcrOiSnapshot[] 
             </div>
           </div>
         ) : null}
+      </div>
+    </div>
+  );
+}
+
+const TIMING_RULES = [
+  "Wait for the signal to sustain a poll or two before acting — a single spike can be noise, not a trend.",
+  "Prefer entries when the Δ+Vega badge is showing — price and IV are both working in your favor at once.",
+  '"Low" confidence is background noise; only Medium and above reflect a genuinely unusual pace.',
+  "Avoid fresh entries in the first ~15 minutes after open — opening-range volatility produces false spikes.",
+  "Avoid fresh entries in the last ~20–30 minutes before close — theta decay accelerates and exit liquidity thins.",
+  "On expiry day, IV tends to compress into the close — buying premium late in an expiry session works against you twice over (theta + IV crush).",
+];
+
+function TimingRules() {
+  return (
+    <ul className="pcr-oi-rules">
+      {TIMING_RULES.map((rule) => (
+        <li key={rule}>{rule}</li>
+      ))}
+    </ul>
+  );
+}
+
+/** Logs when the signal flips INTO a directional call (buyCe/buyPe), not
+ * every poll that repeats the same state -- a steady trend would otherwise
+ * repeat the same line dozens of times. This is "when did the read change"
+ * rather than "what was the read at every poll", which is what the badges/
+ * chart already show for the current moment.
+ */
+function SignalHistory({ title, points }: { title: string; points: PcrOiSnapshot[] }) {
+  const transitions: PcrOiSnapshot[] = [];
+  let lastSignal: string | null = null;
+  for (const p of points) {
+    if (p.signal && p.signal !== lastSignal) {
+      if (p.signal !== "neutral") transitions.push(p);
+      lastSignal = p.signal;
+    }
+  }
+  const history = transitions.slice().reverse();
+
+  return (
+    <div className="pcr-oi-split-item">
+      <span className="subtext">{title} — today</span>
+      <div className="pcr-oi-history">
+        {history.length ? (
+          history.map((p) => {
+            const signal = p.signal as "buyCe" | "buyPe";
+            return (
+              <div className="pcr-oi-history-row" key={p.time}>
+                <span className="pcr-oi-history-time">{formatIstTime(p.time as UTCTimestamp)}</span>
+                <span className="pcr-oi-history-signal" style={{ color: SIGNAL_COLOR[signal] }}>
+                  {SIGNAL_LABEL[signal]}
+                </span>
+                {p.signalConfidence ? (
+                  <span
+                    className="pcr-oi-confidence"
+                    style={{ color: CONFIDENCE_COLOR[p.signalConfidence], borderColor: CONFIDENCE_COLOR[p.signalConfidence] }}
+                  >
+                    {CONFIDENCE_LABEL[p.signalConfidence]}
+                  </span>
+                ) : null}
+              </div>
+            );
+          })
+        ) : (
+          <p className="pcr-oi-signal-reason">No Buy CE/PE signal yet today.</p>
+        )}
       </div>
     </div>
   );
