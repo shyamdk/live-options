@@ -98,6 +98,14 @@ export default function PcrOiPanel() {
         <>
           {error ? <div className="alert error">{error}</div> : null}
           <div className="pcr-oi-section">
+            <h3>Signal</h3>
+            <p className="pcr-oi-caption">Your OI/PCR rule, mechanically applied — not a recommendation.</p>
+            <div className="pcr-oi-split">
+              <SignalCard title="NIFTY" points={data.NIFTY} />
+              <SignalCard title="SENSEX" points={data.SENSEX} />
+            </div>
+          </div>
+          <div className="pcr-oi-section">
             <h3>Put-Call Ratio</h3>
             <Legend items={[{ label: "NIFTY PCR", color: NIFTY_COLOR }, { label: "SENSEX PCR", color: SENSEX_COLOR }]} />
             <PcrChart nifty={data.NIFTY} sensex={data.SENSEX} />
@@ -382,6 +390,81 @@ function ConfidenceBadge({ label, level }: { label: string; level: ConfidenceLev
       {label}: {CONFIDENCE_LABEL[level]}
     </span>
   );
+}
+
+const SIGNAL_COLOR: Record<"buyCe" | "buyPe" | "neutral", string> = {
+  buyCe: CE_COLOR,
+  buyPe: PE_COLOR,
+  neutral: "#6f7785",
+};
+
+const SIGNAL_LABEL: Record<"buyCe" | "buyPe" | "neutral", string> = {
+  buyCe: "Buy CE",
+  buyPe: "Buy PE",
+  neutral: "Neutral / mixed",
+};
+
+function signalReason(point: PcrOiSnapshot): string {
+  const skewPart =
+    point.oiSkew === null
+      ? null
+      : point.oiSkew > 0
+        ? "PE OI building (writer-driven)"
+        : point.oiSkew < 0
+          ? "CE OI building (writer-driven)"
+          : null;
+  const pcrPart = point.pcrDelta === null ? null : point.pcrDelta > 0 ? "PCR rising" : point.pcrDelta < 0 ? "PCR falling" : null;
+  const parts = [skewPart, pcrPart].filter((p): p is string => p !== null);
+  return parts.length ? parts.join(" + ") : "Not enough data yet today";
+}
+
+function SignalCard({ title, points }: { title: string; points: PcrOiSnapshot[] }) {
+  const latest = points.length ? points[points.length - 1] : null;
+  const signal = latest?.signal ?? null;
+
+  return (
+    <div className="pcr-oi-split-item">
+      <span className="subtext">{title}</span>
+      <div className="pcr-oi-signal-card">
+        <div className="pcr-oi-signal-headline">
+          <span
+            className="pcr-oi-signal-badge"
+            style={signal ? { background: SIGNAL_COLOR[signal], color: "#fff" } : { background: "#dde4ec", color: "#6f7785" }}
+          >
+            {signal ? SIGNAL_LABEL[signal] : "Warming up"}
+          </span>
+          {latest?.signalConfidence ? <ConfidenceBadge label="Strength" level={latest.signalConfidence} /> : null}
+          {latest?.deltaVegaAligned ? (
+            <span className="pcr-oi-confidence" style={{ color: SIGNAL_COLOR.buyCe, borderColor: SIGNAL_COLOR.buyCe }}>
+              Δ+Vega aligned ({latest.deltaVegaAligned})
+            </span>
+          ) : null}
+        </div>
+        <p className="pcr-oi-signal-reason">{latest ? signalReason(latest) : "No data yet."}</p>
+        {latest?.atmStrike ? (
+          <div className="pcr-oi-atm-row">
+            <div className="pcr-oi-atm-item">
+              <span className="subtext">ATM {latest.atmStrike.toFixed(0)} CE</span>
+              <strong>
+                {fmt(latest.cePremium)} <span className="pcr-oi-atm-iv">IV {fmt(latest.ceIv, 1)}%</span>
+              </strong>
+            </div>
+            <div className="pcr-oi-atm-item">
+              <span className="subtext">ATM {latest.atmStrike.toFixed(0)} PE</span>
+              <strong>
+                {fmt(latest.pePremium)} <span className="pcr-oi-atm-iv">IV {fmt(latest.peIv, 1)}%</span>
+              </strong>
+            </div>
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function fmt(value: number | null | undefined, digits = 2): string {
+  if (value === null || value === undefined || Number.isNaN(value)) return "—";
+  return value.toFixed(digits);
 }
 
 function toLineData(points: PcrOiSnapshot[], pick: (p: PcrOiSnapshot) => number | null) {

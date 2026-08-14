@@ -44,6 +44,20 @@ export type PcrOiSnapshot = {
   ceRocBandLower: number | null;
   peRocBandUpper: number | null;
   peRocBandLower: number | null;
+  atmStrike: number | null;
+  cePremium: number | null;
+  ceIv: number | null;
+  ceDelta: number | null;
+  ceVega: number | null;
+  pePremium: number | null;
+  peIv: number | null;
+  peDelta: number | null;
+  peVega: number | null;
+  oiSkew: number | null;
+  pcrDelta: number | null;
+  signal: "buyCe" | "buyPe" | "neutral" | null;
+  signalConfidence: ConfidenceLevel | null;
+  deltaVegaAligned: "CE" | "PE" | null;
 };
 
 export type PcrOiPayload = {

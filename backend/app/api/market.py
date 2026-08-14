@@ -11,7 +11,7 @@ from app.services.app_auth import require_auth
 from app.services.dhan import DhanService
 from app.services.market import MarketService
 from app.services.market_news import refresh_market_calendar, refresh_market_news
-from app.services.pcr_oi import enrich_with_roc_and_confidence
+from app.services.pcr_oi import enrich_with_roc_and_confidence, enrich_with_signal
 
 
 router = APIRouter(prefix="/market", tags=["market"])
@@ -82,8 +82,8 @@ def _merged_news_payload() -> dict[str, Any]:
 async def pcr_oi() -> dict[str, Any]:
     snapshots = get_pcr_oi_snapshots(now_ist().date().isoformat())
     return {
-        "NIFTY": enrich_with_roc_and_confidence(snapshots.get("NIFTY", [])),
-        "SENSEX": enrich_with_roc_and_confidence(snapshots.get("SENSEX", [])),
+        "NIFTY": enrich_with_signal(enrich_with_roc_and_confidence(snapshots.get("NIFTY", []))),
+        "SENSEX": enrich_with_signal(enrich_with_roc_and_confidence(snapshots.get("SENSEX", []))),
     }
 
 

@@ -629,6 +629,59 @@ button:disabled {
   border-radius: 2px;
 }
 
+.pcr-oi-caption {
+  margin: 0 0 8px;
+  font-size: 12px;
+  color: var(--muted);
+  font-style: italic;
+}
+
+.pcr-oi-signal-card {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.pcr-oi-signal-headline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.pcr-oi-signal-badge {
+  font-size: 14px;
+  font-weight: 800;
+  padding: 4px 12px;
+  border-radius: 999px;
+}
+
+.pcr-oi-signal-reason {
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.pcr-oi-atm-row {
+  display: flex;
+  gap: 20px;
+}
+
+.pcr-oi-atm-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.pcr-oi-atm-iv {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
 .section-title span {
   display: inline-grid;
   place-items: center;

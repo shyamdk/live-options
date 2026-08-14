@@ -106,13 +106,28 @@ async def _poll_once(settings: Settings, now: datetime) -> None:
             pe_oi=snapshot["pe_oi"],
             ce_oi_change=snapshot["ce_oi_change"],
             pe_oi_change=snapshot["pe_oi_change"],
+            atm_strike=snapshot["atm_strike"],
+            ce_premium=snapshot["ce_premium"],
+            ce_iv=snapshot["ce_iv"],
+            ce_delta=snapshot["ce_delta"],
+            ce_vega=snapshot["ce_vega"],
+            pe_premium=snapshot["pe_premium"],
+            pe_iv=snapshot["pe_iv"],
+            pe_delta=snapshot["pe_delta"],
+            pe_vega=snapshot["pe_vega"],
         )
 
 
 def _summarize_chain(chain: dict[str, Any]) -> dict[str, Any]:
     oc = chain.get("oc") or {}
+    spot = _number(chain.get("last_price"))
     ce_oi = pe_oi = ce_prev_oi = pe_prev_oi = 0
-    for strike_data in oc.values():
+    atm_strike: float | None = None
+    atm_distance: float | None = None
+    ce_atm: dict[str, Any] = {}
+    pe_atm: dict[str, Any] = {}
+
+    for strike_key, strike_data in oc.items():
         ce = (strike_data or {}).get("ce") or {}
         pe = (strike_data or {}).get("pe") or {}
         ce_oi += int(ce.get("oi") or 0)
@@ -120,14 +135,35 @@ def _summarize_chain(chain: dict[str, Any]) -> dict[str, Any]:
         ce_prev_oi += int(ce.get("previous_oi") or 0)
         pe_prev_oi += int(pe.get("previous_oi") or 0)
 
+        if spot:
+            try:
+                strike_price = float(strike_key)
+            except (TypeError, ValueError):
+                continue
+            distance = abs(strike_price - spot)
+            if atm_distance is None or distance < atm_distance:
+                atm_distance = distance
+                atm_strike = strike_price
+                ce_atm = ce
+                pe_atm = pe
+
     pcr = (pe_oi / ce_oi) if ce_oi else None
     return {
-        "spot": _number(chain.get("last_price")),
+        "spot": spot,
         "pcr": round(pcr, 4) if pcr is not None else None,
         "ce_oi": ce_oi,
         "pe_oi": pe_oi,
         "ce_oi_change": ce_oi - ce_prev_oi,
         "pe_oi_change": pe_oi - pe_prev_oi,
+        "atm_strike": atm_strike,
+        "ce_premium": _number(ce_atm.get("last_price")),
+        "ce_iv": _number(ce_atm.get("implied_volatility")),
+        "ce_delta": _number((ce_atm.get("greeks") or {}).get("delta")),
+        "ce_vega": _number((ce_atm.get("greeks") or {}).get("vega")),
+        "pe_premium": _number(pe_atm.get("last_price")),
+        "pe_iv": _number(pe_atm.get("implied_volatility")),
+        "pe_delta": _number((pe_atm.get("greeks") or {}).get("delta")),
+        "pe_vega": _number((pe_atm.get("greeks") or {}).get("vega")),
     }
 
 
@@ -217,3 +253,117 @@ def _score(history: list[float], current: float | None) -> dict[str, Any]:
     else:
         label = "extreme"
     return {"zScore": round(z, 2), "confidence": label, "upper": upper, "lower": lower}
+
+
+_CONFIDENCE_RANK = {"low": 0, "medium": 1, "high": 2, "extreme": 3}
+
+
+def _weaker_confidence(a: str, b: str) -> str:
+    return a if _CONFIDENCE_RANK[a] <= _CONFIDENCE_RANK[b] else b
+
+
+def enrich_with_signal(points: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Combines the OI-skew (regime-aware: cross-checks ATM premium
+    direction to tell writer-driven OI buildup from buyer-driven buildup)
+    and PCR-trend factors into a single Buy CE / Buy PE / Neutral call,
+    plus a delta+vega "working together" flag for whichever side the call
+    currently favors. This is a mechanical read of the user's own stated
+    OI/PCR heuristic, not a validated strategy -- see PcrOiPanel.tsx for
+    the "your rule, not a recommendation" framing shown alongside it.
+
+    Must run AFTER enrich_with_roc_and_confidence (needs ceRoc/peRoc).
+    """
+    ce_premium_prev = pe_premium_prev = None
+    pcr_prev: float | None = None
+    spot_prev: float | None = None
+    ce_iv_prev = pe_iv_prev = None
+    skew_history: list[float] = []
+    pcr_delta_history: list[float] = []
+    enriched: list[dict[str, Any]] = []
+
+    for point in points:
+        out = dict(point)
+        ce_roc = point.get("ceRoc")
+        pe_roc = point.get("peRoc")
+        ce_premium = point.get("cePremium")
+        pe_premium = point.get("pePremium")
+        pcr = point.get("pcr")
+        spot = point.get("spot")
+        ce_iv = point.get("ceIv")
+        pe_iv = point.get("peIv")
+
+        ce_premium_change = ce_premium - ce_premium_prev if ce_premium is not None and ce_premium_prev is not None else None
+        pe_premium_change = pe_premium - pe_premium_prev if pe_premium is not None and pe_premium_prev is not None else None
+
+        bullish = 0.0
+        bearish = 0.0
+        if ce_roc is not None and ce_roc > 0:
+            if ce_premium_change is not None and ce_premium_change > 0:
+                bullish += abs(ce_roc)  # CE building + premium rising -> buyer-driven -> bullish
+            else:
+                bearish += abs(ce_roc)  # CE building + premium flat/falling -> writer-driven -> bearish
+        if pe_roc is not None and pe_roc > 0:
+            if pe_premium_change is not None and pe_premium_change > 0:
+                bearish += abs(pe_roc)  # PE building + premium rising -> buyer-driven (fear) -> bearish
+            else:
+                bullish += abs(pe_roc)  # PE building + premium flat/falling -> writer-driven -> bullish
+
+        oi_skew = (bullish - bearish) if (bullish or bearish) else None
+        if oi_skew is not None:
+            skew_history.append(oi_skew)
+        skew_score = _score(skew_history, oi_skew)
+
+        pcr_delta = pcr - pcr_prev if pcr is not None and pcr_prev is not None else None
+        if pcr_delta is not None:
+            pcr_delta_history.append(pcr_delta)
+        pcr_score = _score(pcr_delta_history, pcr_delta)
+
+        signal: str | None = None
+        signal_confidence: str | None = None
+        skew_conf = skew_score["confidence"]
+        pcr_conf = pcr_score["confidence"]
+        if oi_skew is not None and pcr_delta is not None and skew_conf and pcr_conf:
+            skew_bullish = oi_skew > 0
+            pcr_bullish = pcr_delta > 0
+            if skew_bullish and pcr_bullish:
+                signal, signal_confidence = "buyCe", _weaker_confidence(skew_conf, pcr_conf)
+            elif not skew_bullish and not pcr_bullish:
+                signal, signal_confidence = "buyPe", _weaker_confidence(skew_conf, pcr_conf)
+            else:
+                signal = "neutral"
+        elif oi_skew is not None or pcr_delta is not None:
+            signal = "neutral"
+
+        delta_vega_aligned: str | None = None
+        if spot is not None and spot_prev is not None:
+            spot_change = spot - spot_prev
+            if signal == "buyCe":
+                ce_delta = point.get("ceDelta")
+                ce_vega = point.get("ceVega")
+                ce_iv_change = ce_iv - ce_iv_prev if ce_iv is not None and ce_iv_prev is not None else None
+                if ce_delta is not None and ce_vega is not None and ce_iv_change is not None:
+                    if ce_delta * spot_change > 0 and ce_vega * ce_iv_change > 0:
+                        delta_vega_aligned = "CE"
+            elif signal == "buyPe":
+                pe_delta = point.get("peDelta")
+                pe_vega = point.get("peVega")
+                pe_iv_change = pe_iv - pe_iv_prev if pe_iv is not None and pe_iv_prev is not None else None
+                if pe_delta is not None and pe_vega is not None and pe_iv_change is not None:
+                    if pe_delta * spot_change > 0 and pe_vega * pe_iv_change > 0:
+                        delta_vega_aligned = "PE"
+
+        out["oiSkew"] = round(oi_skew, 2) if oi_skew is not None else None
+        out["pcrDelta"] = round(pcr_delta, 4) if pcr_delta is not None else None
+        out["signal"] = signal
+        out["signalConfidence"] = signal_confidence
+        out["deltaVegaAligned"] = delta_vega_aligned
+        enriched.append(out)
+
+        ce_premium_prev = ce_premium if ce_premium is not None else ce_premium_prev
+        pe_premium_prev = pe_premium if pe_premium is not None else pe_premium_prev
+        pcr_prev = pcr if pcr is not None else pcr_prev
+        spot_prev = spot if spot is not None else spot_prev
+        ce_iv_prev = ce_iv if ce_iv is not None else ce_iv_prev
+        pe_iv_prev = pe_iv if pe_iv is not None else pe_iv_prev
+
+    return enriched

@@ -134,6 +134,15 @@ def init_db() -> None:
             )
             """
         )
+        _add_column_if_missing(conn, "pcr_oi_snapshots", "atm_strike", "REAL")
+        _add_column_if_missing(conn, "pcr_oi_snapshots", "ce_premium", "REAL")
+        _add_column_if_missing(conn, "pcr_oi_snapshots", "ce_iv", "REAL")
+        _add_column_if_missing(conn, "pcr_oi_snapshots", "ce_delta", "REAL")
+        _add_column_if_missing(conn, "pcr_oi_snapshots", "ce_vega", "REAL")
+        _add_column_if_missing(conn, "pcr_oi_snapshots", "pe_premium", "REAL")
+        _add_column_if_missing(conn, "pcr_oi_snapshots", "pe_iv", "REAL")
+        _add_column_if_missing(conn, "pcr_oi_snapshots", "pe_delta", "REAL")
+        _add_column_if_missing(conn, "pcr_oi_snapshots", "pe_vega", "REAL")
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS alert_events (
@@ -940,16 +949,29 @@ def record_pcr_oi_snapshot(
     pe_oi: int | None,
     ce_oi_change: int | None,
     pe_oi_change: int | None,
+    atm_strike: float | None = None,
+    ce_premium: float | None = None,
+    ce_iv: float | None = None,
+    ce_delta: float | None = None,
+    ce_vega: float | None = None,
+    pe_premium: float | None = None,
+    pe_iv: float | None = None,
+    pe_delta: float | None = None,
+    pe_vega: float | None = None,
 ) -> None:
     now = datetime.now().isoformat(timespec="seconds")
     with _DB_LOCK, _connect() as conn:
         conn.execute(
             """
             INSERT INTO pcr_oi_snapshots (
-                session_date, underlying, epoch, captured_at, spot, pcr, ce_oi, pe_oi, ce_oi_change, pe_oi_change
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                session_date, underlying, epoch, captured_at, spot, pcr, ce_oi, pe_oi, ce_oi_change, pe_oi_change,
+                atm_strike, ce_premium, ce_iv, ce_delta, ce_vega, pe_premium, pe_iv, pe_delta, pe_vega
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (session_date, underlying, epoch, now, spot, pcr, ce_oi, pe_oi, ce_oi_change, pe_oi_change),
+            (
+                session_date, underlying, epoch, now, spot, pcr, ce_oi, pe_oi, ce_oi_change, pe_oi_change,
+                atm_strike, ce_premium, ce_iv, ce_delta, ce_vega, pe_premium, pe_iv, pe_delta, pe_vega,
+            ),
         )
         conn.commit()
 
@@ -970,6 +992,15 @@ def get_pcr_oi_snapshots(session_date: str) -> dict[str, list[dict[str, Any]]]:
                 "peOi": row["pe_oi"],
                 "ceOiChange": row["ce_oi_change"],
                 "peOiChange": row["pe_oi_change"],
+                "atmStrike": row["atm_strike"],
+                "cePremium": row["ce_premium"],
+                "ceIv": row["ce_iv"],
+                "ceDelta": row["ce_delta"],
+                "ceVega": row["ce_vega"],
+                "pePremium": row["pe_premium"],
+                "peIv": row["pe_iv"],
+                "peDelta": row["pe_delta"],
+                "peVega": row["pe_vega"],
             }
         )
     return result
