@@ -257,9 +257,28 @@ def _score(history: list[float], current: float | None) -> dict[str, Any]:
 
 _CONFIDENCE_RANK = {"low": 0, "medium": 1, "high": 2, "extreme": 3}
 
+# Fewer, more accurate signals (see fine-tune.md options 1+2): a signal only
+# fires once both factors clear this confidence floor -- "low" is within 1
+# std dev of today's own distribution, i.e. noise by construction -- and
+# PCR is read as a smoothed trend (vs. its own recent rolling average)
+# rather than a tick-to-tick delta, since PCR moves too smoothly for raw
+# deltas to ever produce a strong z-score.
+MIN_SIGNAL_CONFIDENCE = "medium"
+PCR_SMOOTHING_WINDOW = 5
+
 
 def _weaker_confidence(a: str, b: str) -> str:
     return a if _CONFIDENCE_RANK[a] <= _CONFIDENCE_RANK[b] else b
+
+
+def _meets_confidence_floor(confidence: str) -> bool:
+    return _CONFIDENCE_RANK[confidence] >= _CONFIDENCE_RANK[MIN_SIGNAL_CONFIDENCE]
+
+
+def _rolling_mean(values: list[float], window: int) -> float | None:
+    if len(values) < window:
+        return None
+    return sum(values[-window:]) / window
 
 
 def enrich_with_signal(points: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -274,7 +293,8 @@ def enrich_with_signal(points: list[dict[str, Any]]) -> list[dict[str, Any]]:
     Must run AFTER enrich_with_roc_and_confidence (needs ceRoc/peRoc).
     """
     ce_premium_prev = pe_premium_prev = None
-    pcr_prev: float | None = None
+    pcr_history: list[float] = []
+    pcr_smoothed_prev: float | None = None
     spot_prev: float | None = None
     ce_iv_prev = pe_iv_prev = None
     skew_history: list[float] = []
@@ -313,7 +333,14 @@ def enrich_with_signal(points: list[dict[str, Any]]) -> list[dict[str, Any]]:
             skew_history.append(oi_skew)
         skew_score = _score(skew_history, oi_skew)
 
-        pcr_delta = pcr - pcr_prev if pcr is not None and pcr_prev is not None else None
+        if pcr is not None:
+            pcr_history.append(pcr)
+        pcr_smoothed = _rolling_mean(pcr_history, PCR_SMOOTHING_WINDOW)
+        pcr_delta = (
+            pcr_smoothed - pcr_smoothed_prev
+            if pcr_smoothed is not None and pcr_smoothed_prev is not None
+            else None
+        )
         if pcr_delta is not None:
             pcr_delta_history.append(pcr_delta)
         pcr_score = _score(pcr_delta_history, pcr_delta)
@@ -325,9 +352,10 @@ def enrich_with_signal(points: list[dict[str, Any]]) -> list[dict[str, Any]]:
         if oi_skew is not None and pcr_delta is not None and skew_conf and pcr_conf:
             skew_bullish = oi_skew > 0
             pcr_bullish = pcr_delta > 0
-            if skew_bullish and pcr_bullish:
+            confident_enough = _meets_confidence_floor(skew_conf) and _meets_confidence_floor(pcr_conf)
+            if skew_bullish and pcr_bullish and confident_enough:
                 signal, signal_confidence = "buyCe", _weaker_confidence(skew_conf, pcr_conf)
-            elif not skew_bullish and not pcr_bullish:
+            elif not skew_bullish and not pcr_bullish and confident_enough:
                 signal, signal_confidence = "buyPe", _weaker_confidence(skew_conf, pcr_conf)
             else:
                 signal = "neutral"
@@ -361,7 +389,7 @@ def enrich_with_signal(points: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
         ce_premium_prev = ce_premium if ce_premium is not None else ce_premium_prev
         pe_premium_prev = pe_premium if pe_premium is not None else pe_premium_prev
-        pcr_prev = pcr if pcr is not None else pcr_prev
+        pcr_smoothed_prev = pcr_smoothed if pcr_smoothed is not None else pcr_smoothed_prev
         spot_prev = spot if spot is not None else spot_prev
         ce_iv_prev = ce_iv if ce_iv is not None else ce_iv_prev
         pe_iv_prev = pe_iv if pe_iv is not None else pe_iv_prev
