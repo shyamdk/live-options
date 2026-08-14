@@ -15,7 +15,7 @@ import {
   Time,
   UTCTimestamp,
 } from "lightweight-charts";
-import { ChevronDown, ChevronRight } from "lucide-react";
+import { ChevronDown, ChevronRight, Maximize2, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import { getPcrOiSnapshots, getTradeCandles } from "@/lib/api";
@@ -51,27 +51,41 @@ const CONFIDENCE_LABEL: Record<ConfidenceLevel, string> = {
   extreme: "Extreme",
 };
 
-type ChartHandle = { chart: IChartApi; series: ISeriesApi<"Line"> };
+type ChartHandle = { chart: IChartApi; series: ISeriesApi<"Line"> | ISeriesApi<"Candlestick"> };
+
+type ExpandTarget = { kind: "price" | "pcr" | "oi" | "roc"; underlying: "NIFTY" | "SENSEX" };
+
+const EXPAND_TITLE: Record<ExpandTarget["kind"], string> = {
+  price: "Signal vs Price",
+  pcr: "Put-Call Ratio",
+  oi: "Change in OI",
+  roc: "Rate of Change (OI/min) & Confidence",
+};
 
 export default function PcrOiPanel() {
   const [expanded, setExpanded] = useState(false);
   const [data, setData] = useState<PcrOiPayload>({ NIFTY: [], SENSEX: [] });
   const [error, setError] = useState<string | null>(null);
+  const [expandedChart, setExpandedChart] = useState<ExpandTarget | null>(null);
 
   const [niftyOi, setNiftyOi] = useState<ChartHandle | null>(null);
   const [niftyRoc, setNiftyRoc] = useState<ChartHandle | null>(null);
+  const [niftyPrice, setNiftyPrice] = useState<ChartHandle | null>(null);
+  const [niftyPcr, setNiftyPcr] = useState<ChartHandle | null>(null);
   const [sensexOi, setSensexOi] = useState<ChartHandle | null>(null);
   const [sensexRoc, setSensexRoc] = useState<ChartHandle | null>(null);
+  const [sensexPrice, setSensexPrice] = useState<ChartHandle | null>(null);
+  const [sensexPcr, setSensexPcr] = useState<ChartHandle | null>(null);
 
   useEffect(() => {
-    if (!niftyOi || !niftyRoc) return;
-    return linkCrosshairs(niftyOi, niftyRoc);
-  }, [niftyOi, niftyRoc]);
+    if (!niftyOi || !niftyRoc || !niftyPrice || !niftyPcr) return;
+    return linkCrosshairs([niftyOi, niftyRoc, niftyPrice, niftyPcr]);
+  }, [niftyOi, niftyRoc, niftyPrice, niftyPcr]);
 
   useEffect(() => {
-    if (!sensexOi || !sensexRoc) return;
-    return linkCrosshairs(sensexOi, sensexRoc);
-  }, [sensexOi, sensexRoc]);
+    if (!sensexOi || !sensexRoc || !sensexPrice || !sensexPcr) return;
+    return linkCrosshairs([sensexOi, sensexRoc, sensexPrice, sensexPcr]);
+  }, [sensexOi, sensexRoc, sensexPrice, sensexPcr]);
 
   useEffect(() => {
     if (!expanded) return;
@@ -94,6 +108,15 @@ export default function PcrOiPanel() {
       window.clearInterval(timer);
     };
   }, [expanded]);
+
+  useEffect(() => {
+    if (!expandedChart) return;
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") setExpandedChart(null);
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [expandedChart]);
 
   return (
     <section className="table-section">
@@ -131,23 +154,55 @@ export default function PcrOiPanel() {
               ▲ Buy CE / ▼ Buy PE markers on the underlying's own candles — check whether price actually moved the way the signal implied.
             </p>
             <div className="pcr-oi-split">
-              <PriceSignalChart underlying="NIFTY" points={data.NIFTY} />
-              <PriceSignalChart underlying="SENSEX" points={data.SENSEX} />
+              <PriceSignalChart
+                underlying="NIFTY"
+                points={data.NIFTY}
+                onReady={setNiftyPrice}
+                onExpand={() => setExpandedChart({ kind: "price", underlying: "NIFTY" })}
+              />
+              <PriceSignalChart
+                underlying="SENSEX"
+                points={data.SENSEX}
+                onReady={setSensexPrice}
+                onExpand={() => setExpandedChart({ kind: "price", underlying: "SENSEX" })}
+              />
             </div>
           </div>
           <div className="pcr-oi-section">
             <h3>Put-Call Ratio</h3>
             <div className="pcr-oi-split">
-              <PcrChart title="NIFTY" color={NIFTY_COLOR} points={data.NIFTY} />
-              <PcrChart title="SENSEX" color={SENSEX_COLOR} points={data.SENSEX} />
+              <PcrChart
+                title="NIFTY"
+                color={NIFTY_COLOR}
+                points={data.NIFTY}
+                onReady={setNiftyPcr}
+                onExpand={() => setExpandedChart({ kind: "pcr", underlying: "NIFTY" })}
+              />
+              <PcrChart
+                title="SENSEX"
+                color={SENSEX_COLOR}
+                points={data.SENSEX}
+                onReady={setSensexPcr}
+                onExpand={() => setExpandedChart({ kind: "pcr", underlying: "SENSEX" })}
+              />
             </div>
           </div>
           <div className="pcr-oi-section">
             <h3>Change in OI</h3>
             <Legend items={[{ label: "CE chg OI", color: CE_COLOR }, { label: "PE chg OI", color: PE_COLOR }]} />
             <div className="pcr-oi-split">
-              <OiChangeChart title="NIFTY" points={data.NIFTY} onReady={setNiftyOi} />
-              <OiChangeChart title="SENSEX" points={data.SENSEX} onReady={setSensexOi} />
+              <OiChangeChart
+                title="NIFTY"
+                points={data.NIFTY}
+                onReady={setNiftyOi}
+                onExpand={() => setExpandedChart({ kind: "oi", underlying: "NIFTY" })}
+              />
+              <OiChangeChart
+                title="SENSEX"
+                points={data.SENSEX}
+                onReady={setSensexOi}
+                onExpand={() => setExpandedChart({ kind: "oi", underlying: "SENSEX" })}
+              />
             </div>
           </div>
           <div className="pcr-oi-section">
@@ -160,14 +215,65 @@ export default function PcrOiPanel() {
               ]}
             />
             <div className="pcr-oi-split">
-              <RocChart title="NIFTY" points={data.NIFTY} onReady={setNiftyRoc} />
-              <RocChart title="SENSEX" points={data.SENSEX} onReady={setSensexRoc} />
+              <RocChart
+                title="NIFTY"
+                points={data.NIFTY}
+                onReady={setNiftyRoc}
+                onExpand={() => setExpandedChart({ kind: "roc", underlying: "NIFTY" })}
+              />
+              <RocChart
+                title="SENSEX"
+                points={data.SENSEX}
+                onReady={setSensexRoc}
+                onExpand={() => setExpandedChart({ kind: "roc", underlying: "SENSEX" })}
+              />
             </div>
           </div>
         </>
       ) : null}
+      {expandedChart ? (
+        <div className="pcr-oi-modal-backdrop" onClick={() => setExpandedChart(null)}>
+          <div className="pcr-oi-modal" onClick={(event) => event.stopPropagation()}>
+            <div className="pcr-oi-modal-head">
+              <h3>
+                {EXPAND_TITLE[expandedChart.kind]} — {expandedChart.underlying}
+              </h3>
+              <button
+                type="button"
+                className="pcr-oi-expand-btn"
+                title="Close"
+                onClick={() => setExpandedChart(null)}
+              >
+                <X size={16} />
+              </button>
+            </div>
+            {renderExpandedChart(expandedChart, data)}
+          </div>
+        </div>
+      ) : null}
     </section>
   );
+}
+
+function renderExpandedChart(target: ExpandTarget, data: PcrOiPayload) {
+  const points = data[target.underlying];
+  switch (target.kind) {
+    case "price":
+      return <PriceSignalChart underlying={target.underlying} points={points} height={520} />;
+    case "pcr":
+      return (
+        <PcrChart
+          title={target.underlying}
+          color={target.underlying === "NIFTY" ? NIFTY_COLOR : SENSEX_COLOR}
+          points={points}
+          height={520}
+        />
+      );
+    case "oi":
+      return <OiChangeChart title={target.underlying} points={points} height={520} />;
+    case "roc":
+      return <RocChart title={target.underlying} points={points} height={520} />;
+  }
 }
 
 function Legend({ items }: { items: { label: string; color: string; dashed?: boolean }[] }) {
@@ -193,34 +299,54 @@ function Legend({ items }: { items: { label: string; color: string; dashed?: boo
  * setCrosshairPosition() on the partner chart re-fires its own
  * subscribeCrosshairMove handler.
  */
-function linkCrosshairs(a: ChartHandle, b: ChartHandle): () => void {
+function crosshairPrice(param: MouseEventParams<Time>, source: ChartHandle): number {
+  const point = param.seriesData.get(source.series);
+  if (!point) return 0;
+  if ("value" in point) return point.value;
+  if ("close" in point) return point.close;
+  return 0;
+}
+
+function linkCrosshairs(handles: ChartHandle[]): () => void {
   let syncing = false;
 
-  const forward = (source: ChartHandle, target: ChartHandle) => (param: MouseEventParams<Time>) => {
-    if (syncing) return;
-    syncing = true;
-    if (param.time === undefined || !param.point) {
-      target.chart.clearCrosshairPosition();
-    } else {
-      const point = param.seriesData.get(source.series);
-      const price = point && "value" in point ? point.value : 0;
-      target.chart.setCrosshairPosition(price, param.time, target.series);
-    }
-    syncing = false;
-  };
-
-  const onA = forward(a, b);
-  const onB = forward(b, a);
-  a.chart.subscribeCrosshairMove(onA);
-  b.chart.subscribeCrosshairMove(onB);
+  const listeners = handles.map((source) => {
+    const listener = (param: MouseEventParams<Time>) => {
+      if (syncing) return;
+      syncing = true;
+      const targets = handles.filter((h) => h !== source);
+      if (param.time === undefined || !param.point) {
+        targets.forEach((target) => target.chart.clearCrosshairPosition());
+      } else {
+        const price = crosshairPrice(param, source);
+        targets.forEach((target) => target.chart.setCrosshairPosition(price, param.time as Time, target.series));
+      }
+      syncing = false;
+    };
+    source.chart.subscribeCrosshairMove(listener);
+    return { source, listener };
+  });
 
   return () => {
-    a.chart.unsubscribeCrosshairMove(onA);
-    b.chart.unsubscribeCrosshairMove(onB);
+    listeners.forEach(({ source, listener }) => source.chart.unsubscribeCrosshairMove(listener));
   };
 }
 
-function PcrChart({ title, color, points }: { title: string; color: string; points: PcrOiSnapshot[] }) {
+function PcrChart({
+  title,
+  color,
+  points,
+  onReady,
+  onExpand,
+  height,
+}: {
+  title: string;
+  color: string;
+  points: PcrOiSnapshot[];
+  onReady?: (handle: ChartHandle) => void;
+  onExpand?: () => void;
+  height?: number;
+}) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef<ISeriesApi<"Line"> | null>(null);
@@ -231,12 +357,14 @@ function PcrChart({ title, color, points }: { title: string; color: string; poin
       layout: { background: { type: ColorType.Solid, color: "#ffffff" }, textColor: "#252a32" },
       grid: { vertLines: { color: "#edf0f4" }, horzLines: { color: "#edf0f4" } },
       width: containerRef.current.clientWidth,
-      height: 200,
+      height: height ?? 200,
       timeScale: { timeVisible: true, secondsVisible: false, tickMarkFormatter: (time: Time) => formatIstTime(time) },
       localization: { timeFormatter: (time: Time) => formatIstTime(time) },
     });
-    seriesRef.current = chart.addSeries(LineSeries, { color, lineWidth: 2, title: `${title} PCR` });
+    const line = chart.addSeries(LineSeries, { color, lineWidth: 2, title: `${title} PCR` });
+    seriesRef.current = line;
     chartRef.current = chart;
+    onReady?.({ chart, series: line });
 
     const resizeObserver = new ResizeObserver(() => {
       if (containerRef.current) chart.applyOptions({ width: containerRef.current.clientWidth });
@@ -258,7 +386,14 @@ function PcrChart({ title, color, points }: { title: string; color: string; poin
 
   return (
     <div className="pcr-oi-split-item">
-      <span className="subtext">{title}</span>
+      <div className="pcr-oi-split-item-head">
+        <span className="subtext">{title}</span>
+        {onExpand ? (
+          <button type="button" className="pcr-oi-expand-btn" title="Enlarge" onClick={onExpand}>
+            <Maximize2 size={13} />
+          </button>
+        ) : null}
+      </div>
       <div ref={containerRef} />
     </div>
   );
@@ -268,10 +403,14 @@ function OiChangeChart({
   title,
   points,
   onReady,
+  onExpand,
+  height,
 }: {
   title: string;
   points: PcrOiSnapshot[];
   onReady?: (handle: ChartHandle) => void;
+  onExpand?: () => void;
+  height?: number;
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<IChartApi | null>(null);
@@ -284,7 +423,7 @@ function OiChangeChart({
       layout: { background: { type: ColorType.Solid, color: "#ffffff" }, textColor: "#252a32" },
       grid: { vertLines: { color: "#edf0f4" }, horzLines: { color: "#edf0f4" } },
       width: containerRef.current.clientWidth,
-      height: 220,
+      height: height ?? 220,
       timeScale: { timeVisible: true, secondsVisible: false, tickMarkFormatter: (time: Time) => formatIstTime(time) },
       localization: { timeFormatter: (time: Time) => formatIstTime(time) },
     });
@@ -317,7 +456,14 @@ function OiChangeChart({
 
   return (
     <div className="pcr-oi-split-item">
-      <span className="subtext">{title}</span>
+      <div className="pcr-oi-split-item-head">
+        <span className="subtext">{title}</span>
+        {onExpand ? (
+          <button type="button" className="pcr-oi-expand-btn" title="Enlarge" onClick={onExpand}>
+            <Maximize2 size={13} />
+          </button>
+        ) : null}
+      </div>
       <div ref={containerRef} />
     </div>
   );
@@ -327,10 +473,14 @@ function RocChart({
   title,
   points,
   onReady,
+  onExpand,
+  height,
 }: {
   title: string;
   points: PcrOiSnapshot[];
   onReady?: (handle: ChartHandle) => void;
+  onExpand?: () => void;
+  height?: number;
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<IChartApi | null>(null);
@@ -349,7 +499,7 @@ function RocChart({
       layout: { background: { type: ColorType.Solid, color: "#ffffff" }, textColor: "#252a32" },
       grid: { vertLines: { color: "#edf0f4" }, horzLines: { color: "#edf0f4" } },
       width: containerRef.current.clientWidth,
-      height: 180,
+      height: height ?? 180,
       timeScale: { timeVisible: true, secondsVisible: false, tickMarkFormatter: (time: Time) => formatIstTime(time) },
       localization: { timeFormatter: (time: Time) => formatIstTime(time) },
     });
@@ -411,6 +561,17 @@ function RocChart({
         <span className="subtext">{title}</span>
         <ConfidenceBadge label="CE" level={latest?.ceConfidence ?? null} />
         <ConfidenceBadge label="PE" level={latest?.peConfidence ?? null} />
+        {onExpand ? (
+          <button
+            type="button"
+            className="pcr-oi-expand-btn"
+            title="Enlarge"
+            onClick={onExpand}
+            style={{ marginLeft: "auto" }}
+          >
+            <Maximize2 size={13} />
+          </button>
+        ) : null}
       </div>
       <div ref={containerRef} />
     </div>
@@ -451,7 +612,19 @@ const SIGNAL_LABEL: Record<"buyCe" | "buyPe" | "neutral", string> = {
  * implied afterward -- this is the actual verification tool, the badges
  * and history log are just summaries of the same underlying data.
  */
-function PriceSignalChart({ underlying, points }: { underlying: "NIFTY" | "SENSEX"; points: PcrOiSnapshot[] }) {
+function PriceSignalChart({
+  underlying,
+  points,
+  onReady,
+  onExpand,
+  height,
+}: {
+  underlying: "NIFTY" | "SENSEX";
+  points: PcrOiSnapshot[];
+  onReady?: (handle: ChartHandle) => void;
+  onExpand?: () => void;
+  height?: number;
+}) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const candleSeriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
@@ -491,7 +664,7 @@ function PriceSignalChart({ underlying, points }: { underlying: "NIFTY" | "SENSE
       layout: { background: { type: ColorType.Solid, color: "#ffffff" }, textColor: "#252a32" },
       grid: { vertLines: { color: "#edf0f4" }, horzLines: { color: "#edf0f4" } },
       width: containerRef.current.clientWidth,
-      height: 260,
+      height: height ?? 260,
       timeScale: { timeVisible: true, secondsVisible: false, tickMarkFormatter: (time: Time) => formatIstTime(time) },
       localization: { timeFormatter: (time: Time) => formatIstTime(time) },
     });
@@ -505,6 +678,7 @@ function PriceSignalChart({ underlying, points }: { underlying: "NIFTY" | "SENSE
     candleSeriesRef.current = candleSeries;
     markersRef.current = createSeriesMarkers(candleSeries, []);
     chartRef.current = chart;
+    onReady?.({ chart, series: candleSeries });
 
     const resizeObserver = new ResizeObserver(() => {
       if (containerRef.current) chart.applyOptions({ width: containerRef.current.clientWidth });
@@ -535,7 +709,14 @@ function PriceSignalChart({ underlying, points }: { underlying: "NIFTY" | "SENSE
 
   return (
     <div className="pcr-oi-split-item">
-      <span className="subtext">{underlying} spot (5m)</span>
+      <div className="pcr-oi-split-item-head">
+        <span className="subtext">{underlying} spot (5m)</span>
+        {onExpand ? (
+          <button type="button" className="pcr-oi-expand-btn" title="Enlarge" onClick={onExpand}>
+            <Maximize2 size={13} />
+          </button>
+        ) : null}
+      </div>
       {error ? <div className="alert error">{error}</div> : null}
       <div ref={containerRef} />
     </div>
