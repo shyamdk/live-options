@@ -265,6 +265,7 @@ _CONFIDENCE_RANK = {"low": 0, "medium": 1, "high": 2, "extreme": 3}
 # deltas to ever produce a strong z-score.
 MIN_SIGNAL_CONFIDENCE = "medium"
 PCR_SMOOTHING_WINDOW = 5
+OI_SKEW_SMOOTHING_WINDOW = 5
 
 
 def _weaker_confidence(a: str, b: str) -> str:
@@ -293,6 +294,15 @@ def enrich_with_signal(points: list[dict[str, Any]]) -> list[dict[str, Any]]:
     PcrOiPanel.tsx for the "your rule, not a recommendation" framing shown
     alongside it.
 
+    oiSkew is read off its own rolling average, same as PCR (see
+    PCR_SMOOTHING_WINDOW) -- the raw per-poll score whipsaws sign almost
+    every poll even during a real, sustained move (verified against actual
+    session data: a session where pcrDelta drifted smoothly and consistently
+    in one direction for 15+ minutes had raw oiSkew swinging between
+    strongly positive and strongly negative on every single poll), so it
+    almost never agreed with the much smoother PCR factor -- silently
+    missing real moves, not just avoiding noise.
+
     Must run AFTER enrich_with_roc_and_confidence (needs ceRoc/peRoc).
     """
     ce_premium_prev = pe_premium_prev = None
@@ -301,6 +311,7 @@ def enrich_with_signal(points: list[dict[str, Any]]) -> list[dict[str, Any]]:
     pcr_smoothed_prev: float | None = None
     spot_prev: float | None = None
     ce_iv_prev = pe_iv_prev = None
+    oi_skew_history: list[float] = []
     skew_history: list[float] = []
     pcr_delta_history: list[float] = []
     enriched: list[dict[str, Any]] = []
@@ -351,7 +362,10 @@ def enrich_with_signal(points: list[dict[str, Any]]) -> list[dict[str, Any]]:
             elif pe_roc < 0 and pe_premium_change > 0:
                 bearish += abs(pe_roc)  # PE OI down + premium up -> writers covering -> mild bearish
 
-        oi_skew = (bullish - bearish) if (bullish or bearish) else None
+        oi_skew_raw = (bullish - bearish) if (bullish or bearish) else None
+        if oi_skew_raw is not None:
+            oi_skew_history.append(oi_skew_raw)
+        oi_skew = _rolling_mean(oi_skew_history, OI_SKEW_SMOOTHING_WINDOW)
         if oi_skew is not None:
             skew_history.append(oi_skew)
         skew_score = _score(skew_history, oi_skew)
