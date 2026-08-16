@@ -275,6 +275,11 @@ OI_SKEW_SMOOTHING_WINDOW = 5
 MARKET_OPEN = time(9, 15)
 MARKET_CLOSE = time(15, 30)
 
+# How many polls after its own transition a held oiRegime can still fire
+# the Path B alternate trigger in enrich_with_signal -- see that function's
+# docstring for why this needs a limit, not just "currently held".
+OI_REGIME_FRESHNESS_POLLS = 2
+
 
 def _weaker_confidence(a: str, b: str) -> str:
     return a if _CONFIDENCE_RANK[a] <= _CONFIDENCE_RANK[b] else b
@@ -319,11 +324,23 @@ def enrich_with_signal(points: list[dict[str, Any]]) -> list[dict[str, Any]]:
     price factors, both smoothed, both confidence-gated), while oiSkew
     stayed near zero and PCR was flat, so the primary path never fired.
     Since oiRegime already cleared its own confidence floor to establish
-    that state (see enrich_with_oi_regime's hysteresis), a currently-held
-    bullish/bearish oiRegime is used as an alternate path into the same
-    Buy CE/PE call whenever the primary path is neutral, gated only by PCR
-    not actively pointing the other way (PCR being quiet/absent doesn't
-    veto it -- only a confident opposite PCR does).
+    that state (see enrich_with_oi_regime's hysteresis), a FRESH
+    bullish/bearish oiRegime (within OI_REGIME_FRESHNESS_POLLS of its own
+    transition) is used as an alternate path into the same Buy CE/PE call
+    whenever the primary path is neutral, gated only by PCR not actively
+    pointing the other way (PCR being quiet/absent doesn't veto it -- only
+    a confident opposite PCR does).
+
+    The freshness limit is deliberate, found by checking this path against
+    a real case: oiRegime's own hysteresis can hold a regime long after
+    oiSkew has already started flipping the other way (they're reading the
+    same underlying data differently and can legitimately diverge as a
+    move matures). Without a freshness limit, this path was reviving an
+    already-reversing Buy PE for several extra polls purely because
+    oiRegime hadn't caught up yet -- prolonging a call oiSkew was already
+    abandoning, not catching a fresh move. Gating to "near the transition"
+    keeps the SENSEX rally catch (fired 1 poll after oiRegime's own
+    transition) while dropping the stale-extension case.
 
     Must run AFTER enrich_with_roc_and_confidence (needs ceRoc/peRoc) AND
     enrich_with_oi_regime (needs oiRegime).
@@ -337,6 +354,8 @@ def enrich_with_signal(points: list[dict[str, Any]]) -> list[dict[str, Any]]:
     oi_skew_history: list[float] = []
     skew_history: list[float] = []
     pcr_delta_history: list[float] = []
+    oi_regime_prev: str | None = None
+    oi_regime_age = 0  # polls since oiRegime last changed value
     enriched: list[dict[str, Any]] = []
 
     for point in points:
@@ -405,6 +424,11 @@ def enrich_with_signal(points: list[dict[str, Any]]) -> list[dict[str, Any]]:
             pcr_delta_history.append(pcr_delta)
         pcr_score = _score(pcr_delta_history, pcr_delta)
 
+        oi_regime = point.get("oiRegime")
+        if oi_regime is not None:
+            oi_regime_age = 0 if oi_regime != oi_regime_prev else oi_regime_age + 1
+            oi_regime_prev = oi_regime
+
         signal: str | None = None
         signal_confidence: str | None = None
         in_market_hours = MARKET_OPEN <= epoch_to_ist_time(point["time"]) <= MARKET_CLOSE
@@ -424,14 +448,16 @@ def enrich_with_signal(points: list[dict[str, Any]]) -> list[dict[str, Any]]:
             elif oi_skew is not None or pcr_delta is not None:
                 signal = "neutral"
 
-            # Alternate path: a currently-held oiRegime (already confidence-gated
-            # and hysteresis-protected at its own source) can fire the same call
-            # when the primary oiSkew+PCR path is neutral/unavailable. PCR still
-            # gets a veto if it's confidently pointing the other way, but doesn't
-            # need to actively agree -- it was often just quiet in the real
-            # missed-move cases this was built to catch.
-            if signal in (None, "neutral"):
-                oi_regime = point.get("oiRegime")
+            # Alternate path: a FRESH oiRegime (already confidence-gated and
+            # hysteresis-protected at its own source) can fire the same call
+            # when the primary oiSkew+PCR path is neutral/unavailable. PCR
+            # still gets a veto if it's confidently pointing the other way,
+            # but doesn't need to actively agree -- it was often just quiet
+            # in the real missed-move cases this was built to catch. Capped
+            # to OI_REGIME_FRESHNESS_POLLS after the regime's own transition
+            # so this can't keep reviving a call oiSkew has already moved on
+            # from (see docstring).
+            if signal in (None, "neutral") and oi_regime_age <= OI_REGIME_FRESHNESS_POLLS:
                 pcr_bullish = pcr_delta > 0 if pcr_delta is not None else None
                 if oi_regime in ("longBuildup", "shortCovering") and pcr_bullish is not False:
                     signal, signal_confidence = "buyCe", "medium"
