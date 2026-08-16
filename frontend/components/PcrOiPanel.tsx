@@ -53,14 +53,43 @@ const CONFIDENCE_LABEL: Record<ConfidenceLevel, string> = {
 
 type ChartHandle = { chart: IChartApi; series: ISeriesApi<"Line"> | ISeriesApi<"Candlestick"> };
 
-type ExpandTarget = { kind: "price" | "pcr" | "oi" | "roc"; underlying: "NIFTY" | "SENSEX" };
+type ExpandTarget = { kind: "price" | "pcr" | "oi" | "roc" | "breakout"; underlying: "NIFTY" | "SENSEX" };
 
 const EXPAND_TITLE: Record<ExpandTarget["kind"], string> = {
   price: "Signal vs Price",
   pcr: "Put-Call Ratio",
   oi: "Change in OI",
   roc: "Rate of Change (OI/min) & Confidence",
+  breakout: "Price Breakout",
 };
+
+type PriceInterval = "1" | "3" | "5";
+const INTERVAL_OPTIONS: { value: PriceInterval; label: string }[] = [
+  { value: "1", label: "1m" },
+  { value: "3", label: "3m" },
+  { value: "5", label: "5m" },
+];
+
+// Dhan's /charts/intraday doesn't support a native 3-minute interval
+// (confirmed directly: returns zero candles) -- so 3m is synthesized by
+// fetching native 1m bars and grouping every 3 into one OHLC bucket,
+// aligned from the session's first bar rather than clock boundaries.
+function resampleCandles(candles: MarketCandle[], groupSize: number): MarketCandle[] {
+  if (groupSize <= 1) return candles;
+  const out: MarketCandle[] = [];
+  for (let i = 0; i < candles.length; i += groupSize) {
+    const group = candles.slice(i, i + groupSize);
+    if (!group.length) continue;
+    out.push({
+      time: group[0].time,
+      open: group[0].open,
+      high: Math.max(...group.map((c) => c.high)),
+      low: Math.min(...group.map((c) => c.low)),
+      close: group[group.length - 1].close,
+    });
+  }
+  return out;
+}
 
 export default function PcrOiPanel() {
   const [expanded, setExpanded] = useState(false);
@@ -69,25 +98,28 @@ export default function PcrOiPanel() {
   const [expandedChart, setExpandedChart] = useState<ExpandTarget | null>(null);
   const [sessionDates, setSessionDates] = useState<string[]>([]);
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
+  const [selectedInterval, setSelectedInterval] = useState<PriceInterval>("1");
 
   const [niftyOi, setNiftyOi] = useState<ChartHandle | null>(null);
   const [niftyRoc, setNiftyRoc] = useState<ChartHandle | null>(null);
   const [niftyPrice, setNiftyPrice] = useState<ChartHandle | null>(null);
   const [niftyPcr, setNiftyPcr] = useState<ChartHandle | null>(null);
+  const [niftyBreakout, setNiftyBreakout] = useState<ChartHandle | null>(null);
   const [sensexOi, setSensexOi] = useState<ChartHandle | null>(null);
   const [sensexRoc, setSensexRoc] = useState<ChartHandle | null>(null);
   const [sensexPrice, setSensexPrice] = useState<ChartHandle | null>(null);
   const [sensexPcr, setSensexPcr] = useState<ChartHandle | null>(null);
+  const [sensexBreakout, setSensexBreakout] = useState<ChartHandle | null>(null);
 
   useEffect(() => {
-    if (!niftyOi || !niftyRoc || !niftyPrice || !niftyPcr) return;
-    return linkCrosshairs([niftyOi, niftyRoc, niftyPrice, niftyPcr]);
-  }, [niftyOi, niftyRoc, niftyPrice, niftyPcr]);
+    if (!niftyOi || !niftyRoc || !niftyPrice || !niftyPcr || !niftyBreakout) return;
+    return linkCrosshairs([niftyOi, niftyRoc, niftyPrice, niftyPcr, niftyBreakout]);
+  }, [niftyOi, niftyRoc, niftyPrice, niftyPcr, niftyBreakout]);
 
   useEffect(() => {
-    if (!sensexOi || !sensexRoc || !sensexPrice || !sensexPcr) return;
-    return linkCrosshairs([sensexOi, sensexRoc, sensexPrice, sensexPcr]);
-  }, [sensexOi, sensexRoc, sensexPrice, sensexPcr]);
+    if (!sensexOi || !sensexRoc || !sensexPrice || !sensexPcr || !sensexBreakout) return;
+    return linkCrosshairs([sensexOi, sensexRoc, sensexPrice, sensexPcr, sensexBreakout]);
+  }, [sensexOi, sensexRoc, sensexPrice, sensexPcr, sensexBreakout]);
 
   useEffect(() => {
     if (!expanded || sessionDates.length) return;
@@ -170,6 +202,21 @@ export default function PcrOiPanel() {
                 </option>
               ))}
             </select>
+            <label className="subtext" htmlFor="pcr-oi-interval-select">
+              Interval
+            </label>
+            <select
+              id="pcr-oi-interval-select"
+              className="pcr-oi-session-select"
+              value={selectedInterval}
+              onChange={(event) => setSelectedInterval(event.target.value as PriceInterval)}
+            >
+              {INTERVAL_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
             {selectedDate ? (
               <span className="pcr-oi-caption" style={{ margin: 0 }}>
                 Viewing a past session — not live, no auto-refresh.
@@ -197,7 +244,7 @@ export default function PcrOiPanel() {
             <h3>Signal vs Price</h3>
             <p className="pcr-oi-caption">
               ▲ Buy CE / ▼ Buy PE = the OI+PCR call above, with a faded ■ Sell CE/PE where that call stopped holding
-              (flipped or faded to neutral) -- on the underlying's own 1m candles. ● LB/SB/LU/SC = the classic
+              (flipped or faded to neutral) -- on the underlying's own candles. ● LB/SB/LU/SC = the classic
               OI-vs-price read (combined CE+PE OI vs spot, since this app only has options-chain OI, not futures OI).
             </p>
             <Legend
@@ -215,6 +262,7 @@ export default function PcrOiPanel() {
                 onReady={setNiftyPrice}
                 onExpand={() => setExpandedChart({ kind: "price", underlying: "NIFTY" })}
                 sessionDate={selectedDate}
+                interval={selectedInterval}
               />
               <PriceSignalChart
                 underlying="SENSEX"
@@ -222,6 +270,36 @@ export default function PcrOiPanel() {
                 onReady={setSensexPrice}
                 onExpand={() => setExpandedChart({ kind: "price", underlying: "SENSEX" })}
                 sessionDate={selectedDate}
+                interval={selectedInterval}
+              />
+            </div>
+          </div>
+          <div className="pcr-oi-section">
+            <h3>Price Breakout (independent of OI)</h3>
+            <p className="pcr-oi-caption">
+              ▲/▼ Breakout = price itself moved further/faster than its own recent volatility justifies, confirmed
+              over 2 candles -- no OI/PCR involved, so it can't be thrown off by options-chain data issues, but it's
+              also purely reactive to price with no positioning context. ■ Fade = the move stopped qualifying as
+              unusual.
+            </p>
+            <div className="pcr-oi-split">
+              <PriceSignalChart
+                underlying="NIFTY"
+                points={data.NIFTY}
+                variant="breakout"
+                onReady={setNiftyBreakout}
+                onExpand={() => setExpandedChart({ kind: "breakout", underlying: "NIFTY" })}
+                sessionDate={selectedDate}
+                interval={selectedInterval}
+              />
+              <PriceSignalChart
+                underlying="SENSEX"
+                points={data.SENSEX}
+                variant="breakout"
+                onReady={setSensexBreakout}
+                onExpand={() => setExpandedChart({ kind: "breakout", underlying: "SENSEX" })}
+                sessionDate={selectedDate}
+                interval={selectedInterval}
               />
             </div>
           </div>
@@ -304,7 +382,7 @@ export default function PcrOiPanel() {
                 <X size={16} />
               </button>
             </div>
-            {renderExpandedChart(expandedChart, data, selectedDate)}
+            {renderExpandedChart(expandedChart, data, selectedDate, selectedInterval)}
           </div>
         </div>
       ) : null}
@@ -312,12 +390,34 @@ export default function PcrOiPanel() {
   );
 }
 
-function renderExpandedChart(target: ExpandTarget, data: PcrOiPayload, selectedDate: string | null) {
+function renderExpandedChart(
+  target: ExpandTarget,
+  data: PcrOiPayload,
+  selectedDate: string | null,
+  selectedInterval: PriceInterval,
+) {
   const points = data[target.underlying];
   switch (target.kind) {
     case "price":
       return (
-        <PriceSignalChart underlying={target.underlying} points={points} height={520} sessionDate={selectedDate} />
+        <PriceSignalChart
+          underlying={target.underlying}
+          points={points}
+          height={520}
+          sessionDate={selectedDate}
+          interval={selectedInterval}
+        />
+      );
+    case "breakout":
+      return (
+        <PriceSignalChart
+          underlying={target.underlying}
+          points={points}
+          height={520}
+          sessionDate={selectedDate}
+          interval={selectedInterval}
+          variant="breakout"
+        />
       );
     case "pcr":
       return (
@@ -710,6 +810,73 @@ const REGIME_ABBR: Record<OiRegime, string> = {
   shortCovering: "SC",
 };
 
+type BreakoutDirection = "bullish" | "bearish";
+type BreakoutEvent = { time: number; kind: "enter" | "exit"; direction: BreakoutDirection };
+
+const BREAKOUT_COLOR: Record<BreakoutDirection, string> = { bullish: CE_COLOR, bearish: PE_COLOR };
+const BREAKOUT_MUTED: Record<BreakoutDirection, string> = { bullish: CE_MUTED, bearish: PE_MUTED };
+const BREAKOUT_LABEL: Record<BreakoutDirection, string> = { bullish: "Breakout", bearish: "Breakout" };
+
+// How many bars of history before a z-score is trusted at all -- same
+// "don't score on 2 data points" principle as the backend's MIN_ROC_OBSERVATIONS,
+// just larger since per-candle price deltas are noisier than the backend's
+// already-smoothed OI/PCR factors.
+const BREAKOUT_MIN_OBSERVATIONS = 10;
+// "high" confidence bar on the same 1/2/3-sigma scale used throughout this
+// app (see backend CONFIDENCE_THRESHOLDS) -- deliberately strict since this
+// signal has no cross-check at all, unlike the OI+PCR pair.
+const BREAKOUT_Z_THRESHOLD = 2;
+
+/** Pure price-momentum breakout, independent of OI/PCR entirely -- fires
+ * when a candle's close-to-close move is a >= BREAKOUT_Z_THRESHOLD sigma
+ * outlier against today's own expanding distribution of moves, confirmed
+ * by the previous candle also qualifying in the same direction (so a
+ * single spike doesn't count). Exits the moment a candle no longer
+ * qualifies in the held direction -- no confirmation needed to exit, since
+ * "no longer unusual" is itself the exit condition, not a reversal call.
+ */
+function computeBreakoutEvents(candles: MarketCandle[]): BreakoutEvent[] {
+  const events: BreakoutEvent[] = [];
+  const deltaHistory: number[] = [];
+  let active: BreakoutDirection | null = null;
+  let prevDir: BreakoutDirection | null = null;
+
+  for (let i = 1; i < candles.length; i++) {
+    const delta = candles[i].close - candles[i - 1].close;
+    deltaHistory.push(delta);
+    let dir: BreakoutDirection | null = null;
+    if (deltaHistory.length >= BREAKOUT_MIN_OBSERVATIONS) {
+      const mean = deltaHistory.reduce((a, b) => a + b, 0) / deltaHistory.length;
+      const variance = deltaHistory.reduce((a, b) => a + (b - mean) ** 2, 0) / deltaHistory.length;
+      const stdev = Math.sqrt(variance);
+      const z = stdev === 0 ? 0 : (delta - mean) / stdev;
+      if (Math.abs(z) >= BREAKOUT_Z_THRESHOLD) dir = delta > 0 ? "bullish" : "bearish";
+    }
+
+    if (active === null) {
+      if (dir !== null && dir === prevDir) {
+        active = dir;
+        events.push({ time: candles[i].time, kind: "enter", direction: dir });
+      }
+    } else if (dir !== active) {
+      events.push({ time: candles[i].time, kind: "exit", direction: active });
+      active = null;
+    }
+    prevDir = dir;
+  }
+  return events;
+}
+
+function buildBreakoutMarkers(events: BreakoutEvent[]): SeriesMarker<Time>[] {
+  return events.map((e) => ({
+    time: e.time as UTCTimestamp,
+    position: e.direction === "bullish" ? "belowBar" : "aboveBar",
+    color: e.kind === "enter" ? BREAKOUT_COLOR[e.direction] : BREAKOUT_MUTED[e.direction],
+    shape: e.kind === "enter" ? (e.direction === "bullish" ? "arrowUp" : "arrowDown") : "square",
+    text: e.kind === "enter" ? BREAKOUT_LABEL[e.direction] : "Fade",
+  }));
+}
+
 /** Overlays the signal transitions (same ones the "today" log lists) as
  * arrow markers on the underlying's own spot candles, so you can see with
  * your own eyes whether price actually moved the way a Buy CE/PE call
@@ -723,6 +890,8 @@ function PriceSignalChart({
   onExpand,
   height,
   sessionDate,
+  interval = "1",
+  variant = "signal",
 }: {
   underlying: "NIFTY" | "SENSEX";
   points: PcrOiSnapshot[];
@@ -730,6 +899,8 @@ function PriceSignalChart({
   onExpand?: () => void;
   height?: number;
   sessionDate?: string | null;
+  interval?: PriceInterval;
+  variant?: "signal" | "breakout";
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<IChartApi | null>(null);
@@ -744,15 +915,17 @@ function PriceSignalChart({
     setLoaded(false);
     async function load() {
       try {
+        // Dhan has no native 3m interval -- fetch 1m and resample locally.
+        const fetchInterval = interval === "3" ? "1" : interval;
         const payload = await getTradeCandles({
           securityId: UNDERLYING_SECURITY_ID[underlying],
           exchangeSegment: "IDX_I",
           instrument: "INDEX",
-          interval: "1",
+          interval: fetchInterval,
           date: sessionDate ?? undefined,
         });
         if (!cancelled) {
-          setCandles(payload.candles);
+          setCandles(interval === "3" ? resampleCandles(payload.candles, 3) : payload.candles);
           setError(null);
           setLoaded(true);
         }
@@ -771,7 +944,7 @@ function PriceSignalChart({
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [underlying, sessionDate]);
+  }, [underlying, sessionDate, interval]);
 
   useEffect(() => {
     if (!containerRef.current || chartRef.current) return;
@@ -823,6 +996,10 @@ function PriceSignalChart({
 
   useEffect(() => {
     if (!markersRef.current || !candles.length) return;
+    if (variant === "breakout") {
+      markersRef.current.setMarkers(buildBreakoutMarkers(computeBreakoutEvents(candles)));
+      return;
+    }
     const signalMarkers = buildSignalMarkers(computeSignalTransitions(points), candles);
     const exitMarkers = buildSignalExitMarkers(computeSignalExits(points), candles);
     const regimeMarkers = buildOiRegimeMarkers(computeOiRegimeTransitions(points), candles);
@@ -830,12 +1007,14 @@ function PriceSignalChart({
       (a, b) => (a.time as number) - (b.time as number),
     );
     markersRef.current.setMarkers(merged);
-  }, [points, candles]);
+  }, [points, candles, variant]);
 
   return (
     <div className="pcr-oi-split-item">
       <div className="pcr-oi-split-item-head">
-        <span className="subtext">{underlying} spot (1m)</span>
+        <span className="subtext">
+          {underlying} spot ({interval}m)
+        </span>
         {onExpand ? (
           <button type="button" className="pcr-oi-expand-btn" title="Enlarge" onClick={onExpand}>
             <Maximize2 size={13} />
