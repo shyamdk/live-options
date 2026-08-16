@@ -283,16 +283,20 @@ def _rolling_mean(values: list[float], window: int) -> float | None:
 
 def enrich_with_signal(points: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Combines the OI-skew (regime-aware: cross-checks ATM premium
-    direction to tell writer-driven OI buildup from buyer-driven buildup)
-    and PCR-trend factors into a single Buy CE / Buy PE / Neutral call,
-    plus a delta+vega "working together" flag for whichever side the call
-    currently favors. This is a mechanical read of the user's own stated
-    OI/PCR heuristic, not a validated strategy -- see PcrOiPanel.tsx for
-    the "your rule, not a recommendation" framing shown alongside it.
+    direction to tell writer-driven OI buildup from buyer-driven buildup,
+    AND -- same classic 4-quadrant grid as enrich_with_oi_regime, applied
+    per-side using that side's own premium as "price" -- unwinding/covering
+    moves too, not just buildup) and PCR-trend factors into a single Buy CE
+    / Buy PE / Neutral call, plus a delta+vega "working together" flag for
+    whichever side the call currently favors. This is a mechanical read of
+    the user's own stated OI/PCR heuristic, not a validated strategy -- see
+    PcrOiPanel.tsx for the "your rule, not a recommendation" framing shown
+    alongside it.
 
     Must run AFTER enrich_with_roc_and_confidence (needs ceRoc/peRoc).
     """
     ce_premium_prev = pe_premium_prev = None
+    atm_strike_prev: float | None = None
     pcr_history: list[float] = []
     pcr_smoothed_prev: float | None = None
     spot_prev: float | None = None
@@ -311,22 +315,41 @@ def enrich_with_signal(points: list[dict[str, Any]]) -> list[dict[str, Any]]:
         spot = point.get("spot")
         ce_iv = point.get("ceIv")
         pe_iv = point.get("peIv")
+        atm_strike = point.get("atmStrike")
 
-        ce_premium_change = ce_premium - ce_premium_prev if ce_premium is not None and ce_premium_prev is not None else None
-        pe_premium_change = pe_premium - pe_premium_prev if pe_premium is not None and pe_premium_prev is not None else None
+        # cePremium/pePremium track whichever strike is currently ATM, so a
+        # strike roll between polls (spot crossing the midpoint) makes a
+        # raw premium diff meaningless -- it'd be comparing two different
+        # contracts, not a real price move of the same one. Skip the
+        # comparison for that one poll when the strike has changed.
+        same_strike = atm_strike is not None and atm_strike_prev is not None and atm_strike == atm_strike_prev
+        ce_premium_change = (
+            ce_premium - ce_premium_prev if same_strike and ce_premium is not None and ce_premium_prev is not None else None
+        )
+        pe_premium_change = (
+            pe_premium - pe_premium_prev if same_strike and pe_premium is not None and pe_premium_prev is not None else None
+        )
 
         bullish = 0.0
         bearish = 0.0
-        if ce_roc is not None and ce_roc > 0:
-            if ce_premium_change is not None and ce_premium_change > 0:
-                bullish += abs(ce_roc)  # CE building + premium rising -> buyer-driven -> bullish
-            else:
-                bearish += abs(ce_roc)  # CE building + premium flat/falling -> writer-driven -> bearish
-        if pe_roc is not None and pe_roc > 0:
-            if pe_premium_change is not None and pe_premium_change > 0:
-                bearish += abs(pe_roc)  # PE building + premium rising -> buyer-driven (fear) -> bearish
-            else:
-                bullish += abs(pe_roc)  # PE building + premium flat/falling -> writer-driven -> bullish
+        if ce_roc is not None and ce_premium_change is not None:
+            if ce_roc > 0 and ce_premium_change > 0:
+                bullish += abs(ce_roc)  # CE OI up + premium up -> fresh call buying -> bullish
+            elif ce_roc > 0 and ce_premium_change < 0:
+                bearish += abs(ce_roc)  # CE OI up + premium down -> writer-driven -> bearish
+            elif ce_roc < 0 and ce_premium_change < 0:
+                bearish += abs(ce_roc)  # CE OI down + premium down -> call buyers unwinding -> mild bearish
+            elif ce_roc < 0 and ce_premium_change > 0:
+                bullish += abs(ce_roc)  # CE OI down + premium up -> writers covering -> mild bullish
+        if pe_roc is not None and pe_premium_change is not None:
+            if pe_roc > 0 and pe_premium_change > 0:
+                bearish += abs(pe_roc)  # PE OI up + premium up -> fresh put buying (fear) -> bearish
+            elif pe_roc > 0 and pe_premium_change < 0:
+                bullish += abs(pe_roc)  # PE OI up + premium down -> writer-driven -> bullish
+            elif pe_roc < 0 and pe_premium_change < 0:
+                bullish += abs(pe_roc)  # PE OI down + premium down -> put buyers unwinding -> mild bullish
+            elif pe_roc < 0 and pe_premium_change > 0:
+                bearish += abs(pe_roc)  # PE OI down + premium up -> writers covering -> mild bearish
 
         oi_skew = (bullish - bearish) if (bullish or bearish) else None
         if oi_skew is not None:
@@ -389,6 +412,7 @@ def enrich_with_signal(points: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
         ce_premium_prev = ce_premium if ce_premium is not None else ce_premium_prev
         pe_premium_prev = pe_premium if pe_premium is not None else pe_premium_prev
+        atm_strike_prev = atm_strike if atm_strike is not None else atm_strike_prev
         pcr_smoothed_prev = pcr_smoothed if pcr_smoothed is not None else pcr_smoothed_prev
         spot_prev = spot if spot is not None else spot_prev
         ce_iv_prev = ce_iv if ce_iv is not None else ce_iv_prev
@@ -414,10 +438,20 @@ def enrich_with_oi_regime(points: list[dict[str, Any]]) -> list[dict[str, Any]]:
     approach as enrich_with_signal's PCR trend) rather than tick-to-tick,
     and -- same "fewer, more accurate" floor as enrich_with_signal -- both
     deltas must also clear a medium+ confidence z-score against today's own
-    distribution before a regime is assigned. Smoothing alone still flipped
-    on almost every poll in practice (spot drifts a few points either way
-    constantly); the confidence floor is what actually makes this usable as
-    a chart marker instead of one every 1-2 polls.
+    distribution before a regime is ESTABLISHED. Smoothing alone still
+    flipped on almost every poll in practice (spot drifts a few points
+    either way constantly); the confidence floor is what actually makes
+    this usable as a chart marker instead of one every 1-2 polls.
+
+    Hysteresis: once established, a regime is HELD (kept as the output)
+    for as long as the raw sign of both deltas keeps agreeing with it, even
+    after the z-score confidence naturally fades back toward "normal" mid-
+    trend (a trend that's been running all day stops looking statistically
+    unusual against the day's own distribution, even while it's still
+    intact) -- without this, a sustained move only ever got a single marker
+    at its very start. It's only replaced by a NEW confidently-established
+    regime, i.e. a genuine reversal, not by the original regime's confidence
+    merely dipping.
     """
     combined_oi_history: list[float] = []
     spot_history: list[float] = []
@@ -425,6 +459,7 @@ def enrich_with_oi_regime(points: list[dict[str, Any]]) -> list[dict[str, Any]]:
     spot_smoothed_prev: float | None = None
     oi_delta_history: list[float] = []
     spot_delta_history: list[float] = []
+    held_regime: str | None = None
     enriched: list[dict[str, Any]] = []
 
     for point in points:
@@ -461,25 +496,29 @@ def enrich_with_oi_regime(points: list[dict[str, Any]]) -> list[dict[str, Any]]:
         oi_score = _score(oi_delta_history, oi_delta)
         spot_score = _score(spot_delta_history, spot_delta)
 
-        regime: str | None = None
-        if (
-            oi_delta is not None
-            and spot_delta is not None
-            and oi_score["confidence"]
-            and spot_score["confidence"]
-            and _meets_confidence_floor(oi_score["confidence"])
-            and _meets_confidence_floor(spot_score["confidence"])
-        ):
+        raw_regime: str | None = None
+        if oi_delta is not None and spot_delta is not None:
             if oi_delta > 0 and spot_delta > 0:
-                regime = "longBuildup"
+                raw_regime = "longBuildup"
             elif oi_delta > 0 and spot_delta < 0:
-                regime = "shortBuildup"
+                raw_regime = "shortBuildup"
             elif oi_delta < 0 and spot_delta < 0:
-                regime = "longUnwinding"
+                raw_regime = "longUnwinding"
             elif oi_delta < 0 and spot_delta > 0:
-                regime = "shortCovering"
+                raw_regime = "shortCovering"
 
-        out["oiRegime"] = regime
+        if raw_regime is not None and raw_regime != held_regime:
+            confident_enough = (
+                oi_score["confidence"] is not None
+                and spot_score["confidence"] is not None
+                and _meets_confidence_floor(oi_score["confidence"])
+                and _meets_confidence_floor(spot_score["confidence"])
+            )
+            if confident_enough:
+                held_regime = raw_regime
+            # else: a disagreeing but unconfirmed reading -- noise, keep holding.
+
+        out["oiRegime"] = held_regime
         enriched.append(out)
 
         combined_oi_smoothed_prev = combined_oi_smoothed if combined_oi_smoothed is not None else combined_oi_smoothed_prev
