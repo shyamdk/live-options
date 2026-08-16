@@ -196,9 +196,9 @@ export default function PcrOiPanel() {
           <div className="pcr-oi-section">
             <h3>Signal vs Price</h3>
             <p className="pcr-oi-caption">
-              ▲ Buy CE / ▼ Buy PE = the OI+PCR call above, on the underlying's own 1m candles. ● LB/SB/LU/SC = the
-              classic OI-vs-price read (combined CE+PE OI vs spot, since this app only has options-chain OI, not
-              futures OI).
+              ▲ Buy CE / ▼ Buy PE = the OI+PCR call above, with a faded ■ Sell CE/PE where that call stopped holding
+              (flipped or faded to neutral) -- on the underlying's own 1m candles. ● LB/SB/LU/SC = the classic
+              OI-vs-price read (combined CE+PE OI vs spot, since this app only has options-chain OI, not futures OI).
             </p>
             <Legend
               items={[
@@ -677,6 +677,19 @@ const SIGNAL_LABEL: Record<"buyCe" | "buyPe" | "neutral", string> = {
   neutral: "Neutral / mixed",
 };
 
+// Muted version of the same color, distinct "square" shape -- so an
+// entry/exit pair reads as one bright arrow followed by one faded square
+// on the same side of the bar, not two competing arrows.
+const SIGNAL_EXIT_COLOR: Record<"buyCe" | "buyPe", string> = {
+  buyCe: CE_MUTED,
+  buyPe: PE_MUTED,
+};
+
+const SIGNAL_EXIT_LABEL: Record<"buyCe" | "buyPe", string> = {
+  buyCe: "Sell CE",
+  buyPe: "Sell PE",
+};
+
 type OiRegime = "longBuildup" | "shortBuildup" | "longUnwinding" | "shortCovering";
 
 // Classic OI-vs-price grid, using combined CE+PE OI as the stand-in for
@@ -811,8 +824,11 @@ function PriceSignalChart({
   useEffect(() => {
     if (!markersRef.current || !candles.length) return;
     const signalMarkers = buildSignalMarkers(computeSignalTransitions(points), candles);
+    const exitMarkers = buildSignalExitMarkers(computeSignalExits(points), candles);
     const regimeMarkers = buildOiRegimeMarkers(computeOiRegimeTransitions(points), candles);
-    const merged = [...signalMarkers, ...regimeMarkers].sort((a, b) => (a.time as number) - (b.time as number));
+    const merged = [...signalMarkers, ...exitMarkers, ...regimeMarkers].sort(
+      (a, b) => (a.time as number) - (b.time as number),
+    );
     markersRef.current.setMarkers(merged);
   }, [points, candles]);
 
@@ -851,6 +867,22 @@ function buildSignalMarkers(transitions: PcrOiSnapshot[], candles: MarketCandle[
       color: SIGNAL_COLOR[signal],
       shape: signal === "buyCe" ? "arrowUp" : "arrowDown",
       text: SIGNAL_LABEL[signal],
+    });
+  }
+  return markers;
+}
+
+function buildSignalExitMarkers(exits: SignalExit[], candles: MarketCandle[]): SeriesMarker<Time>[] {
+  const markers: SeriesMarker<Time>[] = [];
+  for (const exit of exits) {
+    const time = nearestCandleTime(candles, exit.at.time);
+    if (time === null) continue;
+    markers.push({
+      time: time as UTCTimestamp,
+      position: exit.closedSignal === "buyCe" ? "belowBar" : "aboveBar",
+      color: SIGNAL_EXIT_COLOR[exit.closedSignal],
+      shape: "square",
+      text: SIGNAL_EXIT_LABEL[exit.closedSignal],
     });
   }
   return markers;
@@ -982,6 +1014,29 @@ function computeSignalTransitions(points: PcrOiSnapshot[]): PcrOiSnapshot[] {
     }
   }
   return transitions;
+}
+
+type SignalExit = { at: PcrOiSnapshot; closedSignal: "buyCe" | "buyPe" };
+
+/** The flip side of computeSignalTransitions: for each buyCe/buyPe entry,
+ * the point where that call stops holding -- either it flips straight to
+ * the opposite side, or fades to neutral. Every entry marker on the chart
+ * gets a matching exit marker from this, so a call that only lasted one
+ * poll (self-corrected fast) is as visible as one that ran all afternoon.
+ */
+function computeSignalExits(points: PcrOiSnapshot[]): SignalExit[] {
+  const exits: SignalExit[] = [];
+  let active: "buyCe" | "buyPe" | null = null;
+  for (const p of points) {
+    if (!p.signal) continue;
+    if (active && p.signal !== active) {
+      exits.push({ at: p, closedSignal: active });
+      active = p.signal === "neutral" ? null : (p.signal as "buyCe" | "buyPe");
+    } else if (!active && p.signal !== "neutral") {
+      active = p.signal as "buyCe" | "buyPe";
+    }
+  }
+  return exits;
 }
 
 /** Same "log transitions, not every repeat" approach as computeSignalTransitions,
