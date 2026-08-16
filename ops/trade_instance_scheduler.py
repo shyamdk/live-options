@@ -1,8 +1,10 @@
 #!/usr/bin/python3
 """Starts/stops the live-options trading instance (140.245.25.236) based on an
-IST trading-day/trading-hours schedule. Deployed and run every 5 minutes via
-cron on 161.118.162.75 (always-on), using instance-principal auth scoped to
-just the trade instance via an OCI Dynamic Group + Policy:
+IST trading-day/trading-hours schedule, staying up continuously across
+weekends (Fri START_TIME through Mon STOP_TIME) for testing outside market
+hours -- see should_be_running(). Deployed and run every 5 minutes via cron
+on 161.118.162.75 (always-on), using instance-principal auth scoped to just
+the trade instance via an OCI Dynamic Group + Policy:
 
   Dynamic Group "trade-instance-scheduler" matches 161.118.162.75 by instance OCID.
   Policy: Allow dynamic-group trade-instance-scheduler to manage instance-family
@@ -32,7 +34,7 @@ from zoneinfo import ZoneInfo
 TRADE_INSTANCE_ID = "ocid1.instance.oc1.ap-mumbai-1.anrg6ljrtbq7fjycklo2cyebu7xa6hkznnqhxko2glzfczq6pod4zgangyuq"
 IST = ZoneInfo("Asia/Kolkata")
 START_TIME = time(8, 30)
-STOP_TIME = time(17, 0)
+STOP_TIME = time(22, 30)
 
 # NSE/BSE trading holidays for 2026 (source: zerodha.com/marketintel/holiday-calendar).
 # Update this set once a year when the exchanges publish the next year's calendar.
@@ -68,11 +70,22 @@ def setup_logging() -> None:
 
 
 def should_be_running(now: datetime, holidays: set[str] = HOLIDAYS) -> bool:
-    if now.weekday() >= 5:  # Saturday/Sunday
-        return False
+    """Mon-Thu: the normal START_TIME-STOP_TIME window. Fri-Sun: stays up
+    continuously across the weekend (no Friday-night stop, no Saturday/Sunday
+    off day) so the instance is available for testing outside trading hours,
+    then drops back to the normal window Monday at STOP_TIME. Holidays still
+    stop it for that calendar day regardless of weekday.
+    """
+    weekday = now.weekday()  # Mon=0 ... Sun=6
     if now.date().isoformat() in holidays:
         return False
-    return START_TIME <= now.time() <= STOP_TIME
+    if weekday in (5, 6):  # Saturday, Sunday: bridge the whole weekend
+        return True
+    if weekday == 4:  # Friday: stay up into the weekend instead of stopping at STOP_TIME
+        return now.time() >= START_TIME
+    if weekday == 0:  # Monday: continuing from the weekend, stop normally at STOP_TIME
+        return now.time() <= STOP_TIME
+    return START_TIME <= now.time() <= STOP_TIME  # Tue-Thu: normal window
 
 
 def main() -> None:
