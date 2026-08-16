@@ -42,6 +42,15 @@ def in_time_window(now: time, start: str, end: str) -> bool:
     return _parse_time(start) <= now <= _parse_time(end)
 
 
+def epoch_to_ist_time(epoch: int) -> time:
+    """IST wall-clock time-of-day for a stored epoch -- for gating on
+    whether a historical data point falls within market hours, since the
+    pcr_oi_snapshots table isn't otherwise guaranteed to only contain
+    real trading-session polls (e.g. a dev/test run outside market hours).
+    """
+    return datetime.fromtimestamp(epoch, _IST).time()
+
+
 def _parse_time(value: str) -> time:
     hour, minute = value.split(":")
     return time(int(hour), int(minute))

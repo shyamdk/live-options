@@ -13,11 +13,11 @@ to be stored.
 from __future__ import annotations
 
 import asyncio
-from datetime import date, datetime
+from datetime import date, datetime, time
 from typing import Any
 
 from app.core.config import Settings, get_settings
-from app.core.timeutil import in_time_window, now_ist, now_ist_epoch
+from app.core.timeutil import epoch_to_ist_time, in_time_window, now_ist, now_ist_epoch
 from app.db.sqlite import record_pcr_oi_snapshot
 from app.services.dhan import DhanService
 
@@ -267,6 +267,14 @@ MIN_SIGNAL_CONFIDENCE = "medium"
 PCR_SMOOTHING_WINDOW = 5
 OI_SKEW_SMOOTHING_WINDOW = 5
 
+# Guards signal generation against any pcr_oi_snapshots rows outside real
+# NSE/BSE hours -- the table isn't otherwise guaranteed to only contain
+# live-session polls (e.g. a dev/test run left the monitor on outside
+# market hours), and stale/closed-market reads produce meaningless
+# oscillating spot prices that can otherwise fire spurious signals.
+MARKET_OPEN = time(9, 15)
+MARKET_CLOSE = time(15, 30)
+
 
 def _weaker_confidence(a: str, b: str) -> str:
     return a if _CONFIDENCE_RANK[a] <= _CONFIDENCE_RANK[b] else b
@@ -303,7 +311,22 @@ def enrich_with_signal(points: list[dict[str, Any]]) -> list[dict[str, Any]]:
     almost never agreed with the much smoother PCR factor -- silently
     missing real moves, not just avoiding noise.
 
-    Must run AFTER enrich_with_roc_and_confidence (needs ceRoc/peRoc).
+    Second trigger path: oiSkew (CE/PE-chain-specific) and oiRegime
+    (combined CE+PE OI vs spot, see enrich_with_oi_regime) are two
+    different reads of the same underlying data and don't always agree --
+    verified against a real session where a ~250pt SENSEX rally flipped
+    oiRegime to shortCovering right at the breakout (its own combined-OI +
+    price factors, both smoothed, both confidence-gated), while oiSkew
+    stayed near zero and PCR was flat, so the primary path never fired.
+    Since oiRegime already cleared its own confidence floor to establish
+    that state (see enrich_with_oi_regime's hysteresis), a currently-held
+    bullish/bearish oiRegime is used as an alternate path into the same
+    Buy CE/PE call whenever the primary path is neutral, gated only by PCR
+    not actively pointing the other way (PCR being quiet/absent doesn't
+    veto it -- only a confident opposite PCR does).
+
+    Must run AFTER enrich_with_roc_and_confidence (needs ceRoc/peRoc) AND
+    enrich_with_oi_regime (needs oiRegime).
     """
     ce_premium_prev = pe_premium_prev = None
     atm_strike_prev: float | None = None
@@ -384,20 +407,36 @@ def enrich_with_signal(points: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
         signal: str | None = None
         signal_confidence: str | None = None
-        skew_conf = skew_score["confidence"]
-        pcr_conf = pcr_score["confidence"]
-        if oi_skew is not None and pcr_delta is not None and skew_conf and pcr_conf:
-            skew_bullish = oi_skew > 0
-            pcr_bullish = pcr_delta > 0
-            confident_enough = _meets_confidence_floor(skew_conf) and _meets_confidence_floor(pcr_conf)
-            if skew_bullish and pcr_bullish and confident_enough:
-                signal, signal_confidence = "buyCe", _weaker_confidence(skew_conf, pcr_conf)
-            elif not skew_bullish and not pcr_bullish and confident_enough:
-                signal, signal_confidence = "buyPe", _weaker_confidence(skew_conf, pcr_conf)
-            else:
+        in_market_hours = MARKET_OPEN <= epoch_to_ist_time(point["time"]) <= MARKET_CLOSE
+        if in_market_hours:
+            skew_conf = skew_score["confidence"]
+            pcr_conf = pcr_score["confidence"]
+            if oi_skew is not None and pcr_delta is not None and skew_conf and pcr_conf:
+                skew_bullish = oi_skew > 0
+                pcr_bullish = pcr_delta > 0
+                confident_enough = _meets_confidence_floor(skew_conf) and _meets_confidence_floor(pcr_conf)
+                if skew_bullish and pcr_bullish and confident_enough:
+                    signal, signal_confidence = "buyCe", _weaker_confidence(skew_conf, pcr_conf)
+                elif not skew_bullish and not pcr_bullish and confident_enough:
+                    signal, signal_confidence = "buyPe", _weaker_confidence(skew_conf, pcr_conf)
+                else:
+                    signal = "neutral"
+            elif oi_skew is not None or pcr_delta is not None:
                 signal = "neutral"
-        elif oi_skew is not None or pcr_delta is not None:
-            signal = "neutral"
+
+            # Alternate path: a currently-held oiRegime (already confidence-gated
+            # and hysteresis-protected at its own source) can fire the same call
+            # when the primary oiSkew+PCR path is neutral/unavailable. PCR still
+            # gets a veto if it's confidently pointing the other way, but doesn't
+            # need to actively agree -- it was often just quiet in the real
+            # missed-move cases this was built to catch.
+            if signal in (None, "neutral"):
+                oi_regime = point.get("oiRegime")
+                pcr_bullish = pcr_delta > 0 if pcr_delta is not None else None
+                if oi_regime in ("longBuildup", "shortCovering") and pcr_bullish is not False:
+                    signal, signal_confidence = "buyCe", "medium"
+                elif oi_regime in ("shortBuildup", "longUnwinding") and pcr_bullish is not True:
+                    signal, signal_confidence = "buyPe", "medium"
 
         delta_vega_aligned: str | None = None
         if spot is not None and spot_prev is not None:

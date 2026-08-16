@@ -89,7 +89,10 @@ async def pcr_oi(session_date: str | None = Query(default=None, alias="date")) -
     snapshots = get_pcr_oi_snapshots(resolved_date)
 
     def _pipeline(points: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        return enrich_with_oi_regime(enrich_with_signal(enrich_with_roc_and_confidence(points)))
+        # oi_regime must run before signal now -- enrich_with_signal reads
+        # oiRegime as an alternate trigger path (see its docstring).
+        with_regime = enrich_with_oi_regime(enrich_with_roc_and_confidence(points))
+        return enrich_with_signal(with_regime)
 
     return {
         "sessionDate": resolved_date,
