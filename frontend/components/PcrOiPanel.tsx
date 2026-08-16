@@ -196,8 +196,18 @@ export default function PcrOiPanel() {
           <div className="pcr-oi-section">
             <h3>Signal vs Price</h3>
             <p className="pcr-oi-caption">
-              ▲ Buy CE / ▼ Buy PE markers on the underlying's own candles — check whether price actually moved the way the signal implied.
+              ▲ Buy CE / ▼ Buy PE = the OI+PCR call above, on the underlying's own 1m candles. ● LB/SB/LU/SC = the
+              classic OI-vs-price read (combined CE+PE OI vs spot, since this app only has options-chain OI, not
+              futures OI).
             </p>
+            <Legend
+              items={[
+                { label: "LB Long Buildup", color: REGIME_COLOR.longBuildup },
+                { label: "SB Short Buildup", color: REGIME_COLOR.shortBuildup },
+                { label: "LU Long Unwinding", color: REGIME_COLOR.longUnwinding },
+                { label: "SC Short Covering", color: REGIME_COLOR.shortCovering },
+              ]}
+            />
             <div className="pcr-oi-split">
               <PriceSignalChart
                 underlying="NIFTY"
@@ -667,6 +677,26 @@ const SIGNAL_LABEL: Record<"buyCe" | "buyPe" | "neutral", string> = {
   neutral: "Neutral / mixed",
 };
 
+type OiRegime = "longBuildup" | "shortBuildup" | "longUnwinding" | "shortCovering";
+
+// Classic OI-vs-price grid, using combined CE+PE OI as the stand-in for
+// futures OI (see enrich_with_oi_regime). Green/red = the two "strong"
+// quadrants (fresh buying / fresh selling); amber/teal = the two "mild"
+// quadrants (unwinding / covering an existing position, not new conviction).
+const REGIME_COLOR: Record<OiRegime, string> = {
+  longBuildup: CE_COLOR,
+  shortBuildup: PE_COLOR,
+  longUnwinding: "#b5780a",
+  shortCovering: "#0a7ea8",
+};
+
+const REGIME_ABBR: Record<OiRegime, string> = {
+  longBuildup: "LB",
+  shortBuildup: "SB",
+  longUnwinding: "LU",
+  shortCovering: "SC",
+};
+
 /** Overlays the signal transitions (same ones the "today" log lists) as
  * arrow markers on the underlying's own spot candles, so you can see with
  * your own eyes whether price actually moved the way a Buy CE/PE call
@@ -705,7 +735,7 @@ function PriceSignalChart({
           securityId: UNDERLYING_SECURITY_ID[underlying],
           exchangeSegment: "IDX_I",
           instrument: "INDEX",
-          interval: "5",
+          interval: "1",
           date: sessionDate ?? undefined,
         });
         if (!cancelled) {
@@ -772,17 +802,24 @@ function PriceSignalChart({
     candleSeriesRef.current?.setData(
       candles.map((c) => ({ time: c.time as UTCTimestamp, open: c.open, high: c.high, low: c.low, close: c.close })),
     );
+    // Without this, 1m bars (~375/session) overflow the default bar
+    // spacing and the chart silently scrolls to show only the tail end --
+    // always fit the whole session so every marker stays visible by default.
+    chartRef.current?.timeScale().fitContent();
   }, [candles]);
 
   useEffect(() => {
     if (!markersRef.current || !candles.length) return;
-    markersRef.current.setMarkers(buildSignalMarkers(computeSignalTransitions(points), candles));
+    const signalMarkers = buildSignalMarkers(computeSignalTransitions(points), candles);
+    const regimeMarkers = buildOiRegimeMarkers(computeOiRegimeTransitions(points), candles);
+    const merged = [...signalMarkers, ...regimeMarkers].sort((a, b) => (a.time as number) - (b.time as number));
+    markersRef.current.setMarkers(merged);
   }, [points, candles]);
 
   return (
     <div className="pcr-oi-split-item">
       <div className="pcr-oi-split-item-head">
-        <span className="subtext">{underlying} spot (5m)</span>
+        <span className="subtext">{underlying} spot (1m)</span>
         {onExpand ? (
           <button type="button" className="pcr-oi-expand-btn" title="Enlarge" onClick={onExpand}>
             <Maximize2 size={13} />
@@ -814,6 +851,24 @@ function buildSignalMarkers(transitions: PcrOiSnapshot[], candles: MarketCandle[
       color: SIGNAL_COLOR[signal],
       shape: signal === "buyCe" ? "arrowUp" : "arrowDown",
       text: SIGNAL_LABEL[signal],
+    });
+  }
+  return markers;
+}
+
+function buildOiRegimeMarkers(transitions: PcrOiSnapshot[], candles: MarketCandle[]): SeriesMarker<Time>[] {
+  const markers: SeriesMarker<Time>[] = [];
+  for (const p of transitions) {
+    const regime = p.oiRegime as OiRegime;
+    const time = nearestCandleTime(candles, p.time);
+    if (time === null) continue;
+    const bullish = regime === "longBuildup" || regime === "shortCovering";
+    markers.push({
+      time: time as UTCTimestamp,
+      position: bullish ? "belowBar" : "aboveBar",
+      color: REGIME_COLOR[regime],
+      shape: "circle",
+      text: REGIME_ABBR[regime],
     });
   }
   return markers;
@@ -924,6 +979,22 @@ function computeSignalTransitions(points: PcrOiSnapshot[]): PcrOiSnapshot[] {
     if (p.signal && p.signal !== lastSignal) {
       if (p.signal !== "neutral") transitions.push(p);
       lastSignal = p.signal;
+    }
+  }
+  return transitions;
+}
+
+/** Same "log transitions, not every repeat" approach as computeSignalTransitions,
+ * applied to the OI-vs-price regime instead -- a sustained buildup would
+ * otherwise mark every single poll (every 1m candle) along the way.
+ */
+function computeOiRegimeTransitions(points: PcrOiSnapshot[]): PcrOiSnapshot[] {
+  const transitions: PcrOiSnapshot[] = [];
+  let lastRegime: string | null = null;
+  for (const p of points) {
+    if (p.oiRegime && p.oiRegime !== lastRegime) {
+      transitions.push(p);
+      lastRegime = p.oiRegime;
     }
   }
   return transitions;

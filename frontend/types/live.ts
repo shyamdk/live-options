@@ -58,6 +58,7 @@ export type PcrOiSnapshot = {
   signal: "buyCe" | "buyPe" | "neutral" | null;
   signalConfidence: ConfidenceLevel | null;
   deltaVegaAligned: "CE" | "PE" | null;
+  oiRegime: "longBuildup" | "shortBuildup" | "longUnwinding" | "shortCovering" | null;
 };
 
 export type PcrOiPayload = {

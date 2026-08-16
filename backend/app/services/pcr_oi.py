@@ -395,3 +395,94 @@ def enrich_with_signal(points: list[dict[str, Any]]) -> list[dict[str, Any]]:
         pe_iv_prev = pe_iv if pe_iv is not None else pe_iv_prev
 
     return enriched
+
+
+OI_REGIME_SMOOTHING_WINDOW = 5
+
+
+def enrich_with_oi_regime(points: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Classic OI-vs-price read (the textbook 4-quadrant grid: OI up + price
+    up = long buildup, OI up + price down = short buildup, OI down + price
+    down = long unwinding, OI down + price up = short covering). That grid
+    is normally applied to a single FUTURES OI series; this app only has the
+    options chain, so "OI" here is combined CE+PE OI (ceOiChange + peOiChange)
+    -- the closest available stand-in for total participation. Independent
+    of enrich_with_signal's Buy CE/PE call: this labels the *character* of
+    each move, not a directional recommendation.
+
+    Both series are read off their own rolling average (same smoothing
+    approach as enrich_with_signal's PCR trend) rather than tick-to-tick,
+    and -- same "fewer, more accurate" floor as enrich_with_signal -- both
+    deltas must also clear a medium+ confidence z-score against today's own
+    distribution before a regime is assigned. Smoothing alone still flipped
+    on almost every poll in practice (spot drifts a few points either way
+    constantly); the confidence floor is what actually makes this usable as
+    a chart marker instead of one every 1-2 polls.
+    """
+    combined_oi_history: list[float] = []
+    spot_history: list[float] = []
+    combined_oi_smoothed_prev: float | None = None
+    spot_smoothed_prev: float | None = None
+    oi_delta_history: list[float] = []
+    spot_delta_history: list[float] = []
+    enriched: list[dict[str, Any]] = []
+
+    for point in points:
+        out = dict(point)
+        ce_oi_change = point.get("ceOiChange")
+        pe_oi_change = point.get("peOiChange")
+        spot = point.get("spot")
+
+        combined_oi = (
+            ce_oi_change + pe_oi_change if ce_oi_change is not None and pe_oi_change is not None else None
+        )
+        if combined_oi is not None:
+            combined_oi_history.append(combined_oi)
+        if spot is not None:
+            spot_history.append(spot)
+
+        combined_oi_smoothed = _rolling_mean(combined_oi_history, OI_REGIME_SMOOTHING_WINDOW)
+        spot_smoothed = _rolling_mean(spot_history, OI_REGIME_SMOOTHING_WINDOW)
+
+        oi_delta = (
+            combined_oi_smoothed - combined_oi_smoothed_prev
+            if combined_oi_smoothed is not None and combined_oi_smoothed_prev is not None
+            else None
+        )
+        spot_delta = (
+            spot_smoothed - spot_smoothed_prev
+            if spot_smoothed is not None and spot_smoothed_prev is not None
+            else None
+        )
+        if oi_delta is not None:
+            oi_delta_history.append(oi_delta)
+        if spot_delta is not None:
+            spot_delta_history.append(spot_delta)
+        oi_score = _score(oi_delta_history, oi_delta)
+        spot_score = _score(spot_delta_history, spot_delta)
+
+        regime: str | None = None
+        if (
+            oi_delta is not None
+            and spot_delta is not None
+            and oi_score["confidence"]
+            and spot_score["confidence"]
+            and _meets_confidence_floor(oi_score["confidence"])
+            and _meets_confidence_floor(spot_score["confidence"])
+        ):
+            if oi_delta > 0 and spot_delta > 0:
+                regime = "longBuildup"
+            elif oi_delta > 0 and spot_delta < 0:
+                regime = "shortBuildup"
+            elif oi_delta < 0 and spot_delta < 0:
+                regime = "longUnwinding"
+            elif oi_delta < 0 and spot_delta > 0:
+                regime = "shortCovering"
+
+        out["oiRegime"] = regime
+        enriched.append(out)
+
+        combined_oi_smoothed_prev = combined_oi_smoothed if combined_oi_smoothed is not None else combined_oi_smoothed_prev
+        spot_smoothed_prev = spot_smoothed if spot_smoothed is not None else spot_smoothed_prev
+
+    return enriched
