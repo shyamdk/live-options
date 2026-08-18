@@ -1,6 +1,6 @@
 "use client";
 
-import { BarChart3 } from "lucide-react";
+import { BarChart3, Maximize2, X } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import {
@@ -31,7 +31,44 @@ const REFRESH_OPTIONS: { value: number; label: string }[] = [
   { value: 300000, label: "5m" },
 ];
 const VIX_COLOR = "#7a3fa0";
+const GRID_HEIGHT = 320;
+const EXPANDED_HEIGHT = 520;
 type Underlying = "NIFTY" | "SENSEX";
+type ExpandKind = "pcr" | "oi" | "vix" | "iv";
+
+const EXPAND_TITLE: Record<ExpandKind, string> = {
+  pcr: "Put-Call Ratio",
+  oi: "Change in OI",
+  vix: "India VIX",
+  iv: "ATM IV",
+};
+
+const PCR_GUIDELINES = [
+  "Rising PCR (more put OI than call OI building) is read here as bullish/CE-favoring; falling PCR as bearish/PE-favoring — this app follows the trend-following convention, not the contrarian-at-extremes one some traders use.",
+  "Judge it against today's own average, not a fixed universal number like 1.0 — what's \"high\" shifts session to session.",
+  "A sharp multi-poll move is a faster repositioning than a slow drift and generally deserves more weight.",
+];
+
+const OI_GUIDELINES = [
+  "Rising CE OI + flat/falling CE premium = call writing = resistance forming = bearish lean. Rising CE OI + rising CE premium = call buying = bullish conviction.",
+  "Rising PE OI + flat/falling PE premium = put writing = support forming = bullish lean. Rising PE OI + rising PE premium = put buying (fear) = bearish lean.",
+  "Falling OI on a side means unwinding/covering — existing positions closing, that side's earlier influence fading.",
+  "One line moving sharply while the other stays flat is more informative than either line read alone.",
+];
+
+const VIX_GUIDELINES = [
+  "Rising VIX = rising fear/uncertainty = wider expected moves and richer premiums — favorable for premium sellers, riskier for premium buyers already in a position.",
+  "Falling VIX = complacency; calmer trending or range-bound conditions where theta decay tends to dominate.",
+  "A VIX spike arriving alongside a price move (not before it) confirms the move is being treated as urgent, not routine.",
+  "VIX near session lows plus one-sided OI buildup often precedes a breakout — options are comparatively cheap for the eventual move.",
+];
+
+const IV_GUIDELINES = [
+  "IV rising on one side before price has moved much is often a leading signal — the market is pricing in an expected move that direction.",
+  "IV rising together with price moving that direction means the move is being chased/confirmed, not just noise.",
+  "IV falling while price keeps moving suggests the move is decelerating, or theta/IV crush is setting in as the move gets \"used up\".",
+  "A persistent gap between CE IV and PE IV is skew — the market paying more for one side's convexity, i.e. a directional lean already priced in.",
+];
 
 export default function OiAnalysisPage() {
   const [underlying, setUnderlying] = useState<Underlying>("NIFTY");
@@ -40,6 +77,7 @@ export default function OiAnalysisPage() {
   const [sessionDates, setSessionDates] = useState<string[]>([]);
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [refreshMs, setRefreshMs] = useState(DEFAULT_REFRESH_MS);
+  const [expandedChart, setExpandedChart] = useState<ExpandKind | null>(null);
   const [pcrHandle, setPcrHandle] = useState<ChartHandle | null>(null);
   const [vixHandle, setVixHandle] = useState<ChartHandle | null>(null);
   const [ivHandle, setIvHandle] = useState<ChartHandle | null>(null);
@@ -90,6 +128,15 @@ export default function OiAnalysisPage() {
     return linkCrosshairs(handles);
   }, [pcrHandle, vixHandle, ivHandle, oiHandle]);
 
+  useEffect(() => {
+    if (!expandedChart) return;
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") setExpandedChart(null);
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [expandedChart]);
+
   const points = data[underlying];
   const color = underlying === "NIFTY" ? NIFTY_COLOR : SENSEX_COLOR;
 
@@ -101,7 +148,7 @@ export default function OiAnalysisPage() {
             <BarChart3 size={20} style={{ verticalAlign: "-3px", marginRight: 8 }} />
             OI Analysis
           </h1>
-          <p>Full-width PCR, India VIX, ATM IV and Change in OI, one underlying at a time, for reading fine intraday moves precisely.</p>
+          <p>PCR, Change in OI, India VIX and ATM IV side by side, one underlying at a time, for reading fine intraday moves precisely.</p>
         </div>
         <div className="toolbar">
           <label className="subtext" htmlFor="oi-analysis-underlying-select">
@@ -165,58 +212,136 @@ export default function OiAnalysisPage() {
       {error ? <div className="alert error">{error}</div> : null}
 
       <div className="pcr-oi-section">
-        <div className="oi-analysis-section-head">
-          <h3>Put-Call Ratio — {underlying}</h3>
-          <DeltaChip label="PCR" points={points} accessor={(p) => p.pcr} format={(v) => v.toFixed(3)} />
-        </div>
-        <PcrChart title={underlying} color={color} points={points} onReady={setPcrHandle} height={380} />
-      </div>
+        <div className="pcr-oi-split">
+          <div className="oi-analysis-chart-col">
+            <div className="oi-analysis-section-head">
+              <h3>Put-Call Ratio — {underlying}</h3>
+              <DeltaChip label="PCR" points={points} accessor={(p) => p.pcr} format={(v) => v.toFixed(3)} />
+            </div>
+            <ul className="pcr-oi-rules">
+              {PCR_GUIDELINES.map((rule) => (
+                <li key={rule}>{rule}</li>
+              ))}
+            </ul>
+            <PcrChart
+              title={underlying}
+              color={color}
+              points={points}
+              onReady={setPcrHandle}
+              onExpand={() => setExpandedChart("pcr")}
+              height={GRID_HEIGHT}
+            />
+          </div>
 
-      <div className="pcr-oi-section">
-        <div className="oi-analysis-section-head">
-          <h3>India VIX</h3>
-          <DeltaChip label="VIX" points={points} accessor={(p) => p.indiaVix} format={(v) => v.toFixed(2)} />
-        </div>
-        <p className="pcr-oi-caption">Market-wide fear gauge — same series regardless of underlying selected above.</p>
-        <PcrChart
-          title="India VIX"
-          color={VIX_COLOR}
-          points={points}
-          onReady={setVixHandle}
-          height={300}
-          accessor={(p) => p.indiaVix}
-          seriesLabel="India VIX"
-        />
-      </div>
-
-      <div className="pcr-oi-section">
-        <div className="oi-analysis-section-head">
-          <h3>ATM IV — {underlying}</h3>
-          <div className="oi-analysis-chip-row">
-            <DeltaChip label="CE IV" points={points} accessor={(p) => p.ceIv} format={(v) => `${v.toFixed(2)}%`} />
-            <DeltaChip label="PE IV" points={points} accessor={(p) => p.peIv} format={(v) => `${v.toFixed(2)}%`} />
+          <div className="oi-analysis-chart-col">
+            <div className="oi-analysis-section-head">
+              <h3>Change in OI — {underlying}</h3>
+              <div className="oi-analysis-chip-row">
+                <DeltaChip label="CE" points={points} accessor={(p) => p.ceOiChange} format={formatLakhsShort} />
+                <DeltaChip label="PE" points={points} accessor={(p) => p.peOiChange} format={formatLakhsShort} />
+              </div>
+            </div>
+            <p className="pcr-oi-caption" style={{ margin: 0 }}>
+              Y-axis in lakhs (1 L = 100,000 contracts).
+            </p>
+            <Legend items={[{ label: "CE chg OI", color: CE_COLOR }, { label: "PE chg OI", color: PE_COLOR }]} />
+            <ul className="pcr-oi-rules">
+              {OI_GUIDELINES.map((rule) => (
+                <li key={rule}>{rule}</li>
+              ))}
+            </ul>
+            <OiChangeChart
+              title={underlying}
+              points={points}
+              onReady={setOiHandle}
+              onExpand={() => setExpandedChart("oi")}
+              height={GRID_HEIGHT}
+            />
           </div>
         </div>
-        <p className="pcr-oi-caption">
-          Rising IV alongside a directional move means that move is being priced as real (more demand for that
-          side's premium), not just noise.
-        </p>
-        <Legend items={[{ label: "CE IV", color: CE_COLOR }, { label: "PE IV", color: PE_COLOR }]} />
-        <IvChart title={underlying} points={points} onReady={setIvHandle} height={380} />
       </div>
 
       <div className="pcr-oi-section">
-        <div className="oi-analysis-section-head">
-          <h3>Change in OI — {underlying}</h3>
-          <div className="oi-analysis-chip-row">
-            <DeltaChip label="CE" points={points} accessor={(p) => p.ceOiChange} format={formatLakhsShort} />
-            <DeltaChip label="PE" points={points} accessor={(p) => p.peOiChange} format={formatLakhsShort} />
+        <div className="pcr-oi-split">
+          <div className="oi-analysis-chart-col">
+            <div className="oi-analysis-section-head">
+              <h3>India VIX</h3>
+              <DeltaChip label="VIX" points={points} accessor={(p) => p.indiaVix} format={(v) => v.toFixed(2)} />
+            </div>
+            <p className="pcr-oi-caption" style={{ margin: 0 }}>
+              Market-wide fear gauge — same series regardless of underlying selected above.
+            </p>
+            <ul className="pcr-oi-rules">
+              {VIX_GUIDELINES.map((rule) => (
+                <li key={rule}>{rule}</li>
+              ))}
+            </ul>
+            <PcrChart
+              title="India VIX"
+              color={VIX_COLOR}
+              points={points}
+              onReady={setVixHandle}
+              onExpand={() => setExpandedChart("vix")}
+              height={GRID_HEIGHT}
+              accessor={(p) => p.indiaVix}
+              seriesLabel="India VIX"
+            />
+          </div>
+
+          <div className="oi-analysis-chart-col">
+            <div className="oi-analysis-section-head">
+              <h3>ATM IV — {underlying}</h3>
+              <div className="oi-analysis-chip-row">
+                <DeltaChip label="CE IV" points={points} accessor={(p) => p.ceIv} format={(v) => `${v.toFixed(2)}%`} />
+                <DeltaChip label="PE IV" points={points} accessor={(p) => p.peIv} format={(v) => `${v.toFixed(2)}%`} />
+              </div>
+            </div>
+            <Legend items={[{ label: "CE IV", color: CE_COLOR }, { label: "PE IV", color: PE_COLOR }]} />
+            <ul className="pcr-oi-rules">
+              {IV_GUIDELINES.map((rule) => (
+                <li key={rule}>{rule}</li>
+              ))}
+            </ul>
+            <IvChart
+              title={underlying}
+              points={points}
+              onReady={setIvHandle}
+              onExpand={() => setExpandedChart("iv")}
+              height={GRID_HEIGHT}
+            />
           </div>
         </div>
-        <p className="pcr-oi-caption">Y-axis in lakhs (1 L = 100,000 contracts) for legible fine-grained moves.</p>
-        <Legend items={[{ label: "CE chg OI", color: CE_COLOR }, { label: "PE chg OI", color: PE_COLOR }]} />
-        <OiChangeChart title={underlying} points={points} onReady={setOiHandle} height={380} />
       </div>
+
+      {expandedChart ? (
+        <div className="pcr-oi-modal-backdrop" onClick={() => setExpandedChart(null)}>
+          <div className="pcr-oi-modal" onClick={(event) => event.stopPropagation()}>
+            <div className="pcr-oi-modal-head">
+              <h3>
+                {EXPAND_TITLE[expandedChart]} — {expandedChart === "vix" ? "Market-wide" : underlying}
+              </h3>
+              <button type="button" className="pcr-oi-expand-btn" title="Close" onClick={() => setExpandedChart(null)}>
+                <X size={16} />
+              </button>
+            </div>
+            {expandedChart === "pcr" ? (
+              <PcrChart title={underlying} color={color} points={points} height={EXPANDED_HEIGHT} />
+            ) : null}
+            {expandedChart === "oi" ? <OiChangeChart title={underlying} points={points} height={EXPANDED_HEIGHT} /> : null}
+            {expandedChart === "vix" ? (
+              <PcrChart
+                title="India VIX"
+                color={VIX_COLOR}
+                points={points}
+                height={EXPANDED_HEIGHT}
+                accessor={(p) => p.indiaVix}
+                seriesLabel="India VIX"
+              />
+            ) : null}
+            {expandedChart === "iv" ? <IvChart title={underlying} points={points} height={EXPANDED_HEIGHT} /> : null}
+          </div>
+        </div>
+      ) : null}
     </section>
   );
 }

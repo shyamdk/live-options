@@ -777,6 +777,13 @@ button:disabled {
   font-weight: 700;
 }
 
+.oi-analysis-chart-col {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
 .oi-analysis-section-head {
   display: flex;
   align-items: center;
