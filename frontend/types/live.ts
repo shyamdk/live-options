@@ -234,3 +234,56 @@ export type JournalInsights = {
   bullets: string[];
   generatedAt: string | null;
 };
+
+export type PaperTradeLeg = {
+  id: number;
+  tradeId: number;
+  lotNumber: number;
+  qty: number;
+  exitTime: number;
+  exitPremium: number;
+  exitReason: "target1" | "target2" | "trail" | "stop_loss" | "eod";
+  pnlPoints: number;
+  pnlAmount: number;
+};
+
+export type PaperTrade = {
+  id: number;
+  underlying: "NIFTY" | "SENSEX";
+  side: "CE" | "PE";
+  signalType: "signalVsPrice" | "priceBreakout";
+  strike: number | null;
+  expiry: string | null;
+  securityId: string | null;
+  exchangeSegment: string | null;
+  entryTime: number;
+  entryPremium: number;
+  lots: number;
+  lotSize: number;
+  stopLossPercent: number;
+  target1Percent: number;
+  target2Percent: number;
+  trailPercent: number;
+  stopLossPrice: number;
+  target1Price: number;
+  target2Price: number;
+  phase: "OPEN_ALL" | "LOT1_BOOKED" | "LOT2_BOOKED";
+  peakPremium: number | null;
+  remainingLots: number;
+  status: "open" | "closed";
+  realizedPnl: number;
+  closedAt: number | null;
+  createdAt: string;
+  legs: PaperTradeLeg[];
+};
+
+export type PaperTradingSettings = {
+  stopLossPercent: number;
+  target1Percent: number;
+  target2Percent: number;
+  trailPercent: number;
+  niftyLots: number;
+  niftyLotSize: number;
+  sensexLots: number;
+  sensexLotSize: number;
+};

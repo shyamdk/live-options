@@ -94,6 +94,13 @@ class Settings(BaseSettings):
     pcr_oi_session_start_time: str = "09:15"
     pcr_oi_session_end_time: str = "15:30"
 
+    # Paper-only: never places a real order. Off by default like every new
+    # monitor in this codebase -- opt in explicitly once verified.
+    paper_trading_monitor_enabled: bool = False
+    paper_trading_poll_interval_seconds: int = 60
+    paper_trading_session_start_time: str = "09:15"
+    paper_trading_session_end_time: str = "15:30"
+
     gamma_blast_monitor_enabled: bool = True
     gamma_blast_mode: str = "PAPER"
     gamma_blast_paper_auto_approve: bool = True

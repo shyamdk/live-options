@@ -9,6 +9,8 @@ import type {
   MarketCandlesResponse,
   MarketIndicesPayload,
   MarketNewsPayload,
+  PaperTrade,
+  PaperTradingSettings,
   PcrOiPayload,
   TradeLevels,
 } from "@/types/live";
@@ -352,5 +354,27 @@ export async function refreshJournalInsights(): Promise<JournalInsights> {
     "/api/journals/insights/refresh",
     { method: "POST" },
     "Failed to refresh journal insights",
+  );
+}
+
+export async function getPaperTrades(): Promise<{ trades: PaperTrade[] }> {
+  return apiJson<{ trades: PaperTrade[] }>("/api/paper-trading/trades", undefined, "Failed to load paper trades");
+}
+
+export async function getPaperTradingSettings(): Promise<PaperTradingSettings> {
+  return apiJson<PaperTradingSettings>(
+    "/api/paper-trading/settings",
+    undefined,
+    "Failed to load paper trading settings",
+  );
+}
+
+export async function updatePaperTradingSettings(
+  fields: Partial<PaperTradingSettings>,
+): Promise<PaperTradingSettings> {
+  return apiJson<PaperTradingSettings>(
+    "/api/paper-trading/settings",
+    { method: "PUT", body: JSON.stringify(fields) },
+    "Failed to save paper trading settings",
   );
 }

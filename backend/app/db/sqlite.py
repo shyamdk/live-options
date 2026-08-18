@@ -595,6 +595,64 @@ def init_db() -> None:
             )
             """
         )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS paper_trades (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                underlying TEXT NOT NULL,
+                side TEXT NOT NULL,
+                signal_type TEXT NOT NULL,
+                strike REAL,
+                expiry TEXT,
+                security_id TEXT,
+                exchange_segment TEXT,
+                entry_time INTEGER NOT NULL,
+                entry_premium REAL NOT NULL,
+                lots INTEGER NOT NULL,
+                lot_size INTEGER NOT NULL,
+                stop_loss_percent REAL NOT NULL,
+                target1_percent REAL NOT NULL,
+                target2_percent REAL NOT NULL,
+                trail_percent REAL NOT NULL,
+                stop_loss_price REAL NOT NULL,
+                target1_price REAL NOT NULL,
+                target2_price REAL NOT NULL,
+                phase TEXT NOT NULL DEFAULT 'OPEN_ALL',
+                peak_premium REAL,
+                remaining_lots INTEGER NOT NULL,
+                status TEXT NOT NULL DEFAULT 'open',
+                realized_pnl REAL NOT NULL DEFAULT 0,
+                closed_at INTEGER,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS paper_trade_legs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                trade_id INTEGER NOT NULL,
+                lot_number INTEGER NOT NULL,
+                qty INTEGER NOT NULL,
+                exit_time INTEGER NOT NULL,
+                exit_premium REAL NOT NULL,
+                exit_reason TEXT NOT NULL,
+                pnl_points REAL NOT NULL,
+                pnl_amount REAL NOT NULL,
+                created_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS paper_trading_settings (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
         conn.commit()
 
 
@@ -1078,3 +1136,233 @@ def _number(value: Any) -> float | None:
         return float(str(value).replace(",", ""))
     except (TypeError, ValueError):
         return None
+
+
+PAPER_TRADING_SETTINGS_DEFAULTS: dict[str, str] = {
+    "stopLossPercent": "15",
+    "target1Percent": "10",
+    "target2Percent": "20",
+    "trailPercent": "5",
+    "niftyLots": "3",
+    "niftyLotSize": "65",
+    "sensexLots": "3",
+    "sensexLotSize": "20",
+}
+
+
+def get_paper_trading_settings() -> dict[str, float]:
+    with _DB_LOCK, _connect() as conn:
+        rows = conn.execute("SELECT key, value FROM paper_trading_settings").fetchall()
+    stored = {row["key"]: row["value"] for row in rows}
+    merged = {**PAPER_TRADING_SETTINGS_DEFAULTS, **stored}
+    return {key: float(value) for key, value in merged.items()}
+
+
+def save_paper_trading_settings(values: dict[str, Any]) -> dict[str, float]:
+    now = datetime.now().isoformat(timespec="seconds")
+    with _DB_LOCK, _connect() as conn:
+        for key, value in values.items():
+            if key not in PAPER_TRADING_SETTINGS_DEFAULTS or value is None:
+                continue
+            conn.execute(
+                """
+                INSERT INTO paper_trading_settings (key, value, updated_at) VALUES (?, ?, ?)
+                ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+                """,
+                (key, str(value), now),
+            )
+        conn.commit()
+    return get_paper_trading_settings()
+
+
+def create_paper_trade(
+    *,
+    underlying: str,
+    side: str,
+    signal_type: str,
+    strike: float | None,
+    expiry: str | None,
+    security_id: str | None,
+    exchange_segment: str | None,
+    entry_time: int,
+    entry_premium: float,
+    lots: int,
+    lot_size: int,
+    stop_loss_percent: float,
+    target1_percent: float,
+    target2_percent: float,
+    trail_percent: float,
+    stop_loss_price: float,
+    target1_price: float,
+    target2_price: float,
+) -> int:
+    now = datetime.now().isoformat(timespec="seconds")
+    with _DB_LOCK, _connect() as conn:
+        cur = conn.execute(
+            """
+            INSERT INTO paper_trades (
+                underlying, side, signal_type, strike, expiry, security_id, exchange_segment,
+                entry_time, entry_premium, lots, lot_size,
+                stop_loss_percent, target1_percent, target2_percent, trail_percent,
+                stop_loss_price, target1_price, target2_price,
+                phase, peak_premium, remaining_lots, status, realized_pnl,
+                created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'OPEN_ALL', NULL, ?, 'open', 0, ?, ?)
+            """,
+            (
+                underlying,
+                side,
+                signal_type,
+                strike,
+                expiry,
+                security_id,
+                exchange_segment,
+                entry_time,
+                entry_premium,
+                lots,
+                lot_size,
+                stop_loss_percent,
+                target1_percent,
+                target2_percent,
+                trail_percent,
+                stop_loss_price,
+                target1_price,
+                target2_price,
+                lots,
+                now,
+                now,
+            ),
+        )
+        conn.commit()
+        return int(cur.lastrowid)
+
+
+def get_open_paper_trade(underlying: str, signal_type: str) -> dict[str, Any] | None:
+    with _DB_LOCK, _connect() as conn:
+        row = conn.execute(
+            "SELECT * FROM paper_trades WHERE underlying = ? AND signal_type = ? AND status = 'open' ORDER BY id DESC LIMIT 1",
+            (underlying, signal_type),
+        ).fetchone()
+    return _paper_trade_from_row(row) if row else None
+
+
+def list_open_paper_trades() -> list[dict[str, Any]]:
+    with _DB_LOCK, _connect() as conn:
+        rows = conn.execute("SELECT * FROM paper_trades WHERE status = 'open'").fetchall()
+    return [_paper_trade_from_row(row) for row in rows]
+
+
+def update_paper_trade_progress(trade_id: int, *, phase: str, peak_premium: float | None, remaining_lots: int) -> None:
+    now = datetime.now().isoformat(timespec="seconds")
+    with _DB_LOCK, _connect() as conn:
+        conn.execute(
+            "UPDATE paper_trades SET phase = ?, peak_premium = ?, remaining_lots = ?, updated_at = ? WHERE id = ?",
+            (phase, peak_premium, remaining_lots, now, trade_id),
+        )
+        conn.commit()
+
+
+def add_paper_trade_leg(
+    trade_id: int,
+    *,
+    lot_number: int,
+    qty: int,
+    exit_time: int,
+    exit_premium: float,
+    exit_reason: str,
+    pnl_points: float,
+    pnl_amount: float,
+) -> None:
+    now = datetime.now().isoformat(timespec="seconds")
+    with _DB_LOCK, _connect() as conn:
+        conn.execute(
+            """
+            INSERT INTO paper_trade_legs
+                (trade_id, lot_number, qty, exit_time, exit_premium, exit_reason, pnl_points, pnl_amount, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (trade_id, lot_number, qty, exit_time, exit_premium, exit_reason, pnl_points, pnl_amount, now),
+        )
+        conn.commit()
+
+
+def close_paper_trade(trade_id: int, *, closed_at: int, realized_pnl: float) -> None:
+    now = datetime.now().isoformat(timespec="seconds")
+    with _DB_LOCK, _connect() as conn:
+        conn.execute(
+            "UPDATE paper_trades SET status = 'closed', closed_at = ?, realized_pnl = ?, remaining_lots = 0, updated_at = ? WHERE id = ?",
+            (closed_at, realized_pnl, now, trade_id),
+        )
+        conn.commit()
+
+
+def get_paper_trade_legs(trade_id: int) -> list[dict[str, Any]]:
+    with _DB_LOCK, _connect() as conn:
+        rows = conn.execute(
+            "SELECT * FROM paper_trade_legs WHERE trade_id = ? ORDER BY exit_time ASC", (trade_id,)
+        ).fetchall()
+    return [_paper_trade_leg_from_row(row) for row in rows]
+
+
+def list_paper_trades() -> list[dict[str, Any]]:
+    with _DB_LOCK, _connect() as conn:
+        trade_rows = conn.execute("SELECT * FROM paper_trades ORDER BY entry_time DESC").fetchall()
+        trades = [_paper_trade_from_row(row) for row in trade_rows]
+        if not trades:
+            return trades
+        ids = [t["id"] for t in trades]
+        placeholders = ",".join("?" for _ in ids)
+        leg_rows = conn.execute(
+            f"SELECT * FROM paper_trade_legs WHERE trade_id IN ({placeholders}) ORDER BY exit_time ASC", ids
+        ).fetchall()
+    legs_by_trade: dict[int, list[dict[str, Any]]] = {}
+    for row in leg_rows:
+        legs_by_trade.setdefault(row["trade_id"], []).append(_paper_trade_leg_from_row(row))
+    for trade in trades:
+        trade["legs"] = legs_by_trade.get(trade["id"], [])
+    return trades
+
+
+def _paper_trade_from_row(row: sqlite3.Row) -> dict[str, Any]:
+    return {
+        "id": row["id"],
+        "underlying": row["underlying"],
+        "side": row["side"],
+        "signalType": row["signal_type"],
+        "strike": row["strike"],
+        "expiry": row["expiry"],
+        "securityId": row["security_id"],
+        "exchangeSegment": row["exchange_segment"],
+        "entryTime": row["entry_time"],
+        "entryPremium": row["entry_premium"],
+        "lots": row["lots"],
+        "lotSize": row["lot_size"],
+        "stopLossPercent": row["stop_loss_percent"],
+        "target1Percent": row["target1_percent"],
+        "target2Percent": row["target2_percent"],
+        "trailPercent": row["trail_percent"],
+        "stopLossPrice": row["stop_loss_price"],
+        "target1Price": row["target1_price"],
+        "target2Price": row["target2_price"],
+        "phase": row["phase"],
+        "peakPremium": row["peak_premium"],
+        "remainingLots": row["remaining_lots"],
+        "status": row["status"],
+        "realizedPnl": row["realized_pnl"],
+        "closedAt": row["closed_at"],
+        "createdAt": row["created_at"],
+    }
+
+
+def _paper_trade_leg_from_row(row: sqlite3.Row) -> dict[str, Any]:
+    return {
+        "id": row["id"],
+        "tradeId": row["trade_id"],
+        "lotNumber": row["lot_number"],
+        "qty": row["qty"],
+        "exitTime": row["exit_time"],
+        "exitPremium": row["exit_premium"],
+        "exitReason": row["exit_reason"],
+        "pnlPoints": row["pnl_points"],
+        "pnlAmount": row["pnl_amount"],
+    }

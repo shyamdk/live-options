@@ -11,6 +11,7 @@ from app.api.ema5 import router as ema5_router
 from app.api.gamma_blast import router as gamma_blast_router
 from app.api.journals import router as journals_router
 from app.api.market import router as market_router
+from app.api.paper_trading import router as paper_trading_router
 from app.api.theta import router as theta_router
 from app.api.trades import router as trades_router
 from app.core.config import get_settings
@@ -26,6 +27,7 @@ from app.services.market_news import (
     stop_market_calendar_task,
     stop_market_news_task,
 )
+from app.services.paper_trading import start_paper_trading_task, stop_paper_trading_task
 from app.services.pcr_oi import start_pcr_oi_task, stop_pcr_oi_task
 from app.services.theta import start_theta_task, stop_theta_task
 from app.services.trades import (
@@ -49,6 +51,7 @@ theta_task = None
 market_news_task = None
 market_calendar_task = None
 pcr_oi_task = None
+paper_trading_task = None
 
 app.add_middleware(
     CORSMiddleware,
@@ -61,7 +64,7 @@ app.add_middleware(
 
 @app.on_event("startup")
 async def startup() -> None:
-    global risk_order_monitor_task, spot_distance_monitor_task, gamma_blast_task, journal_insights_task, ema5_task, animesh_task, credit_spread_task, theta_task, market_news_task, market_calendar_task, pcr_oi_task
+    global risk_order_monitor_task, spot_distance_monitor_task, gamma_blast_task, journal_insights_task, ema5_task, animesh_task, credit_spread_task, theta_task, market_news_task, market_calendar_task, pcr_oi_task, paper_trading_task
     init_db()
     spot_distance_monitor_task = start_spot_distance_monitor_task()
     risk_order_monitor_task = start_risk_order_monitor_task()
@@ -74,6 +77,7 @@ async def startup() -> None:
     market_news_task = start_market_news_task()
     market_calendar_task = start_market_calendar_task()
     pcr_oi_task = start_pcr_oi_task()
+    paper_trading_task = start_paper_trading_task()
 
 
 @app.on_event("shutdown")
@@ -89,6 +93,7 @@ async def shutdown() -> None:
     await stop_market_news_task(market_news_task)
     await stop_market_calendar_task(market_calendar_task)
     await stop_pcr_oi_task(pcr_oi_task)
+    await stop_paper_trading_task(paper_trading_task)
 
 
 @app.get("/health")
@@ -106,3 +111,4 @@ app.include_router(ema5_router, prefix=settings.api_prefix)
 app.include_router(animesh_router, prefix=settings.api_prefix)
 app.include_router(credit_spread_router, prefix=settings.api_prefix)
 app.include_router(theta_router, prefix=settings.api_prefix)
+app.include_router(paper_trading_router, prefix=settings.api_prefix)
