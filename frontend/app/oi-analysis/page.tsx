@@ -1,6 +1,6 @@
 "use client";
 
-import { BarChart3, Maximize2, X } from "lucide-react";
+import { BarChart3, X } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import {
@@ -16,6 +16,7 @@ import {
   SENSEX_COLOR,
 } from "@/components/PcrOiPanel";
 import { getPcrOiSessionDates, getPcrOiSnapshots } from "@/lib/api";
+import { useChartLines, type StoredLine } from "@/lib/useChartLines";
 import type { PcrOiSnapshot, PcrOiPayload } from "@/types/live";
 
 const DEFAULT_REFRESH_MS = 120000;
@@ -33,6 +34,7 @@ const REFRESH_OPTIONS: { value: number; label: string }[] = [
 const VIX_COLOR = "#7a3fa0";
 const GRID_HEIGHT = 320;
 const EXPANDED_HEIGHT = 520;
+const LINES_HINT = "Click the chart to mark a level · drag a line to move it · × to remove.";
 type Underlying = "NIFTY" | "SENSEX";
 type ExpandKind = "pcr" | "oi" | "vix" | "iv";
 
@@ -70,6 +72,10 @@ const IV_GUIDELINES = [
   "A persistent gap between CE IV and PE IV is skew — the market paying more for one side's convexity, i.e. a directional lean already priced in.",
 ];
 
+function keyFor(kind: ExpandKind, underlying: Underlying): string {
+  return kind === "vix" ? "vix" : `${kind}:${underlying}`;
+}
+
 export default function OiAnalysisPage() {
   const [underlying, setUnderlying] = useState<Underlying>("NIFTY");
   const [data, setData] = useState<PcrOiPayload>({ NIFTY: [], SENSEX: [] });
@@ -78,10 +84,17 @@ export default function OiAnalysisPage() {
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [refreshMs, setRefreshMs] = useState(DEFAULT_REFRESH_MS);
   const [expandedChart, setExpandedChart] = useState<ExpandKind | null>(null);
+  const [expandedHandle, setExpandedHandle] = useState<ChartHandle | null>(null);
   const [pcrHandle, setPcrHandle] = useState<ChartHandle | null>(null);
   const [vixHandle, setVixHandle] = useState<ChartHandle | null>(null);
   const [ivHandle, setIvHandle] = useState<ChartHandle | null>(null);
   const [oiHandle, setOiHandle] = useState<ChartHandle | null>(null);
+
+  const pcrLines = useChartLines(pcrHandle, keyFor("pcr", underlying));
+  const oiLines = useChartLines(oiHandle, keyFor("oi", underlying));
+  const vixLines = useChartLines(vixHandle, keyFor("vix", underlying));
+  const ivLines = useChartLines(ivHandle, keyFor("iv", underlying));
+  const expandedLines = useChartLines(expandedHandle, expandedChart ? keyFor(expandedChart, underlying) : "");
 
   useEffect(() => {
     if (sessionDates.length) return;
@@ -129,7 +142,10 @@ export default function OiAnalysisPage() {
   }, [pcrHandle, vixHandle, ivHandle, oiHandle]);
 
   useEffect(() => {
-    if (!expandedChart) return;
+    if (!expandedChart) {
+      setExpandedHandle(null);
+      return;
+    }
     function onKeyDown(event: KeyboardEvent) {
       if (event.key === "Escape") setExpandedChart(null);
     }
@@ -158,13 +174,7 @@ export default function OiAnalysisPage() {
             id="oi-analysis-underlying-select"
             className="pcr-oi-session-select"
             value={underlying}
-            onChange={(event) => {
-              setUnderlying(event.target.value as Underlying);
-              setPcrHandle(null);
-              setVixHandle(null);
-              setIvHandle(null);
-              setOiHandle(null);
-            }}
+            onChange={(event) => setUnderlying(event.target.value as Underlying)}
           >
             <option value="NIFTY">NIFTY</option>
             <option value="SENSEX">SENSEX</option>
@@ -231,6 +241,7 @@ export default function OiAnalysisPage() {
               onExpand={() => setExpandedChart("pcr")}
               height={GRID_HEIGHT}
             />
+            <LinesFooter lines={pcrLines.lines} onRemove={pcrLines.removeLine} format={(v) => v.toFixed(3)} />
           </div>
 
           <div className="oi-analysis-chart-col">
@@ -257,6 +268,7 @@ export default function OiAnalysisPage() {
               onExpand={() => setExpandedChart("oi")}
               height={GRID_HEIGHT}
             />
+            <LinesFooter lines={oiLines.lines} onRemove={oiLines.removeLine} format={formatLakhsShort} />
           </div>
         </div>
       </div>
@@ -286,6 +298,7 @@ export default function OiAnalysisPage() {
               accessor={(p) => p.indiaVix}
               seriesLabel="India VIX"
             />
+            <LinesFooter lines={vixLines.lines} onRemove={vixLines.removeLine} format={(v) => v.toFixed(2)} />
           </div>
 
           <div className="oi-analysis-chart-col">
@@ -309,6 +322,7 @@ export default function OiAnalysisPage() {
               onExpand={() => setExpandedChart("iv")}
               height={GRID_HEIGHT}
             />
+            <LinesFooter lines={ivLines.lines} onRemove={ivLines.removeLine} format={(v) => `${v.toFixed(2)}%`} />
           </div>
         </div>
       </div>
@@ -325,9 +339,11 @@ export default function OiAnalysisPage() {
               </button>
             </div>
             {expandedChart === "pcr" ? (
-              <PcrChart title={underlying} color={color} points={points} height={EXPANDED_HEIGHT} />
+              <PcrChart title={underlying} color={color} points={points} height={EXPANDED_HEIGHT} onReady={setExpandedHandle} />
             ) : null}
-            {expandedChart === "oi" ? <OiChangeChart title={underlying} points={points} height={EXPANDED_HEIGHT} /> : null}
+            {expandedChart === "oi" ? (
+              <OiChangeChart title={underlying} points={points} height={EXPANDED_HEIGHT} onReady={setExpandedHandle} />
+            ) : null}
             {expandedChart === "vix" ? (
               <PcrChart
                 title="India VIX"
@@ -336,9 +352,17 @@ export default function OiAnalysisPage() {
                 height={EXPANDED_HEIGHT}
                 accessor={(p) => p.indiaVix}
                 seriesLabel="India VIX"
+                onReady={setExpandedHandle}
               />
             ) : null}
-            {expandedChart === "iv" ? <IvChart title={underlying} points={points} height={EXPANDED_HEIGHT} /> : null}
+            {expandedChart === "iv" ? (
+              <IvChart title={underlying} points={points} height={EXPANDED_HEIGHT} onReady={setExpandedHandle} />
+            ) : null}
+            <LinesFooter
+              lines={expandedLines.lines}
+              onRemove={expandedLines.removeLine}
+              format={expandedChart === "oi" ? formatLakhsShort : expandedChart === "iv" ? (v) => `${v.toFixed(2)}%` : (v) => v.toFixed(3)}
+            />
           </div>
         </div>
       ) : null}
@@ -404,5 +428,35 @@ function DeltaChip({
         </span>
       ) : null}
     </span>
+  );
+}
+
+function LinesFooter({
+  lines,
+  onRemove,
+  format,
+}: {
+  lines: StoredLine[];
+  onRemove: (id: string) => void;
+  format: (value: number) => string;
+}) {
+  return (
+    <div className="oi-analysis-lines-footer">
+      <span className="pcr-oi-caption" style={{ margin: 0 }}>
+        {LINES_HINT}
+      </span>
+      {lines.length > 0 ? (
+        <div className="oi-analysis-lines-list">
+          {lines.map((line) => (
+            <span key={line.id} className="oi-analysis-line-chip">
+              {format(line.price)}
+              <button type="button" title="Remove line" aria-label="Remove line" onClick={() => onRemove(line.id)}>
+                <X size={11} />
+              </button>
+            </span>
+          ))}
+        </div>
+      ) : null}
+    </div>
   );
 }
