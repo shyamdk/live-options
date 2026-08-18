@@ -29,13 +29,21 @@ const CANDLE_REFRESH_MS = 60000;
 // values that don't need to come from an API.
 const UNDERLYING_SECURITY_ID: Record<"NIFTY" | "SENSEX", string> = { NIFTY: "13", SENSEX: "51" };
 
-const NIFTY_COLOR = "#2368b6";
-const SENSEX_COLOR = "#a56513";
-const CE_COLOR = "#168448";
-const PE_COLOR = "#c93535";
+export const NIFTY_COLOR = "#2368b6";
+export const SENSEX_COLOR = "#a56513";
+export const CE_COLOR = "#168448";
+export const PE_COLOR = "#c93535";
 const CE_MUTED = "#a9d4bb";
 const PE_MUTED = "#e3aeae";
 const BAND_COLOR = "#9aa4b2";
+
+// Change-in-OI values come straight off the option chain (raw contract-unit
+// deltas) and routinely run into the hundreds of millions -- format the axis
+// and crosshair in lakhs (1L = 100,000) so fine day-to-day moves are legible
+// instead of a wall of trailing zeros.
+export function formatLakhs(value: number): string {
+  return (value / 100000).toLocaleString("en-IN", { maximumFractionDigits: 2 }) + " L";
+}
 
 const CONFIDENCE_COLOR: Record<ConfidenceLevel, string> = {
   low: "#6f7785",
@@ -51,7 +59,7 @@ const CONFIDENCE_LABEL: Record<ConfidenceLevel, string> = {
   extreme: "Extreme",
 };
 
-type ChartHandle = { chart: IChartApi; series: ISeriesApi<"Line"> | ISeriesApi<"Candlestick"> };
+export type ChartHandle = { chart: IChartApi; series: ISeriesApi<"Line"> | ISeriesApi<"Candlestick"> };
 
 type ExpandTarget = { kind: "price" | "pcr" | "oi" | "roc" | "breakout"; underlying: "NIFTY" | "SENSEX" };
 
@@ -444,7 +452,7 @@ function NoDataCaption({ count }: { count: number }) {
   );
 }
 
-function Legend({ items }: { items: { label: string; color: string; dashed?: boolean }[] }) {
+export function Legend({ items }: { items: { label: string; color: string; dashed?: boolean }[] }) {
   return (
     <div className="pcr-oi-legend">
       {items.map((item) => (
@@ -475,7 +483,7 @@ function crosshairPrice(param: MouseEventParams<Time>, source: ChartHandle): num
   return 0;
 }
 
-function linkCrosshairs(handles: ChartHandle[]): () => void {
+export function linkCrosshairs(handles: ChartHandle[]): () => void {
   let syncing = false;
 
   const listeners = handles.map((source) => {
@@ -500,7 +508,7 @@ function linkCrosshairs(handles: ChartHandle[]): () => void {
   };
 }
 
-function PcrChart({
+export function PcrChart({
   title,
   color,
   points,
@@ -568,7 +576,7 @@ function PcrChart({
   );
 }
 
-function OiChangeChart({
+export function OiChangeChart({
   title,
   points,
   onReady,
@@ -596,8 +604,9 @@ function OiChangeChart({
       timeScale: { timeVisible: true, secondsVisible: false, tickMarkFormatter: (time: Time) => formatIstTime(time) },
       localization: { timeFormatter: (time: Time) => formatIstTime(time) },
     });
-    const ce = chart.addSeries(LineSeries, { color: CE_COLOR, lineWidth: 2, title: "CE chg OI" });
-    const pe = chart.addSeries(LineSeries, { color: PE_COLOR, lineWidth: 2, title: "PE chg OI" });
+    const oiPriceFormat = { type: "custom" as const, formatter: formatLakhs, minMove: 1 };
+    const ce = chart.addSeries(LineSeries, { color: CE_COLOR, lineWidth: 2, title: "CE chg OI", priceFormat: oiPriceFormat });
+    const pe = chart.addSeries(LineSeries, { color: PE_COLOR, lineWidth: 2, title: "PE chg OI", priceFormat: oiPriceFormat });
     ceRef.current = ce;
     peRef.current = pe;
     chartRef.current = chart;
