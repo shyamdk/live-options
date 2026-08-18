@@ -515,6 +515,8 @@ export function PcrChart({
   onReady,
   onExpand,
   height,
+  accessor,
+  seriesLabel,
 }: {
   title: string;
   color: string;
@@ -522,7 +524,13 @@ export function PcrChart({
   onReady?: (handle: ChartHandle) => void;
   onExpand?: () => void;
   height?: number;
+  /** Defaults to PCR -- passing a different accessor (e.g. indiaVix) reuses
+   * this same single-line chart shell for other market-wide series. */
+  accessor?: (p: PcrOiSnapshot) => number | null;
+  seriesLabel?: string;
 }) {
+  const pick = accessor ?? ((p: PcrOiSnapshot) => p.pcr);
+  const label = seriesLabel ?? `${title} PCR`;
   const containerRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef<ISeriesApi<"Line"> | null>(null);
@@ -537,7 +545,7 @@ export function PcrChart({
       timeScale: { timeVisible: true, secondsVisible: false, tickMarkFormatter: (time: Time) => formatIstTime(time) },
       localization: { timeFormatter: (time: Time) => formatIstTime(time) },
     });
-    const line = chart.addSeries(LineSeries, { color, lineWidth: 2, title: `${title} PCR` });
+    const line = chart.addSeries(LineSeries, { color, lineWidth: 2, title: label });
     seriesRef.current = line;
     chartRef.current = chart;
     onReady?.({ chart, series: line });
@@ -557,7 +565,82 @@ export function PcrChart({
   }, []);
 
   useEffect(() => {
-    seriesRef.current?.setData(toLineData(points, (p) => p.pcr));
+    seriesRef.current?.setData(toLineData(points, pick));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [points]);
+
+  return (
+    <div className="pcr-oi-split-item">
+      <div className="pcr-oi-split-item-head">
+        <span className="subtext">{title}</span>
+        {onExpand ? (
+          <button type="button" className="pcr-oi-expand-btn" title="Enlarge" onClick={onExpand}>
+            <Maximize2 size={13} />
+          </button>
+        ) : null}
+      </div>
+      <NoDataCaption count={points.length} />
+      <div ref={containerRef} />
+    </div>
+  );
+}
+
+/** ATM CE/PE implied volatility, same shell as OiChangeChart -- IV rising
+ * alongside a directional move means the move is being priced as real (more
+ * demand for that side's premium), not just noise. */
+export function IvChart({
+  title,
+  points,
+  onReady,
+  onExpand,
+  height,
+}: {
+  title: string;
+  points: PcrOiSnapshot[];
+  onReady?: (handle: ChartHandle) => void;
+  onExpand?: () => void;
+  height?: number;
+}) {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const chartRef = useRef<IChartApi | null>(null);
+  const ceRef = useRef<ISeriesApi<"Line"> | null>(null);
+  const peRef = useRef<ISeriesApi<"Line"> | null>(null);
+
+  useEffect(() => {
+    if (!containerRef.current || chartRef.current) return;
+    const chart = createChart(containerRef.current, {
+      layout: { background: { type: ColorType.Solid, color: "#ffffff" }, textColor: "#252a32" },
+      grid: { vertLines: { color: "#edf0f4" }, horzLines: { color: "#edf0f4" } },
+      width: containerRef.current.clientWidth,
+      height: height ?? 220,
+      timeScale: { timeVisible: true, secondsVisible: false, tickMarkFormatter: (time: Time) => formatIstTime(time) },
+      localization: { timeFormatter: (time: Time) => formatIstTime(time) },
+    });
+    const ce = chart.addSeries(LineSeries, { color: CE_COLOR, lineWidth: 2, title: "CE IV" });
+    const pe = chart.addSeries(LineSeries, { color: PE_COLOR, lineWidth: 2, title: "PE IV" });
+    ceRef.current = ce;
+    peRef.current = pe;
+    chartRef.current = chart;
+    onReady?.({ chart, series: ce });
+
+    const resizeObserver = new ResizeObserver(() => {
+      if (containerRef.current) chart.applyOptions({ width: containerRef.current.clientWidth });
+    });
+    resizeObserver.observe(containerRef.current);
+
+    return () => {
+      resizeObserver.disconnect();
+      chart.remove();
+      chartRef.current = null;
+      ceRef.current = null;
+      peRef.current = null;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    ceRef.current?.setData(toLineData(points, (p) => p.ceIv));
+    peRef.current?.setData(toLineData(points, (p) => p.peIv));
   }, [points]);
 
   return (

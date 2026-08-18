@@ -59,6 +59,7 @@ export type PcrOiSnapshot = {
   signalConfidence: ConfidenceLevel | null;
   deltaVegaAligned: "CE" | "PE" | null;
   oiRegime: "longBuildup" | "shortBuildup" | "longUnwinding" | "shortCovering" | null;
+  indiaVix: number | null;
 };
 
 export type PcrOiPayload = {

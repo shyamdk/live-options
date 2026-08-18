@@ -777,6 +777,38 @@ button:disabled {
   font-weight: 700;
 }
 
+.oi-analysis-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+  margin-bottom: 4px;
+}
+
+.oi-analysis-section-head h3 {
+  margin: 0;
+}
+
+.oi-analysis-chip-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.oi-analysis-delta-chip {
+  font-size: 12px;
+  color: var(--text);
+  white-space: nowrap;
+}
+
+.oi-analysis-delta-chip strong {
+  color: var(--muted);
+  font-weight: 700;
+  margin-right: 4px;
+}
+
 .pcr-oi-rules li {
   font-size: 12px;
   color: var(--muted);

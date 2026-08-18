@@ -86,6 +86,10 @@ async def _poll_once(settings: Settings, now: datetime) -> None:
     session_date = now.date().isoformat()
     epoch = now_ist_epoch()
     expiries = await _resolve_expiries(dhan, settings, now.date())
+    # One market-wide value, not per-underlying -- fetched once and stamped
+    # onto both underlyings' rows at this poll's epoch (see the module
+    # docstring: the schema is keyed per underlying, VIX just isn't).
+    india_vix = await _fetch_india_vix(dhan, settings)
 
     for underlying in UNDERLYINGS:
         expiry = expiries.get(underlying)
@@ -115,7 +119,19 @@ async def _poll_once(settings: Settings, now: datetime) -> None:
             pe_iv=snapshot["pe_iv"],
             pe_delta=snapshot["pe_delta"],
             pe_vega=snapshot["pe_vega"],
+            india_vix=india_vix,
         )
+
+
+async def _fetch_india_vix(dhan: DhanService, settings: Settings) -> float | None:
+    if not settings.dhan_india_vix_security_id:
+        return None
+    try:
+        data = await dhan.market_quotes_by_segment({INDEX_SEGMENT: [int(settings.dhan_india_vix_security_id)]})
+        quote = (data.get(INDEX_SEGMENT) or {}).get(str(settings.dhan_india_vix_security_id)) or {}
+        return _number(quote.get("last_price"))
+    except Exception:
+        return None
 
 
 def _summarize_chain(chain: dict[str, Any]) -> dict[str, Any]:
