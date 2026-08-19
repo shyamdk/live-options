@@ -96,6 +96,15 @@ export async function getPcrOiSnapshots(sessionDate?: string): Promise<PcrOiPayl
   return apiJson<PcrOiPayload>(`/api/market/pcr-oi${query}`, undefined, "Failed to load PCR/OI data");
 }
 
+export async function refreshPcrOiSnapshots(sessionDate?: string): Promise<PcrOiPayload> {
+  const query = sessionDate ? `?date=${encodeURIComponent(sessionDate)}` : "";
+  return apiJson<PcrOiPayload>(
+    `/api/market/pcr-oi/refresh${query}`,
+    { method: "POST" },
+    "Failed to refresh PCR/OI data",
+  );
+}
+
 export async function getPcrOiSessionDates(): Promise<string[]> {
   const payload = await apiJson<{ dates: string[] }>(
     "/api/market/pcr-oi/sessions",

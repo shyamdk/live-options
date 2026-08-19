@@ -104,6 +104,7 @@ export function useChartLines(handle: ChartHandle | null, storageKey: string) {
 
     let downAt: { x: number; y: number } | null = null;
     let draggingId: string | null = null;
+    let draggedDistance = 0;
 
     function localY(clientY: number): number {
       return clientY - container.getBoundingClientRect().top;
@@ -141,6 +142,7 @@ export function useChartLines(handle: ChartHandle | null, storageKey: string) {
       const hitId = findNear(event.clientY);
       if (!hitId) return;
       draggingId = hitId;
+      draggedDistance = 0;
       chart.applyOptions({ handleScroll: false, handleScale: false });
       container.style.cursor = "ns-resize";
       event.preventDefault();
@@ -149,6 +151,11 @@ export function useChartLines(handle: ChartHandle | null, storageKey: string) {
 
     function onMouseMove(event: MouseEvent) {
       if (!draggingId) return;
+      if (downAt) {
+        const dx = event.clientX - downAt.x;
+        const dy = event.clientY - downAt.y;
+        draggedDistance = Math.max(draggedDistance, Math.sqrt(dx * dx + dy * dy));
+      }
       const price = series.coordinateToPrice(localY(event.clientY));
       if (price === null) return;
       priceLineRefs.current.get(draggingId)?.applyOptions({ price });
@@ -158,11 +165,19 @@ export function useChartLines(handle: ChartHandle | null, storageKey: string) {
 
     function onMouseUp(event: MouseEvent) {
       if (draggingId) {
+        const id = draggingId;
+        const moved = draggedDistance > CLICK_MOVE_TOLERANCE_PX;
         chart.applyOptions({ handleScroll: true, handleScale: true });
         container.style.cursor = "";
         draggingId = null;
         downAt = null;
-        persist(linesRef.current);
+        if (moved) {
+          persist(linesRef.current);
+        } else {
+          // A click on an existing line, not a drag -- remove it. Gives a
+          // second, more discoverable way to delete besides the chip list.
+          removeLine(id);
+        }
         return;
       }
       if (downAt) {

@@ -816,6 +816,18 @@ button:disabled {
   margin-right: 4px;
 }
 
+.oi-analysis-notify-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.oi-analysis-notify-toggle input {
+  cursor: pointer;
+}
+
 .oi-analysis-lines-footer {
   display: flex;
   flex-direction: column;
@@ -845,8 +857,8 @@ button:disabled {
 .oi-analysis-line-chip button {
   display: inline-grid;
   place-items: center;
-  width: 16px;
-  height: 16px;
+  width: 20px;
+  height: 20px;
   padding: 0;
   border: none;
   border-radius: 50%;

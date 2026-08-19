@@ -11,7 +11,7 @@ from app.services.app_auth import require_auth
 from app.services.dhan import DhanService
 from app.services.market import MarketService
 from app.services.market_news import refresh_market_calendar, refresh_market_news
-from app.services.pcr_oi import enrich_with_oi_regime, enrich_with_roc_and_confidence, enrich_with_signal
+from app.services.pcr_oi import enrich_with_oi_regime, enrich_with_roc_and_confidence, enrich_with_signal, refresh_pcr_oi_now
 
 
 router = APIRouter(prefix="/market", tags=["market"])
@@ -104,6 +104,12 @@ async def pcr_oi(session_date: str | None = Query(default=None, alias="date")) -
 @router.get("/pcr-oi/sessions", dependencies=[Depends(require_auth)])
 async def pcr_oi_sessions() -> dict[str, Any]:
     return {"dates": get_pcr_oi_session_dates()}
+
+
+@router.post("/pcr-oi/refresh", dependencies=[Depends(require_auth)])
+async def refresh_pcr_oi(session_date: str | None = Query(default=None, alias="date")) -> dict[str, Any]:
+    await refresh_pcr_oi_now()
+    return await pcr_oi(session_date)
 
 
 @router.get("/indices", dependencies=[Depends(require_auth)])

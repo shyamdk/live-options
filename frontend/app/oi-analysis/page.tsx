@@ -1,7 +1,7 @@
 "use client";
 
-import { BarChart3, X } from "lucide-react";
-import { useEffect, useState } from "react";
+import { BarChart3, RefreshCcw, X } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 
 import {
   ChartHandle,
@@ -15,9 +15,12 @@ import {
   PE_COLOR,
   SENSEX_COLOR,
 } from "@/components/PcrOiPanel";
-import { getPcrOiSessionDates, getPcrOiSnapshots } from "@/lib/api";
+import { getPcrOiSessionDates, getPcrOiSnapshots, refreshPcrOiSnapshots } from "@/lib/api";
 import { useChartLines, type StoredLine } from "@/lib/useChartLines";
 import type { PcrOiSnapshot, PcrOiPayload } from "@/types/live";
+
+const NOTIFY_STORAGE_KEY = "oi-analysis-notify-enabled";
+type NotifyPermission = NotificationPermission | "unsupported";
 
 const DEFAULT_REFRESH_MS = 120000;
 // The backend itself only polls the option chain every 3 minutes
@@ -34,7 +37,7 @@ const REFRESH_OPTIONS: { value: number; label: string }[] = [
 const VIX_COLOR = "#7a3fa0";
 const GRID_HEIGHT = 320;
 const EXPANDED_HEIGHT = 520;
-const LINES_HINT = "Click the chart to mark a level · drag a line to move it · × to remove.";
+const LINES_HINT = "Click empty space to mark a level · drag a line to move it · click a line (or its × below) to remove it.";
 type Underlying = "NIFTY" | "SENSEX";
 type ExpandKind = "pcr" | "oi" | "vix" | "iv";
 
@@ -89,12 +92,18 @@ export default function OiAnalysisPage() {
   const [vixHandle, setVixHandle] = useState<ChartHandle | null>(null);
   const [ivHandle, setIvHandle] = useState<ChartHandle | null>(null);
   const [oiHandle, setOiHandle] = useState<ChartHandle | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const [notifyEnabled, setNotifyEnabled] = useState(false);
+  const [notifyPermission, setNotifyPermission] = useState<NotifyPermission>("default");
+  const lastSideRef = useRef<Map<string, "above" | "below">>(new Map());
 
   const pcrLines = useChartLines(pcrHandle, keyFor("pcr", underlying));
   const oiLines = useChartLines(oiHandle, keyFor("oi", underlying));
   const vixLines = useChartLines(vixHandle, keyFor("vix", underlying));
   const ivLines = useChartLines(ivHandle, keyFor("iv", underlying));
   const expandedLines = useChartLines(expandedHandle, expandedChart ? keyFor(expandedChart, underlying) : "");
+  const points = data[underlying];
+  const color = underlying === "NIFTY" ? NIFTY_COLOR : SENSEX_COLOR;
 
   useEffect(() => {
     if (sessionDates.length) return;
@@ -142,6 +151,85 @@ export default function OiAnalysisPage() {
   }, [pcrHandle, vixHandle, ivHandle, oiHandle]);
 
   useEffect(() => {
+    if (typeof window === "undefined") return;
+    setNotifyEnabled(window.localStorage.getItem(NOTIFY_STORAGE_KEY) === "true");
+    setNotifyPermission("Notification" in window ? Notification.permission : "unsupported");
+  }, []);
+
+  // Watches each chart's lines against its latest value; fires a browser
+  // notification the moment the value crosses to the other side of a line.
+  // Tracks "which side is it currently on" per line rather than diffing
+  // consecutive data points, so it naturally fires once per crossing and
+  // re-arms itself once the value crosses back -- no separate cooldown
+  // bookkeeping needed.
+  useEffect(() => {
+    if (!notifyEnabled) return;
+    if (typeof window === "undefined" || !("Notification" in window) || Notification.permission !== "granted") return;
+
+    const watchers: { key: string; label: string; value: number | null; lines: StoredLine[]; format: (v: number) => string }[] = [
+      { key: "pcr", label: `${underlying} PCR`, value: latestDelta(points, (p) => p.pcr).value, lines: pcrLines.lines, format: (v) => v.toFixed(3) },
+      { key: "vix", label: "India VIX", value: latestDelta(points, (p) => p.indiaVix).value, lines: vixLines.lines, format: (v) => v.toFixed(2) },
+      { key: "oiCe", label: `${underlying} CE chg OI`, value: latestDelta(points, (p) => p.ceOiChange).value, lines: oiLines.lines, format: formatLakhsShort },
+      { key: "oiPe", label: `${underlying} PE chg OI`, value: latestDelta(points, (p) => p.peOiChange).value, lines: oiLines.lines, format: formatLakhsShort },
+      { key: "ivCe", label: `${underlying} CE IV`, value: latestDelta(points, (p) => p.ceIv).value, lines: ivLines.lines, format: (v) => `${v.toFixed(2)}%` },
+      { key: "ivPe", label: `${underlying} PE IV`, value: latestDelta(points, (p) => p.peIv).value, lines: ivLines.lines, format: (v) => `${v.toFixed(2)}%` },
+    ];
+
+    for (const watcher of watchers) {
+      if (watcher.value === null) continue;
+      for (const line of watcher.lines) {
+        const side: "above" | "below" = watcher.value >= line.price ? "above" : "below";
+        const trackKey = `${watcher.key}:${line.id}`;
+        const prevSide = lastSideRef.current.get(trackKey);
+        if (prevSide && prevSide !== side) {
+          try {
+            new Notification(`${watcher.label} crossed ${watcher.format(line.price)}`, {
+              body: `Now ${watcher.format(watcher.value)} — was ${prevSide}, now ${side}.`,
+              tag: trackKey,
+            });
+          } catch {
+            // Some browsers restrict Notification construction in certain contexts -- fail quietly.
+          }
+        }
+        lastSideRef.current.set(trackKey, side);
+      }
+    }
+  }, [points, pcrLines.lines, vixLines.lines, oiLines.lines, ivLines.lines, notifyEnabled, underlying]);
+
+  function toggleNotify() {
+    if (typeof window === "undefined" || !("Notification" in window)) {
+      setNotifyPermission("unsupported");
+      return;
+    }
+    if (!notifyEnabled && Notification.permission === "default") {
+      Notification.requestPermission().then((permission) => {
+        setNotifyPermission(permission);
+        if (permission === "granted") {
+          setNotifyEnabled(true);
+          window.localStorage.setItem(NOTIFY_STORAGE_KEY, "true");
+        }
+      });
+      return;
+    }
+    const next = !notifyEnabled;
+    setNotifyEnabled(next);
+    window.localStorage.setItem(NOTIFY_STORAGE_KEY, String(next));
+  }
+
+  async function handleManualRefresh() {
+    setRefreshing(true);
+    try {
+      const payload = await refreshPcrOiSnapshots(selectedDate ?? undefined);
+      setData(payload);
+      setError(null);
+    } catch (exc) {
+      setError(exc instanceof Error ? exc.message : "Failed to refresh PCR/OI data.");
+    } finally {
+      setRefreshing(false);
+    }
+  }
+
+  useEffect(() => {
     if (!expandedChart) {
       setExpandedHandle(null);
       return;
@@ -152,9 +240,6 @@ export default function OiAnalysisPage() {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [expandedChart]);
-
-  const points = data[underlying];
-  const color = underlying === "NIFTY" ? NIFTY_COLOR : SENSEX_COLOR;
 
   return (
     <section className="page">
@@ -211,6 +296,27 @@ export default function OiAnalysisPage() {
               </option>
             ))}
           </select>
+          <button
+            type="button"
+            className="icon-button"
+            title="Refresh now (backend re-polls immediately)"
+            onClick={handleManualRefresh}
+            disabled={refreshing || selectedDate !== null}
+          >
+            <RefreshCcw size={15} />
+          </button>
+          <label className="oi-analysis-notify-toggle subtext" htmlFor="oi-analysis-notify-checkbox">
+            <input
+              id="oi-analysis-notify-checkbox"
+              type="checkbox"
+              checked={notifyEnabled}
+              onChange={toggleNotify}
+              disabled={notifyPermission === "unsupported" || notifyPermission === "denied"}
+            />
+            Notify on line breach
+            {notifyPermission === "denied" ? " (blocked in browser settings)" : null}
+            {notifyPermission === "unsupported" ? " (not supported in this browser)" : null}
+          </label>
           {selectedDate ? (
             <span className="pcr-oi-caption" style={{ margin: 0 }}>
               Viewing a past session — not live, no auto-refresh.

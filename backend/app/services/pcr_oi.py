@@ -61,6 +61,16 @@ async def _loop() -> None:
         await asyncio.sleep(interval)
 
 
+async def refresh_pcr_oi_now() -> None:
+    """Manual, on-demand poll for the "refresh now" button -- one iteration
+    of the loop's body, without the market-hours gate, so the button always
+    does something (even confirming off-hours data is unchanged) rather than
+    silently no-op-ing outside 09:15-15:30.
+    """
+    settings = get_settings()
+    await _poll_once(settings, now_ist())
+
+
 def _security_id(settings: Settings, underlying: str) -> int:
     return settings.dhan_nifty_security_id if underlying == "NIFTY" else settings.dhan_sensex_security_id
 
