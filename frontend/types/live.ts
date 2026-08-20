@@ -240,6 +240,16 @@ export type OiState = "bullish" | "bearish" | "mixed" | "unwinding" | "buildingB
 export type TrendState = "bullish" | "neutral" | "bearish";
 export type FilterState = "supportive" | "neutral" | "risky";
 export type UpgradedSignal = "buyCe" | "buyPe" | "noTrade";
+export type UpgradedRegime = "trendingBullish" | "trendingBearish" | "range" | "transition";
+export type UpgradedState =
+  | "noTrade"
+  | "bullishWatch"
+  | "buyCe"
+  | "holdCe"
+  | "bearishWatch"
+  | "buyPe"
+  | "holdPe"
+  | "cooldown";
 
 export type SignalReason = {
   label: string;
@@ -279,7 +289,11 @@ export type OiUpgradedPoint = {
   ceScore: number;
   peScore: number;
   rawSignal: UpgradedSignal;
+  regime: UpgradedRegime;
+  state: UpgradedState;
   persistence: number;
+  exitStreak: number;
+  cooldownUntil: number | null;
   signal: UpgradedSignal;
   reasons: SignalReason[];
 };

@@ -4,13 +4,22 @@ index candles, returns an enriched series with a persistence-gated
 BUY CE / BUY PE / NO TRADE call per point. Same discipline as
 paper_trading_engine.py: plain data in, plain data out.
 
-Covers upgrade.md phases 1-3 (rolling windows, PCR/OI classification,
+Covers upgrade.md phases 1-4: rolling windows, PCR/OI classification,
 VWAP + price confirmation, premium confirmation, scoring, persistence,
-per-point explanation). Deliberately does NOT yet implement phase 4
-(formal state machine / hysteresis-with-different-hold-thresholds /
-cooldown-after-exit) or phase 5 (backtesting harness, signal history
-storage, old-vs-new comparison) -- those need a working scored signal to
-observe first, per the doc's own phased rollout.
+per-point explanation (1-3), plus market regime, hysteresis (a looser
+"hold" bar than "entry"), exit confirmation, cooldown, and the full
+NO_TRADE/WATCH/BUY/HOLD/COOLDOWN state machine (4). Phase 5 (a proper
+backtesting harness, DB-persisted signal history, formal old-vs-new
+comparison tooling) is still open -- this file's pure/replay-from-history
+design already makes ad hoc backtesting straightforward (see the git log
+for the threshold-tuning session that used exactly that), just not
+packaged as a reusable harness yet.
+
+Regime is informational only -- it is NOT an additional entry gate. Entry
+already requires pcr/oi/price to not contradict the trade and price to
+actively confirm it (see raw_ce_ok/raw_pe_ok below); layering "must also
+be in a TRENDING regime" on top would just re-tighten the persistence/
+score loosening this file's thresholds were deliberately tuned for.
 
 All thresholds below are first-pass heuristics sized to the magnitudes
 observed in this app's real NIFTY data (PCR ~0.6-1.2, OI-change deltas in
@@ -46,12 +55,51 @@ CE_ENTRY_SCORE = 7
 PE_ENTRY_SCORE = 7
 MIN_SCORE_DIFFERENCE = 3
 
+# Hysteresis: once a side has actually triggered (state == buyCe/buyPe),
+# holding it uses a LOWER bar than entering it -- otherwise the display
+# would flicker in and out of NO TRADE on every small score wobble even
+# while the underlying setup is still basically intact. Exit needs either
+# an immediate price-invalidation (no persistence needed -- an emergency
+# exit shouldn't wait) or the score staying at/below the exit bar for
+# EXIT_CONFIRMATION consecutive polls (so, symmetrically to entry, one
+# noisy poll can't kick out an otherwise-fine hold either).
+HOLD_SCORE_CE = 6
+HOLD_SCORE_PE = 6
+EXIT_SCORE_CE = 5
+EXIT_SCORE_PE = 5
+EXIT_CONFIRMATION = 2
+
+# Cooldown: after an exit, block a fresh signal on the OPPOSITE side for
+# this long -- this is specifically what stops CE -> PE -> CE -> PE
+# whipsaws right after a position closes. It does NOT block the SAME
+# side from re-arming (a continuation is not a reversal). A genuinely
+# strong opposite read (>= STRONG_REVERSAL_SCORE) overrides the cooldown,
+# since the doc explicitly allows a configurable override rather than a
+# hard block -- a real reversal shouldn't be forced to wait out a timer
+# built to catch noise, not conviction.
+COOLDOWN_MINUTES = 10
+STRONG_REVERSAL_SCORE = 9
+
 PcrState = Literal["bullish", "neutral", "bearish"]
 OiState = Literal["bullish", "bearish", "mixed", "unwinding", "buildingBoth"]
 PriceState = Literal["bullish", "neutral", "bearish"]
 IvState = Literal["supportive", "neutral", "risky"]
 VixState = Literal["supportive", "neutral", "risky"]
 Signal = Literal["buyCe", "buyPe", "noTrade"]
+Regime = Literal["trendingBullish", "trendingBearish", "range", "transition"]
+State = Literal["noTrade", "bullishWatch", "buyCe", "holdCe", "bearishWatch", "buyPe", "holdPe", "cooldown"]
+
+
+def _classify_regime(pcr_state: PcrState, oi_state: OiState, price_state: PriceState, ce_score: int, pe_score: int) -> Regime:
+    bullish_votes = (pcr_state == "bullish") + (oi_state == "bullish") + (price_state == "bullish")
+    bearish_votes = (pcr_state == "bearish") + (oi_state == "bearish") + (price_state == "bearish")
+    if bullish_votes >= 2 and bearish_votes == 0 and (ce_score - pe_score) >= MIN_SCORE_DIFFERENCE:
+        return "trendingBullish"
+    if bearish_votes >= 2 and bullish_votes == 0 and (pe_score - ce_score) >= MIN_SCORE_DIFFERENCE:
+        return "trendingBearish"
+    if bullish_votes > 0 and bearish_votes > 0:
+        return "transition"
+    return "range"
 
 
 def _value_before(points: list[dict[str, Any]], idx: int, target_time: int, key: str) -> float | None:
@@ -99,8 +147,12 @@ def _vwap_and_trend(candles: list[dict[str, Any]], at_time: int) -> tuple[float 
 
 def enrich_with_upgraded_signal(points: list[dict[str, Any]], candles: list[dict[str, Any]]) -> list[dict[str, Any]]:
     enriched: list[dict[str, Any]] = []
-    prev_raw: Signal = "noTrade"
-    prev_persistence = 0
+    state: State = "noTrade"
+    armed_side: Signal | None = None
+    persistence = 0
+    exit_streak = 0
+    cooldown_side: Signal | None = None
+    cooldown_until: int | None = None
 
     for idx, point in enumerate(points):
         out = dict(point)
@@ -217,15 +269,72 @@ def enrich_with_upgraded_signal(points: list[dict[str, Any]], candles: list[dict
             and pe_premium_rising
         )
         raw_signal: Signal = "buyCe" if raw_ce_ok else "buyPe" if raw_pe_ok else "noTrade"
+        regime = _classify_regime(pcr_state, oi_state, price_state, ce_score, pe_score)
 
-        if raw_signal != "noTrade" and raw_signal == prev_raw:
-            persistence = prev_persistence + 1
-        elif raw_signal != "noTrade":
-            persistence = 1
+        holding_ce = state in ("buyCe", "holdCe")
+        holding_pe = state in ("buyPe", "holdPe")
+
+        if holding_ce or holding_pe:
+            side_score = ce_score if holding_ce else pe_score
+            hold_bar = HOLD_SCORE_CE if holding_ce else HOLD_SCORE_PE
+            exit_bar = EXIT_SCORE_CE if holding_ce else EXIT_SCORE_PE
+            # Price flipping against the held side is an emergency exit --
+            # no persistence wait, unlike everything else here (section 15:
+            # "do NOT require consecutive readings for an emergency exit").
+            invalidated = price_state == ("bearish" if holding_ce else "bullish")
+            if invalidated or side_score <= exit_bar:
+                exit_streak = 0 if invalidated else exit_streak + 1
+                if invalidated or exit_streak >= EXIT_CONFIRMATION:
+                    state = "cooldown"
+                    cooldown_side = "buyCe" if holding_ce else "buyPe"
+                    cooldown_until = t + COOLDOWN_MINUTES * 60
+                    exit_streak = 0
+                    armed_side = None
+                    persistence = 0
+                else:
+                    state = "holdCe" if holding_ce else "holdPe"
+            else:
+                exit_streak = 0
+                state = "holdCe" if holding_ce else "holdPe"
         else:
-            persistence = 0
+            in_cooldown = state == "cooldown" and cooldown_until is not None and t < cooldown_until
+            if state == "cooldown" and not in_cooldown:
+                cooldown_side = None
+                cooldown_until = None
 
-        signal: Signal = raw_signal if (raw_signal != "noTrade" and persistence >= SIGNAL_PERSISTENCE) else "noTrade"
+            # Cooldown blocks a fresh signal on the side OPPOSITE whatever
+            # just exited (that's the CE->PE->CE whipsaw this exists to
+            # stop) -- a strong enough opposite read still overrides it.
+            effective_ce_ok = raw_ce_ok
+            effective_pe_ok = raw_pe_ok
+            if in_cooldown:
+                if cooldown_side == "buyCe" and not (raw_pe_ok and pe_score >= STRONG_REVERSAL_SCORE):
+                    effective_pe_ok = False
+                if cooldown_side == "buyPe" and not (raw_ce_ok and ce_score >= STRONG_REVERSAL_SCORE):
+                    effective_ce_ok = False
+
+            gated_signal: Signal = "buyCe" if effective_ce_ok else "buyPe" if effective_pe_ok else "noTrade"
+
+            if gated_signal != "noTrade" and gated_signal == armed_side:
+                persistence += 1
+            elif gated_signal != "noTrade":
+                armed_side = gated_signal
+                persistence = 1
+            else:
+                armed_side = None
+                persistence = 0
+
+            if armed_side and persistence >= SIGNAL_PERSISTENCE:
+                state = armed_side
+                exit_streak = 0
+            elif armed_side:
+                state = "bullishWatch" if armed_side == "buyCe" else "bearishWatch"
+            elif in_cooldown:
+                state = "cooldown"
+            else:
+                state = "noTrade"
+
+        signal: Signal = "buyCe" if state in ("buyCe", "holdCe") else "buyPe" if state in ("buyPe", "holdPe") else "noTrade"
 
         out.update(
             {
@@ -247,7 +356,11 @@ def enrich_with_upgraded_signal(points: list[dict[str, Any]], candles: list[dict
                 "ceScore": ce_score,
                 "peScore": pe_score,
                 "rawSignal": raw_signal,
+                "regime": regime,
+                "state": state,
                 "persistence": persistence,
+                "exitStreak": exit_streak,
+                "cooldownUntil": cooldown_until if state == "cooldown" else None,
                 "signal": signal,
                 "reasons": _build_reasons(
                     signal=signal,
@@ -266,8 +379,6 @@ def enrich_with_upgraded_signal(points: list[dict[str, Any]], candles: list[dict
             }
         )
         enriched.append(out)
-        prev_raw = raw_signal
-        prev_persistence = persistence
 
     return enriched
 

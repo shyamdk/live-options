@@ -10,7 +10,7 @@ import {
   getPcrOiSnapshots,
   refreshOiUpgradedSignal,
 } from "@/lib/api";
-import type { OiUpgradedPoint, PcrOiPayload, TrendState } from "@/types/live";
+import type { OiUpgradedPoint, PcrOiPayload } from "@/types/live";
 
 const DEFAULT_REFRESH_MS = 120000;
 const REFRESH_OPTIONS: { value: number; label: string }[] = [
@@ -21,8 +21,11 @@ const REFRESH_OPTIONS: { value: number; label: string }[] = [
   { value: 300000, label: "5m" },
 ];
 const GRID_HEIGHT = 300;
+// Must match oi_signal_engine.py's SIGNAL_PERSISTENCE -- shown here so the
+// "X / 2" readout below is accurate without round-tripping the constant
+// through the API just to display it.
+const PERSISTENCE_TARGET = 2;
 
-const SIGNAL_LABEL: Record<string, string> = { buyCe: "BUY CE", buyPe: "BUY PE", noTrade: "NO TRADE" };
 const STATE_LABEL: Record<string, string> = {
   bullish: "Bullish",
   bearish: "Bearish",
@@ -34,14 +37,46 @@ const STATE_LABEL: Record<string, string> = {
   risky: "Risky",
 };
 
-function deriveRegime(pcrState: TrendState, oiState: string, priceState: TrendState): string {
-  const bullishCount = [pcrState === "bullish", oiState === "bullish", priceState === "bullish"].filter(Boolean).length;
-  const bearishCount = [pcrState === "bearish", oiState === "bearish", priceState === "bearish"].filter(Boolean).length;
-  if (bullishCount >= 2 && bearishCount === 0) return "Trending Bullish";
-  if (bearishCount >= 2 && bullishCount === 0) return "Trending Bearish";
-  if (bullishCount > 0 && bearishCount > 0) return "Transition";
-  return "Range";
-}
+const REGIME_LABEL: Record<string, string> = {
+  trendingBullish: "Trending Bullish",
+  trendingBearish: "Trending Bearish",
+  range: "Range",
+  transition: "Transition",
+};
+
+const STATE_DISPLAY: Record<string, { label: string; cls: string }> = {
+  noTrade: { label: "NO TRADE", cls: "no-trade" },
+  bullishWatch: { label: "WATCHING — bullish building", cls: "watching" },
+  buyCe: { label: "BUY CE — just triggered", cls: "buy-ce" },
+  holdCe: { label: "BUY CE — holding", cls: "buy-ce" },
+  bearishWatch: { label: "WATCHING — bearish building", cls: "watching" },
+  buyPe: { label: "BUY PE — just triggered", cls: "buy-pe" },
+  holdPe: { label: "BUY PE — holding", cls: "buy-pe" },
+  cooldown: { label: "COOLDOWN", cls: "cooldown" },
+};
+
+const LEGEND_ITEMS = [
+  {
+    title: "State: WATCH → BUY → HOLD → COOLDOWN",
+    body: "WATCH means conditions look right but haven't held for 2 straight polls yet. BUY fires once, on the exact poll persistence is met. HOLD keeps the call alive on a lower bar (6/10) than entry (7/10) -- hysteresis -- so a score wobbling by a point doesn't flip a genuinely intact setup back to NO TRADE. COOLDOWN blocks a fresh call on the OPPOSITE side for 10 minutes after an exit; that's specifically what stops a CE → PE → CE whipsaw right after closing a position.",
+  },
+  {
+    title: "Regime — context only, not a gate",
+    body: "Trending Bullish/Bearish means PCR, OI positioning and price all broadly agree; Range means they're flat/mixed; Transition means they actively disagree. It's shown so a call can be sanity-checked against the bigger picture. It does NOT block a trade by itself -- the score and persistence rules below already require enough agreement on their own, so stacking a regime gate on top would just make signals rarer for no extra benefit.",
+  },
+  {
+    title: "Score — CE / PE, out of 10",
+    body: "A weighted checklist. NIFTY vs VWAP and OI unwind/writing on either side count double (+2 each) since they're the strongest individual tells -- real price confirmation, real positions unwinding. PCR trend, 5-minute trend, premium rising, and supportive IV count +1 each as corroborating evidence. Entry needs 7+; once a call is live, holding only needs 6+ (see State above).",
+  },
+  {
+    title: `Persistence — X / ${PERSISTENCE_TARGET}`,
+    body: `Requires ${PERSISTENCE_TARGET} consecutive ~3-minute polls to agree before a call fires -- not just one. This was backtested against a real trading day: requiring 3 consecutive polls, as the design doc literally specifies, produced ZERO confirmed signals despite the raw score reaching 8-10 eight separate times that day. The doc's "~6 minutes" framing assumed a 2-minute poll cadence, not this app's actual 3-minute one -- 3 reads here is closer to 9 minutes. ${PERSISTENCE_TARGET} polls (~6 minutes) is what actually let genuine setups through without going back to firing on every noisy read.`,
+  },
+  {
+    title: "Cooldown countdown",
+    body: "When the badge shows COOLDOWN, a fresh signal on the opposite side is deliberately held back until the timer clears -- unless the opposite read is very strong (score 9+, fully confirmed), which overrides the block. The SAME direction can still rebuild during cooldown; only a reversal is blocked.",
+  },
+];
 
 export default function OiUpgradedPage() {
   const [signalData, setSignalData] = useState<OiUpgradedPoint[]>([]);
@@ -124,9 +159,10 @@ export default function OiUpgradedPage() {
             OI — Upgraded
           </h1>
           <p>
-            A single filtered BUY CE / BUY PE / NO TRADE call for NIFTY -- rolling PCR/OI windows, VWAP + price
-            confirmation, premium confirmation and a 3-poll persistence gate, so one noisy reading can&apos;t flip the
-            call. Phases 1-3 of the signal-engine upgrade; hysteresis/cooldown and backtesting are a later phase.
+            A single filtered BUY CE / BUY PE / NO TRADE call for NIFTY, built to reduce whipsaws: rolling PCR/OI
+            windows, VWAP + price confirmation, premium confirmation, a persistence gate, hysteresis-based
+            hold/exit, and a post-exit cooldown. Phases 1-4 of the signal-engine upgrade -- see the legend below for
+            what each part does and why.
           </p>
         </div>
         <div className="toolbar">
@@ -177,6 +213,18 @@ export default function OiUpgradedPage() {
       {error ? <div className="alert error">{error}</div> : null}
 
       <SignalDashboard latest={latest} />
+
+      <div className="pcr-oi-section">
+        <h3>How to read this panel</h3>
+        <div className="oi-upgraded-legend">
+          {LEGEND_ITEMS.map((item) => (
+            <div key={item.title} className="oi-upgraded-legend-item">
+              <strong>{item.title}</strong>
+              <p>{item.body}</p>
+            </div>
+          ))}
+        </div>
+      </div>
 
       <div className="pcr-oi-section">
         <div className="pcr-oi-split">
@@ -236,19 +284,18 @@ function SignalDashboard({ latest }: { latest: OiUpgradedPoint | null }) {
     );
   }
 
-  const { signal, ceScore, peScore, persistence, reasons, pcrState, oiState, priceState } = latest;
-  const score = signal === "buyCe" ? ceScore : signal === "buyPe" ? peScore : Math.max(ceScore, peScore);
-  const regime = deriveRegime(pcrState, oiState, priceState);
-  const badgeClass = signal === "buyCe" ? "buy-ce" : signal === "buyPe" ? "buy-pe" : "no-trade";
+  const { state, ceScore, peScore, persistence, exitStreak, cooldownUntil, reasons } = latest;
+  const display = STATE_DISPLAY[state] ?? STATE_DISPLAY.noTrade;
+  const cooldownRemainingMin = cooldownUntil ? Math.max(0, Math.round((cooldownUntil - latest.time) / 60)) : null;
 
   return (
     <div className="pcr-oi-section">
-      <div className={`oi-upgraded-card ${badgeClass}`}>
-        <div className="oi-upgraded-badge">{SIGNAL_LABEL[signal]}</div>
+      <div className={`oi-upgraded-card ${display.cls}`}>
+        <div className="oi-upgraded-badge">{display.label}</div>
         <div className="metric-grid oi-upgraded-metric-grid">
           <div className="metric">
             <span>Regime</span>
-            <strong>{regime}</strong>
+            <strong>{REGIME_LABEL[latest.regime] ?? latest.regime}</strong>
           </div>
           <div className="metric">
             <span>Score</span>
@@ -257,8 +304,12 @@ function SignalDashboard({ latest }: { latest: OiUpgradedPoint | null }) {
             </strong>
           </div>
           <div className="metric">
-            <span>Persistence</span>
-            <strong>{Math.min(persistence, 3)} / 3</strong>
+            <span>{state === "cooldown" ? "Cooldown left" : "Persistence"}</span>
+            <strong>
+              {state === "cooldown"
+                ? `${cooldownRemainingMin ?? 0} min`
+                : `${Math.min(persistence, PERSISTENCE_TARGET)} / ${PERSISTENCE_TARGET}`}
+            </strong>
           </div>
           <div className="metric">
             <span>NIFTY vs VWAP</span>
@@ -267,6 +318,12 @@ function SignalDashboard({ latest }: { latest: OiUpgradedPoint | null }) {
             </strong>
           </div>
         </div>
+        {(state === "holdCe" || state === "holdPe") && exitStreak > 0 ? (
+          <p className="pcr-oi-caption" style={{ margin: 0 }}>
+            Score has dipped to exit level for {exitStreak}/2 consecutive polls — one more and this exits to
+            cooldown, unless it recovers first.
+          </p>
+        ) : null}
         <ul className="oi-upgraded-reasons">
           {reasons.map((reason) => (
             <li key={reason.label} className={reason.met ? "met" : "unmet"}>
@@ -277,10 +334,9 @@ function SignalDashboard({ latest }: { latest: OiUpgradedPoint | null }) {
           ))}
         </ul>
         <p className="pcr-oi-caption" style={{ margin: 0 }}>
-          Signal-engine design (upgrade.md phases 1-3) — score ≥ 8, a ≥3-point lead over the other side, price/premium
-          confirmation, and 3 consecutive polls all required before a call fires. Not yet backtested; treat as
-          assistive, not a guarantee. Score shown is a live read on today&apos;s real data (may still say NO TRADE for
-          the whole session on choppier days).
+          Signal-engine design (upgrade.md phases 1-4), backtested against real NIFTY sessions but not yet validated
+          over many days — treat as assistive, not a guarantee. NO TRADE is a valid, intended outcome when the
+          evidence doesn&apos;t clear the bar, not a failure state.
         </p>
       </div>
     </div>

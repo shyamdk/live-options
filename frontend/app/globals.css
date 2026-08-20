@@ -1526,6 +1526,16 @@ td strong {
   background: #f9fafc;
 }
 
+.oi-upgraded-card.watching {
+  border-color: var(--blue);
+  background: var(--blue-soft);
+}
+
+.oi-upgraded-card.cooldown {
+  border-color: var(--amber);
+  background: var(--amber-soft);
+}
+
 .oi-upgraded-badge {
   font-size: 28px;
   font-weight: 900;
@@ -1542,6 +1552,40 @@ td strong {
 
 .oi-upgraded-card.no-trade .oi-upgraded-badge {
   color: var(--muted);
+}
+
+.oi-upgraded-card.watching .oi-upgraded-badge {
+  color: var(--blue);
+}
+
+.oi-upgraded-card.cooldown .oi-upgraded-badge {
+  color: var(--amber);
+}
+
+.oi-upgraded-legend {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 14px;
+}
+
+.oi-upgraded-legend-item {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 12px 14px;
+  background: #fff;
+}
+
+.oi-upgraded-legend-item strong {
+  display: block;
+  font-size: 13px;
+  margin-bottom: 6px;
+}
+
+.oi-upgraded-legend-item p {
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.5;
 }
 
 .oi-upgraded-metric-grid {
