@@ -236,6 +236,59 @@ export type JournalInsights = {
   generatedAt: string | null;
 };
 
+export type OiState = "bullish" | "bearish" | "mixed" | "unwinding" | "buildingBoth";
+export type TrendState = "bullish" | "neutral" | "bearish";
+export type FilterState = "supportive" | "neutral" | "risky";
+export type UpgradedSignal = "buyCe" | "buyPe" | "noTrade";
+
+export type SignalReason = {
+  label: string;
+  met: boolean;
+  value: string | null;
+};
+
+export type OiUpgradedPoint = {
+  time: number;
+  spot: number | null;
+  pcr: number | null;
+  ceOi: number;
+  peOi: number;
+  ceOiChange: number;
+  peOiChange: number;
+  atmStrike: number | null;
+  cePremium: number | null;
+  ceIv: number | null;
+  pePremium: number | null;
+  peIv: number | null;
+  indiaVix: number | null;
+  pcrChange6m: number | null;
+  pcrChange12m: number | null;
+  pcrState: TrendState;
+  ceOiMomentum6m: number | null;
+  peOiMomentum6m: number | null;
+  oiState: OiState;
+  niftyPrice: number | null;
+  vwap: number | null;
+  priceTrend5m: number | null;
+  priceState: TrendState;
+  cePremiumRising: boolean;
+  pePremiumRising: boolean;
+  vixState: FilterState;
+  ceIvState: FilterState;
+  peIvState: FilterState;
+  ceScore: number;
+  peScore: number;
+  rawSignal: UpgradedSignal;
+  persistence: number;
+  signal: UpgradedSignal;
+  reasons: SignalReason[];
+};
+
+export type OiUpgradedPayload = {
+  sessionDate: string;
+  NIFTY: OiUpgradedPoint[];
+};
+
 export type PaperTradeLeg = {
   id: number;
   tradeId: number;

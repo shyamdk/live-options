@@ -11,6 +11,7 @@ from app.services.app_auth import require_auth
 from app.services.dhan import DhanService
 from app.services.market import MarketService
 from app.services.market_news import refresh_market_calendar, refresh_market_news
+from app.services.oi_upgraded import get_upgraded_nifty_signal
 from app.services.pcr_oi import enrich_with_oi_regime, enrich_with_roc_and_confidence, enrich_with_signal, refresh_pcr_oi_now
 
 
@@ -110,6 +111,18 @@ async def pcr_oi_sessions() -> dict[str, Any]:
 async def refresh_pcr_oi(session_date: str | None = Query(default=None, alias="date")) -> dict[str, Any]:
     await refresh_pcr_oi_now()
     return await pcr_oi(session_date)
+
+
+@router.get("/oi-upgraded", dependencies=[Depends(require_auth)])
+async def oi_upgraded(session_date: str | None = Query(default=None, alias="date")) -> dict[str, Any]:
+    resolved_date = session_date or now_ist().date().isoformat()
+    return {"sessionDate": resolved_date, "NIFTY": await get_upgraded_nifty_signal(resolved_date)}
+
+
+@router.post("/oi-upgraded/refresh", dependencies=[Depends(require_auth)])
+async def refresh_oi_upgraded(session_date: str | None = Query(default=None, alias="date")) -> dict[str, Any]:
+    await refresh_pcr_oi_now()
+    return await oi_upgraded(session_date)
 
 
 @router.get("/indices", dependencies=[Depends(require_auth)])

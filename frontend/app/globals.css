@@ -1500,3 +1500,80 @@ td strong {
   font-size: 12px;
   font-weight: 800;
 }
+
+.oi-upgraded-card {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 20px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  background: #fff;
+}
+
+.oi-upgraded-card.buy-ce {
+  border-color: var(--green);
+  background: var(--green-soft);
+}
+
+.oi-upgraded-card.buy-pe {
+  border-color: var(--red);
+  background: var(--red-soft);
+}
+
+.oi-upgraded-card.no-trade {
+  border-color: var(--line);
+  background: #f9fafc;
+}
+
+.oi-upgraded-badge {
+  font-size: 28px;
+  font-weight: 900;
+  letter-spacing: 0.02em;
+}
+
+.oi-upgraded-card.buy-ce .oi-upgraded-badge {
+  color: var(--green);
+}
+
+.oi-upgraded-card.buy-pe .oi-upgraded-badge {
+  color: var(--red);
+}
+
+.oi-upgraded-card.no-trade .oi-upgraded-badge {
+  color: var(--muted);
+}
+
+.oi-upgraded-metric-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.oi-upgraded-reasons {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 6px 20px;
+}
+
+.oi-upgraded-reasons li {
+  font-size: 13px;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.oi-upgraded-reasons li.unmet {
+  color: var(--muted);
+}
+
+.oi-upgraded-reason-mark {
+  font-weight: 800;
+  width: 14px;
+  flex: 0 0 auto;
+}
+
+.oi-upgraded-reasons li.met .oi-upgraded-reason-mark {
+  color: var(--green);
+}

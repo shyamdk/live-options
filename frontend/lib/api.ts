@@ -9,6 +9,7 @@ import type {
   MarketCandlesResponse,
   MarketIndicesPayload,
   MarketNewsPayload,
+  OiUpgradedPayload,
   PaperTrade,
   PaperTradingSettings,
   PcrOiPayload,
@@ -102,6 +103,20 @@ export async function refreshPcrOiSnapshots(sessionDate?: string): Promise<PcrOi
     `/api/market/pcr-oi/refresh${query}`,
     { method: "POST" },
     "Failed to refresh PCR/OI data",
+  );
+}
+
+export async function getOiUpgradedSignal(sessionDate?: string): Promise<OiUpgradedPayload> {
+  const query = sessionDate ? `?date=${encodeURIComponent(sessionDate)}` : "";
+  return apiJson<OiUpgradedPayload>(`/api/market/oi-upgraded${query}`, undefined, "Failed to load upgraded OI signal");
+}
+
+export async function refreshOiUpgradedSignal(sessionDate?: string): Promise<OiUpgradedPayload> {
+  const query = sessionDate ? `?date=${encodeURIComponent(sessionDate)}` : "";
+  return apiJson<OiUpgradedPayload>(
+    `/api/market/oi-upgraded/refresh${query}`,
+    { method: "POST" },
+    "Failed to refresh upgraded OI signal",
   );
 }
 

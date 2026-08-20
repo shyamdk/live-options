@@ -1,10 +1,14 @@
-"""Paper-only trading module: watches the same two signals already shown on
-the PCR/OI panel -- the Buy CE/PE call from pcr_oi.enrich_with_signal
-("signalVsPrice") and the standalone price-momentum breakout
-(paper_trading_engine.compute_breakout_events, "priceBreakout") -- and
-simulates a 3-lot, staged-exit option trade against each entry, purely for
-offline analysis. Never places a real order: only reads Dhan's option
-chain/candles/quotes, the same read-only footprint pcr_oi.py already has.
+"""Paper-only trading module: watches two signals and simulates a 3-lot,
+staged-exit option trade against each entry, purely for offline analysis.
+Never places a real order: only reads Dhan's option chain/candles/quotes,
+the same read-only footprint pcr_oi.py already has.
+
+"signalVsPrice" is the persistence-gated upgraded engine
+(oi_upgraded.get_upgraded_nifty_signal, see upgrade.md) for NIFTY, and the
+older oiSkew/PCR read (pcr_oi.enrich_with_signal) for SENSEX -- the
+upgrade is NIFTY-only for now. "priceBreakout" is the standalone
+price-momentum breakout (paper_trading_engine.compute_breakout_events),
+unchanged for both underlyings.
 
 One open paper trade per (underlying, signal_type) at a time -- a signal
 that's still active doesn't pyramid into more trades; the next entry for
@@ -23,6 +27,7 @@ from app.db import sqlite as db
 from app.services import paper_trading_engine as engine
 from app.services.dhan import DhanService
 from app.services.ema5_instruments import resolve_atm_option, resolve_nearest_expiry
+from app.services.oi_upgraded import get_upgraded_nifty_signal
 from app.services.pcr_oi import enrich_with_oi_regime, enrich_with_roc_and_confidence, enrich_with_signal
 
 UNDERLYINGS = ("NIFTY", "SENSEX")
@@ -96,12 +101,22 @@ async def _poll_once(settings: Settings, now: datetime) -> None:
 async def _maybe_enter_signal_vs_price(dhan: DhanService, settings: Settings, underlying: str, session_date: str) -> None:
     if db.get_open_paper_trade(underlying, "signalVsPrice"):
         return
-    snapshots = db.get_pcr_oi_snapshots(session_date)
-    points = snapshots.get(underlying, [])
-    if not points:
-        return
-    enriched = enrich_with_signal(enrich_with_oi_regime(enrich_with_roc_and_confidence(points)))
-    signal = enriched[-1].get("signal")
+    # NIFTY's signalVsPrice entry now comes from the upgraded, persistence-
+    # gated engine (upgrade.md) instead of the older oiSkew/PCR read --
+    # SENSEX stays on the original pipeline since the upgrade is NIFTY-only
+    # for now (no VWAP/candle confirmation wired up for SENSEX yet).
+    if underlying == "NIFTY":
+        enriched = await get_upgraded_nifty_signal(session_date)
+        if not enriched:
+            return
+        signal = enriched[-1].get("signal")
+    else:
+        snapshots = db.get_pcr_oi_snapshots(session_date)
+        points = snapshots.get(underlying, [])
+        if not points:
+            return
+        enriched_old = enrich_with_signal(enrich_with_oi_regime(enrich_with_roc_and_confidence(points)))
+        signal = enriched_old[-1].get("signal")
     if signal not in ("buyCe", "buyPe"):
         return
     side = "CE" if signal == "buyCe" else "PE"
