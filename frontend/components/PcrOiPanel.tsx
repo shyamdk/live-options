@@ -569,6 +569,15 @@ export function PcrChart({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [points]);
 
+  // The chart/series are created once above and never recreated -- fine
+  // when a caller's title/color/accessor never change post-mount (every
+  // existing usage except one), but OI Analysis reuses a single PcrChart
+  // instance for both NIFTY and SENSEX via a toggle, so color/title DO
+  // change later. Keep the already-created series in sync explicitly.
+  useEffect(() => {
+    seriesRef.current?.applyOptions({ color, title: label });
+  }, [color, label]);
+
   return (
     <div className="pcr-oi-split-item">
       <div className="pcr-oi-split-item-head">
