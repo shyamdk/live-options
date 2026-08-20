@@ -816,6 +816,34 @@ button:disabled {
   margin-right: 4px;
 }
 
+.oi-analysis-speed-pill {
+  margin-left: 6px;
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.oi-analysis-speed-pill.nominal {
+  color: var(--muted);
+}
+
+.oi-analysis-speed-pill.rapid-up,
+.oi-analysis-speed-pill.rapid-down {
+  padding: 1px 6px;
+  border-radius: 999px;
+}
+
+.oi-analysis-speed-pill.rapid-up {
+  background: var(--green-soft);
+  color: var(--green);
+}
+
+.oi-analysis-speed-pill.rapid-down {
+  background: var(--red-soft);
+  color: var(--red);
+}
+
 .oi-analysis-notify-toggle {
   display: inline-flex;
   align-items: center;

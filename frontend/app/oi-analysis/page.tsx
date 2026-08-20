@@ -503,6 +503,46 @@ function latestDelta(
   return { value, delta };
 }
 
+// A move only earns "Rapid" once today has enough polls to know what
+// "normal" even looks like for this series -- same spirit as the app's own
+// z-score confidence badges elsewhere, simplified to one ratio since this
+// only needs two buckets, not four.
+const MIN_SAMPLES_FOR_PACE = 4;
+const RAPID_THRESHOLD_MULTIPLIER = 1.5;
+type MoveSpeed = "rapid" | "nominal" | null;
+
+function computeMoveStats(
+  points: PcrOiSnapshot[],
+  accessor: (p: PcrOiSnapshot) => number | null,
+): { value: number | null; delta: number | null; pctChange: number | null; speed: MoveSpeed } {
+  const { value, delta } = latestDelta(points, accessor);
+  const previous = value !== null && delta !== null ? value - delta : null;
+  const pctChange = delta !== null && previous !== null && previous !== 0 ? (delta / Math.abs(previous)) * 100 : null;
+
+  // Today's typical poll-to-poll pace for this series, so "rapid" means
+  // "faster than today's own normal", not an arbitrary fixed percentage
+  // that wouldn't mean the same thing for PCR (tiny moves) vs OI (huge
+  // absolute numbers).
+  const pctChanges: number[] = [];
+  let prevVal: number | null = null;
+  for (const point of points) {
+    const raw = accessor(point);
+    if (raw === null || raw === undefined) continue;
+    if (prevVal !== null && prevVal !== 0) {
+      pctChanges.push(Math.abs(((raw - prevVal) / Math.abs(prevVal)) * 100));
+    }
+    prevVal = raw;
+  }
+
+  let speed: MoveSpeed = null;
+  if (pctChange !== null && pctChanges.length >= MIN_SAMPLES_FOR_PACE) {
+    const mean = pctChanges.reduce((a, b) => a + b, 0) / pctChanges.length;
+    speed = mean > 0 && Math.abs(pctChange) >= mean * RAPID_THRESHOLD_MULTIPLIER ? "rapid" : "nominal";
+  }
+
+  return { value, delta, pctChange, speed };
+}
+
 function DeltaChip({
   label,
   points,
@@ -514,7 +554,7 @@ function DeltaChip({
   accessor: (p: PcrOiSnapshot) => number | null;
   format: (value: number) => string;
 }) {
-  const { value, delta } = latestDelta(points, accessor);
+  const { value, delta, pctChange, speed } = computeMoveStats(points, accessor);
   if (value === null) {
     return (
       <span className="oi-analysis-delta-chip">
@@ -524,13 +564,21 @@ function DeltaChip({
   }
   const arrow = delta === null || delta === 0 ? "→" : delta > 0 ? "▲" : "▼";
   const cls = delta === null || delta === 0 ? "" : delta > 0 ? "positive" : "negative";
+  const direction = delta === null || delta === 0 ? null : delta > 0 ? "Increase" : "Decrease";
+  const pillClass = speed === "rapid" ? (delta! > 0 ? "rapid-up" : "rapid-down") : "nominal";
   return (
     <span className="oi-analysis-delta-chip">
       <strong>{label}</strong> {format(value)}
       {delta !== null ? (
         <span className={cls}>
           {" "}
-          {arrow} {format(Math.abs(delta))} since last refresh
+          {arrow} {format(Math.abs(delta))}
+          {pctChange !== null ? ` (${pctChange >= 0 ? "+" : ""}${pctChange.toFixed(2)}%)` : ""} since last refresh
+        </span>
+      ) : null}
+      {speed && direction ? (
+        <span className={`oi-analysis-speed-pill ${pillClass}`}>
+          {speed === "rapid" ? "Rapid" : "Nominal"} {direction}
         </span>
       ) : null}
     </span>
