@@ -316,9 +316,24 @@ export type BacktestDay = {
   old: BacktestSummary;
 };
 
+export type BacktestTrade = {
+  date: string;
+  side: "buyCe" | "buyPe";
+  entryTime: number;
+  exitTime: number | null;
+  reason: "stop_loss" | "trail" | "eod";
+  pnlPct: number;
+};
+
 export type BacktestReport = {
   days: BacktestDay[];
   totals: { new: BacktestSummary; old: BacktestSummary };
+  newTrades: BacktestTrade[];
+  breakdowns: {
+    bySide: Record<string, BacktestSummary>;
+    byReason: Record<string, BacktestSummary>;
+  };
+  observations: string[];
 };
 
 export type PaperTradeLeg = {

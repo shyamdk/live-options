@@ -198,7 +198,7 @@ def _simulate_staged_exit(entry_premium: float, path: list[tuple[int, float]], c
     return pnl_pct, last_time, "eod"
 
 
-def _simulate_trades(enriched: list[dict], entries: list[tuple[int, str]], cfg: dict[str, float]) -> list[dict]:
+def _simulate_trades(enriched: list[dict], entries: list[tuple[int, str]], cfg: dict[str, float], date: str) -> list[dict]:
     trades: list[dict] = []
     for idx, side in entries:
         entry_point = enriched[idx]
@@ -207,8 +207,57 @@ def _simulate_trades(enriched: list[dict], entries: list[tuple[int, str]], cfg: 
             continue
         path = _premium_path(enriched[idx:], side)
         pnl_pct, exit_time, reason = _simulate_staged_exit(entry_premium, path, cfg)
-        trades.append({"side": side, "entryTime": entry_point["time"], "exitTime": exit_time, "reason": reason, "pnlPct": pnl_pct})
+        trades.append(
+            {"date": date, "side": side, "entryTime": entry_point["time"], "exitTime": exit_time, "reason": reason, "pnlPct": pnl_pct}
+        )
     return trades
+
+
+def _breakdown_by(trades: list[dict], key: str) -> dict[str, dict]:
+    groups: dict[str, list[dict]] = {}
+    for trade in trades:
+        groups.setdefault(trade[key], []).append(trade)
+    return {group_key: _summarize_trades(group_trades) for group_key, group_trades in groups.items()}
+
+
+def _generate_observations(new_trades: list[dict], old_trades: list[dict]) -> list[str]:
+    """Plain factual observations computed from the actual backtested
+    trades -- not fitted rules, just what the data currently shows, with
+    the sample-size caveat baked into the text since n is always small
+    here. Forward-looking, not-yet-implemented ideas belong in the
+    frontend's curated list instead -- those are judgment calls, not
+    something to compute.
+    """
+    observations: list[str] = []
+    n = len(new_trades)
+    if n == 0:
+        observations.append("No new-engine trades in the backtested window yet -- too little data to observe anything.")
+        return observations
+
+    losers = [t for t in new_trades if t["pnlPct"] <= 0]
+    ce_trades = [t for t in new_trades if t["side"] == "buyCe"]
+    pe_trades = [t for t in new_trades if t["side"] == "buyPe"]
+    if losers and ce_trades and pe_trades and all(t["side"] == "buyPe" for t in losers):
+        observations.append(
+            f"All {len(losers)} losing trade(s) so far are PE; CE trades have been comparatively better -- "
+            f"with only {n} total trades this could easily be small-sample noise, not a real CE/PE asymmetry."
+        )
+
+    stop_losses = [t for t in new_trades if t["reason"] == "stop_loss"]
+    if stop_losses:
+        avg_sl = sum(t["pnlPct"] for t in stop_losses) / len(stop_losses)
+        observations.append(
+            f"{len(stop_losses)} of {n} trade(s) hit the stop loss (avg {avg_sl:.1f}%), "
+            f"vs {n - len(stop_losses)} that reached a target or EOD instead."
+        )
+
+    if old_trades:
+        observations.append(
+            f"The old engine took {len(old_trades)} trades in the same window vs {n} for the new engine -- "
+            "the new engine trades quantity for (intended) selectivity via its persistence and score gates."
+        )
+
+    return observations
 
 
 def _summarize_trades(trades: list[dict]) -> dict:
@@ -237,8 +286,8 @@ async def backtest_oi_upgraded(dates: list[str] | None = None) -> dict:
             continue
         new_enriched = enrich_with_upgraded_signal(points, candles)
         old_enriched = enrich_with_signal(enrich_with_oi_regime(enrich_with_roc_and_confidence(points)))
-        new_trades = _simulate_trades(new_enriched, _new_engine_entries(new_enriched), cfg)
-        old_trades = _simulate_trades(old_enriched, _old_engine_entries(old_enriched), cfg)
+        new_trades = _simulate_trades(new_enriched, _new_engine_entries(new_enriched), cfg, date)
+        old_trades = _simulate_trades(old_enriched, _old_engine_entries(old_enriched), cfg, date)
         all_new_trades.extend(new_trades)
         all_old_trades.extend(old_trades)
         days.append({"date": date, "new": _summarize_trades(new_trades), "old": _summarize_trades(old_trades)})
@@ -246,4 +295,10 @@ async def backtest_oi_upgraded(dates: list[str] | None = None) -> dict:
     return {
         "days": days,
         "totals": {"new": _summarize_trades(all_new_trades), "old": _summarize_trades(all_old_trades)},
+        "newTrades": all_new_trades,
+        "breakdowns": {
+            "bySide": _breakdown_by(all_new_trades, "side"),
+            "byReason": _breakdown_by(all_new_trades, "reason"),
+        },
+        "observations": _generate_observations(all_new_trades, all_old_trades),
     }

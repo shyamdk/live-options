@@ -1,6 +1,6 @@
 "use client";
 
-import { BarChart3, BookOpenText, BriefcaseBusiness, ChevronLeft, ChevronRight, Coins, RadioTower } from "lucide-react";
+import { BarChart3, BookOpenText, BriefcaseBusiness, ChevronLeft, ChevronRight, Coins, Lightbulb, RadioTower } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -15,6 +15,7 @@ const navItems = [
   { href: "/theta-book", label: "Theta Book", short: "TB", icon: Coins },
   { href: "/oi-analysis", label: "OI Analysis", short: "OI", icon: BarChart3 },
   { href: "/oi-upgraded", label: "OI - Upgraded", short: "OU", icon: RadioTower },
+  { href: "/oi-improvements", label: "OI Improvements", short: "IM", icon: Lightbulb },
 ];
 
 const STORAGE_KEY = "live-options-sidebar-collapsed";
