@@ -101,6 +101,13 @@ class Settings(BaseSettings):
     paper_trading_session_start_time: str = "09:15"
     paper_trading_session_end_time: str = "15:30"
 
+    # Logs each new oi_signal_engine poll to oi_upgraded_signal_log (phase 5
+    # signal history) -- read-only, no order placement, off by default.
+    oi_upgraded_monitor_enabled: bool = False
+    oi_upgraded_poll_interval_seconds: int = 180
+    oi_upgraded_session_start_time: str = "09:15"
+    oi_upgraded_session_end_time: str = "15:30"
+
     gamma_blast_monitor_enabled: bool = True
     gamma_blast_mode: str = "PAPER"
     gamma_blast_paper_auto_approve: bool = True

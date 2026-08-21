@@ -654,6 +654,28 @@ def init_db() -> None:
             )
             """
         )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS oi_upgraded_signal_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_date TEXT NOT NULL,
+                epoch INTEGER NOT NULL,
+                state TEXT NOT NULL,
+                signal TEXT NOT NULL,
+                regime TEXT NOT NULL,
+                pcr REAL,
+                ce_score INTEGER NOT NULL,
+                pe_score INTEGER NOT NULL,
+                persistence INTEGER NOT NULL,
+                nifty_price REAL,
+                vwap REAL,
+                ce_premium REAL,
+                pe_premium REAL,
+                created_at TEXT NOT NULL,
+                UNIQUE(session_date, epoch)
+            )
+            """
+        )
         conn.commit()
 
 
@@ -1369,3 +1391,57 @@ def _paper_trade_leg_from_row(row: sqlite3.Row) -> dict[str, Any]:
         "pnlPoints": row["pnl_points"],
         "pnlAmount": row["pnl_amount"],
     }
+
+
+def record_oi_upgraded_signal(
+    *,
+    session_date: str,
+    epoch: int,
+    state: str,
+    signal: str,
+    regime: str,
+    pcr: float | None,
+    ce_score: int,
+    pe_score: int,
+    persistence: int,
+    nifty_price: float | None,
+    vwap: float | None,
+    ce_premium: float | None,
+    pe_premium: float | None,
+) -> None:
+    now = datetime.now().isoformat(timespec="seconds")
+    with _DB_LOCK, _connect() as conn:
+        conn.execute(
+            """
+            INSERT OR IGNORE INTO oi_upgraded_signal_log (
+                session_date, epoch, state, signal, regime, pcr, ce_score, pe_score,
+                persistence, nifty_price, vwap, ce_premium, pe_premium, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (session_date, epoch, state, signal, regime, pcr, ce_score, pe_score, persistence, nifty_price, vwap, ce_premium, pe_premium, now),
+        )
+        conn.commit()
+
+
+def get_oi_upgraded_signal_log(session_date: str) -> list[dict[str, Any]]:
+    with _DB_LOCK, _connect() as conn:
+        rows = conn.execute(
+            "SELECT * FROM oi_upgraded_signal_log WHERE session_date = ? ORDER BY epoch", (session_date,)
+        ).fetchall()
+    return [
+        {
+            "time": row["epoch"],
+            "state": row["state"],
+            "signal": row["signal"],
+            "regime": row["regime"],
+            "pcr": row["pcr"],
+            "ceScore": row["ce_score"],
+            "peScore": row["pe_score"],
+            "persistence": row["persistence"],
+            "niftyPrice": row["nifty_price"],
+            "vwap": row["vwap"],
+            "cePremium": row["ce_premium"],
+            "pePremium": row["pe_premium"],
+        }
+        for row in rows
+    ]

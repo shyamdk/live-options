@@ -8,12 +8,11 @@ Covers upgrade.md phases 1-4: rolling windows, PCR/OI classification,
 VWAP + price confirmation, premium confirmation, scoring, persistence,
 per-point explanation (1-3), plus market regime, hysteresis (a looser
 "hold" bar than "entry"), exit confirmation, cooldown, and the full
-NO_TRADE/WATCH/BUY/HOLD/COOLDOWN state machine (4). Phase 5 (a proper
-backtesting harness, DB-persisted signal history, formal old-vs-new
-comparison tooling) is still open -- this file's pure/replay-from-history
-design already makes ad hoc backtesting straightforward (see the git log
-for the threshold-tuning session that used exactly that), just not
-packaged as a reusable harness yet.
+NO_TRADE/WATCH/BUY/HOLD/COOLDOWN state machine (4). Phase 5 (DB-persisted
+signal history, a backtesting harness, old-vs-new comparison) lives in
+oi_upgraded.py, which wraps this file's pure/replay-from-history design --
+exactly what made ad hoc backtesting straightforward during this file's
+own threshold tuning -- into a reusable background logger + report.
 
 Regime is informational only -- it is NOT an additional entry gate. Entry
 already requires pcr/oi/price to not contradict the trade and price to

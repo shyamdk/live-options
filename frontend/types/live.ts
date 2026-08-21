@@ -303,6 +303,24 @@ export type OiUpgradedPayload = {
   NIFTY: OiUpgradedPoint[];
 };
 
+export type BacktestSummary = {
+  count: number;
+  avgPoints: number | null;
+  winRate: number | null;
+  totalPoints: number | null;
+};
+
+export type BacktestDay = {
+  date: string;
+  new: BacktestSummary;
+  old: BacktestSummary;
+};
+
+export type BacktestReport = {
+  days: BacktestDay[];
+  totals: { new: BacktestSummary; old: BacktestSummary };
+};
+
 export type PaperTradeLeg = {
   id: number;
   tradeId: number;

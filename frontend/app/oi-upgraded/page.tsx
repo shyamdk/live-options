@@ -1,16 +1,17 @@
 "use client";
 
-import { RadioTower, RefreshCcw } from "lucide-react";
+import { FlaskConical, RadioTower, RefreshCcw } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { CE_COLOR, Legend, NIFTY_COLOR, OiChangeChart, PcrChart, PE_COLOR, IvChart } from "@/components/PcrOiPanel";
 import {
+  getOiUpgradedBacktest,
   getOiUpgradedSignal,
   getPcrOiSessionDates,
   getPcrOiSnapshots,
   refreshOiUpgradedSignal,
 } from "@/lib/api";
-import type { OiUpgradedPoint, PcrOiPayload } from "@/types/live";
+import type { BacktestReport, OiUpgradedPoint, PcrOiPayload } from "@/types/live";
 
 const DEFAULT_REFRESH_MS = 120000;
 const REFRESH_OPTIONS: { value: number; label: string }[] = [
@@ -86,6 +87,21 @@ export default function OiUpgradedPage() {
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [refreshMs, setRefreshMs] = useState(DEFAULT_REFRESH_MS);
   const [refreshing, setRefreshing] = useState(false);
+  const [backtest, setBacktest] = useState<BacktestReport | null>(null);
+  const [backtestLoading, setBacktestLoading] = useState(false);
+  const [backtestError, setBacktestError] = useState<string | null>(null);
+
+  async function handleRunBacktest() {
+    setBacktestLoading(true);
+    setBacktestError(null);
+    try {
+      setBacktest(await getOiUpgradedBacktest());
+    } catch (exc) {
+      setBacktestError(exc instanceof Error ? exc.message : "Failed to run the backtest.");
+    } finally {
+      setBacktestLoading(false);
+    }
+  }
 
   useEffect(() => {
     if (sessionDates.length) return;
@@ -227,6 +243,24 @@ export default function OiUpgradedPage() {
       </div>
 
       <div className="pcr-oi-section">
+        <div className="oi-analysis-section-head">
+          <h3>Backtest — new engine vs old</h3>
+          <button type="button" className="button secondary" onClick={handleRunBacktest} disabled={backtestLoading}>
+            <FlaskConical size={14} /> {backtestLoading ? "Running…" : "Run backtest"}
+          </button>
+        </div>
+        <p className="pcr-oi-caption" style={{ margin: 0 }}>
+          Replays every stored session (up to the last 10) through both this engine and the older oiSkew/PCR read it
+          replaced, marking entry/exit at the ATM premium observed when the state changes. That&apos;s a rough proxy
+          for what a trade would have captured -- not a replay of paper trading&apos;s actual staged SL/target/trail
+          exits -- so read it as a directional check ("is the new engine better than the old one"), not a P&amp;L
+          guarantee.
+        </p>
+        {backtestError ? <div className="alert error">{backtestError}</div> : null}
+        {backtest ? <BacktestTable report={backtest} /> : null}
+      </div>
+
+      <div className="pcr-oi-section">
         <div className="pcr-oi-split">
           <div className="oi-analysis-chart-col">
             <div className="oi-analysis-section-head">
@@ -272,6 +306,66 @@ export default function OiUpgradedPage() {
         </div>
       </div>
     </section>
+  );
+}
+
+function fmtPts(value: number | null): string {
+  return value === null ? "—" : `${value >= 0 ? "+" : ""}${value.toFixed(1)}`;
+}
+
+function fmtPct(value: number | null): string {
+  return value === null ? "—" : `${value.toFixed(0)}%`;
+}
+
+function BacktestTable({ report }: { report: BacktestReport }) {
+  return (
+    <div style={{ overflowX: "auto" }}>
+      <table>
+        <thead>
+          <tr>
+            <th rowSpan={2}>Date</th>
+            <th colSpan={3}>New engine (upgraded)</th>
+            <th colSpan={3}>Old engine (oiSkew/PCR)</th>
+          </tr>
+          <tr>
+            <th>Trades</th>
+            <th>Avg pts</th>
+            <th>Win %</th>
+            <th>Trades</th>
+            <th>Avg pts</th>
+            <th>Win %</th>
+          </tr>
+        </thead>
+        <tbody>
+          {report.days.map((day) => (
+            <tr key={day.date}>
+              <td>{day.date}</td>
+              <td>{day.new.count}</td>
+              <td>{fmtPts(day.new.avgPoints)}</td>
+              <td>{fmtPct(day.new.winRate)}</td>
+              <td>{day.old.count}</td>
+              <td>{fmtPts(day.old.avgPoints)}</td>
+              <td>{fmtPct(day.old.winRate)}</td>
+            </tr>
+          ))}
+          <tr>
+            <td>
+              <strong>Total</strong>
+            </td>
+            <td>
+              <strong>{report.totals.new.count}</strong>
+            </td>
+            <td>{fmtPts(report.totals.new.avgPoints)}</td>
+            <td>{fmtPct(report.totals.new.winRate)}</td>
+            <td>
+              <strong>{report.totals.old.count}</strong>
+            </td>
+            <td>{fmtPts(report.totals.old.avgPoints)}</td>
+            <td>{fmtPct(report.totals.old.winRate)}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
   );
 }
 

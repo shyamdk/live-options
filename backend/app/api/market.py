@@ -6,12 +6,12 @@ from fastapi import APIRouter, Depends, Query
 
 from app.core.config import get_settings
 from app.core.timeutil import now_ist, now_ist_epoch
-from app.db.sqlite import get_market_calendar, get_market_news, get_pcr_oi_session_dates, get_pcr_oi_snapshots
+from app.db.sqlite import get_market_calendar, get_market_news, get_oi_upgraded_signal_log, get_pcr_oi_session_dates, get_pcr_oi_snapshots
 from app.services.app_auth import require_auth
 from app.services.dhan import DhanService
 from app.services.market import MarketService
 from app.services.market_news import refresh_market_calendar, refresh_market_news
-from app.services.oi_upgraded import get_upgraded_nifty_signal
+from app.services.oi_upgraded import backtest_oi_upgraded, get_upgraded_nifty_signal
 from app.services.pcr_oi import enrich_with_oi_regime, enrich_with_roc_and_confidence, enrich_with_signal, refresh_pcr_oi_now
 
 
@@ -123,6 +123,21 @@ async def oi_upgraded(session_date: str | None = Query(default=None, alias="date
 async def refresh_oi_upgraded(session_date: str | None = Query(default=None, alias="date")) -> dict[str, Any]:
     await refresh_pcr_oi_now()
     return await oi_upgraded(session_date)
+
+
+@router.get("/oi-upgraded/history", dependencies=[Depends(require_auth)])
+async def oi_upgraded_history(session_date: str | None = Query(default=None, alias="date")) -> dict[str, Any]:
+    """Logged signal-engine polls (from the background logger, when
+    enabled) -- an actual audit trail, independent of the live re-compute
+    the other oi-upgraded endpoints do on every call.
+    """
+    resolved_date = session_date or now_ist().date().isoformat()
+    return {"sessionDate": resolved_date, "NIFTY": get_oi_upgraded_signal_log(resolved_date)}
+
+
+@router.get("/oi-upgraded/backtest", dependencies=[Depends(require_auth)])
+async def oi_upgraded_backtest() -> dict[str, Any]:
+    return await backtest_oi_upgraded()
 
 
 @router.get("/indices", dependencies=[Depends(require_auth)])

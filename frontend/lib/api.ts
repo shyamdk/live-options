@@ -1,6 +1,7 @@
 import type {
   AuthSession,
   AuthStatus,
+  BacktestReport,
   DhanSession,
   Journal,
   JournalInsights,
@@ -118,6 +119,10 @@ export async function refreshOiUpgradedSignal(sessionDate?: string): Promise<OiU
     { method: "POST" },
     "Failed to refresh upgraded OI signal",
   );
+}
+
+export async function getOiUpgradedBacktest(): Promise<BacktestReport> {
+  return apiJson<BacktestReport>("/api/market/oi-upgraded/backtest", undefined, "Failed to load the backtest report");
 }
 
 export async function getPcrOiSessionDates(): Promise<string[]> {
