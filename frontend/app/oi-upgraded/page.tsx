@@ -77,6 +77,10 @@ const LEGEND_ITEMS = [
     title: "Cooldown countdown",
     body: "When the badge shows COOLDOWN, a fresh signal on the opposite side is deliberately held back until the timer clears -- unless the opposite read is very strong (score 9+, fully confirmed), which overrides the block. The SAME direction can still rebuild during cooldown; only a reversal is blocked.",
   },
+  {
+    title: "Two entry safeguards added after a real losing-trade review",
+    body: "Fresh extreme: price must itself be a new 8-candle high/low, not already bouncing off one -- a plain 5-minute trend reading is a lagging average that peaks in \"bearish\" exactly as a decline ENDS, not while it's developing; two real losing PE entries fired within a couple of points of the exact candle low, right before reversal, before this was added. VIX/IV risk veto: a RAPID VIX or IV spike (not a moderate rise) blocks entry outright rather than just losing a score point -- a fast IV spike alongside a sharp move is a classic capitulation signature, not continuation, and one of those same losing trades had IV flagged \"risky\" at entry.",
+  },
 ];
 
 export default function OiUpgradedPage() {
@@ -310,7 +314,7 @@ export default function OiUpgradedPage() {
 }
 
 function fmtPts(value: number | null): string {
-  return value === null ? "—" : `${value >= 0 ? "+" : ""}${value.toFixed(1)}`;
+  return value === null ? "—" : `${value >= 0 ? "+" : ""}${value.toFixed(1)}%`;
 }
 
 function fmtPct(value: number | null): string {
@@ -329,10 +333,10 @@ function BacktestTable({ report }: { report: BacktestReport }) {
           </tr>
           <tr>
             <th>Trades</th>
-            <th>Avg pts</th>
+            <th>Avg %</th>
             <th>Win %</th>
             <th>Trades</th>
-            <th>Avg pts</th>
+            <th>Avg %</th>
             <th>Win %</th>
           </tr>
         </thead>
@@ -341,10 +345,10 @@ function BacktestTable({ report }: { report: BacktestReport }) {
             <tr key={day.date}>
               <td>{day.date}</td>
               <td>{day.new.count}</td>
-              <td>{fmtPts(day.new.avgPoints)}</td>
+              <td>{fmtPts(day.new.avgPnlPct)}</td>
               <td>{fmtPct(day.new.winRate)}</td>
               <td>{day.old.count}</td>
-              <td>{fmtPts(day.old.avgPoints)}</td>
+              <td>{fmtPts(day.old.avgPnlPct)}</td>
               <td>{fmtPct(day.old.winRate)}</td>
             </tr>
           ))}
@@ -355,12 +359,12 @@ function BacktestTable({ report }: { report: BacktestReport }) {
             <td>
               <strong>{report.totals.new.count}</strong>
             </td>
-            <td>{fmtPts(report.totals.new.avgPoints)}</td>
+            <td>{fmtPts(report.totals.new.avgPnlPct)}</td>
             <td>{fmtPct(report.totals.new.winRate)}</td>
             <td>
               <strong>{report.totals.old.count}</strong>
             </td>
-            <td>{fmtPts(report.totals.old.avgPoints)}</td>
+            <td>{fmtPts(report.totals.old.avgPnlPct)}</td>
             <td>{fmtPct(report.totals.old.winRate)}</td>
           </tr>
         </tbody>

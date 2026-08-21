@@ -305,9 +305,9 @@ export type OiUpgradedPayload = {
 
 export type BacktestSummary = {
   count: number;
-  avgPoints: number | null;
+  avgPnlPct: number | null;
   winRate: number | null;
-  totalPoints: number | null;
+  totalPnlPct: number | null;
 };
 
 export type BacktestDay = {

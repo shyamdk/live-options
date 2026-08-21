@@ -7,13 +7,18 @@ Also covers upgrade.md phase 5:
 - A background logger (start/stop_oi_upgraded_task) that records each new
   poll's latest computed point to oi_upgraded_signal_log, off by default
   like every other monitor in this codebase.
-- backtest_oi_upgraded(), a rough old-vs-new comparison over whatever
-  session dates already have stored PCR/OI data. "Rough" because it marks
-  entry/exit at the ATM premium observed at the poll where the state
-  changes rather than replaying paper_trading_engine's actual staged
-  SL/target/trail exits -- good enough to sanity-check whether the new
-  engine is directionally better than the old one, not a substitute for
-  real paper-trade P&L.
+- backtest_oi_upgraded(), an old-vs-new comparison over whatever session
+  dates already have stored PCR/OI data. The first version of this marked
+  "exit" at whatever premium was observed when the signal's own state/
+  read changed -- which doesn't reflect reality: paper trading manages
+  every position with its OWN staged 15%/10%/20%/5% SL/target/trail
+  (paper_trading_engine.py), completely independent of the signal
+  engine's hold/exit bookkeeping. That mismatch made the first backtest
+  measure something that would never actually happen live. This version
+  replays the real staged-exit logic against the premium path following
+  each entry, using whatever SL/target/trail % paper trading is actually
+  configured with, so the backtest matches what a real paper trade would
+  do.
 """
 
 from __future__ import annotations
@@ -23,7 +28,8 @@ from datetime import datetime
 
 from app.core.config import Settings, get_settings
 from app.core.timeutil import in_time_window, now_ist
-from app.db.sqlite import get_pcr_oi_session_dates, get_pcr_oi_snapshots, record_oi_upgraded_signal
+from app.db.sqlite import get_paper_trading_settings, get_pcr_oi_session_dates, get_pcr_oi_snapshots, record_oi_upgraded_signal
+from app.services import paper_trading_engine as pt_engine
 from app.services.dhan import DhanService
 from app.services.oi_signal_engine import enrich_with_upgraded_signal
 from app.services.pcr_oi import enrich_with_oi_regime, enrich_with_roc_and_confidence, enrich_with_signal
@@ -122,106 +128,122 @@ async def _log_latest_point(now: datetime) -> None:
     )
 
 
-def _new_engine_events(enriched: list[dict]) -> list[dict]:
-    """Each BUY trigger through however long HOLD lasts counts as one
-    episode -- the closest a pure historical replay can get to "one
-    simulated trade" without re-running paper_trading_engine's actual
-    staged exits.
+def _new_engine_entries(enriched: list[dict]) -> list[tuple[int, str]]:
+    """state == buyCe/buyPe fires exactly once per confirmed episode (the
+    next poll becomes holdCe/holdPe) -- same one-shot trigger paper_trading
+    actually watches for, so this naturally matches real entry frequency.
     """
-    events: list[dict] = []
-    i, n = 0, len(enriched)
-    while i < n:
-        point = enriched[i]
-        if point["state"] in ("buyCe", "buyPe"):
-            side = point["state"]
-            entry_premium = point.get("cePremium") if side == "buyCe" else point.get("pePremium")
-            j = i + 1
-            while j < n and enriched[j]["state"] in ("holdCe", "holdPe"):
-                j += 1
-            exit_point = enriched[j - 1]
-            exit_premium = exit_point.get("cePremium") if side == "buyCe" else exit_point.get("pePremium")
-            events.append(
-                {
-                    "side": side,
-                    "entryTime": point["time"],
-                    "entryPremium": entry_premium,
-                    "exitTime": exit_point["time"],
-                    "exitPremium": exit_premium,
-                    "open": j >= n,
-                }
-            )
-            i = j
-        else:
-            i += 1
-    return events
+    return [(i, point["state"]) for i, point in enumerate(enriched) if point["state"] in ("buyCe", "buyPe")]
 
 
-def _old_engine_events(enriched: list[dict]) -> list[dict]:
-    """The old pipeline has no hold/exit state of its own -- an "episode"
-    here is just a run of consecutive polls reporting the same signal.
+def _old_engine_entries(enriched: list[dict]) -> list[tuple[int, str]]:
+    """The old pipeline has no hold state -- an entry is wherever `signal`
+    flips INTO buyCe/buyPe from something else.
     """
-    events: list[dict] = []
-    i, n = 0, len(enriched)
-    while i < n:
-        point = enriched[i]
-        side = point.get("signal")
-        if side in ("buyCe", "buyPe"):
-            entry_premium = point.get("cePremium") if side == "buyCe" else point.get("pePremium")
-            j = i + 1
-            while j < n and enriched[j].get("signal") == side:
-                j += 1
-            exit_point = enriched[j - 1]
-            exit_premium = exit_point.get("cePremium") if side == "buyCe" else exit_point.get("pePremium")
-            events.append(
-                {
-                    "side": side,
-                    "entryTime": point["time"],
-                    "entryPremium": entry_premium,
-                    "exitTime": exit_point["time"],
-                    "exitPremium": exit_premium,
-                    "open": j >= n,
-                }
-            )
-            i = j
-        else:
-            i += 1
-    return events
+    entries: list[tuple[int, str]] = []
+    prev_signal = None
+    for i, point in enumerate(enriched):
+        signal = point.get("signal")
+        if signal in ("buyCe", "buyPe") and signal != prev_signal:
+            entries.append((i, signal))
+        prev_signal = signal
+    return entries
 
 
-def _summarize_events(events: list[dict]) -> dict:
-    points_list = [
-        e["exitPremium"] - e["entryPremium"] for e in events if e["entryPremium"] is not None and e["exitPremium"] is not None
-    ]
-    wins = [p for p in points_list if p > 0]
+def _premium_path(points_from_entry: list[dict], side: str) -> list[tuple[int, float]]:
+    key = "cePremium" if side == "buyCe" else "pePremium"
+    return [(p["time"], p[key]) for p in points_from_entry if p.get(key) is not None]
+
+
+def _simulate_staged_exit(entry_premium: float, path: list[tuple[int, float]], cfg: dict[str, float]) -> tuple[float, int | None, str]:
+    """Replays paper_trading_engine's real 3-lot staged exit (1 lot at
+    target1, 1 more at target2, trail the last) against the premium path
+    following an entry -- the same mechanism a real paper trade uses,
+    not a proxy for it. Returns the blended %-return across all 3 lots.
+    """
+    levels = pt_engine.compute_levels(entry_premium, cfg["stopLossPercent"], cfg["target1Percent"], cfg["target2Percent"])
+    phase: pt_engine.Phase = "OPEN_ALL"
+    peak: float | None = None
+    pnl_pct = 0.0
+    lots_remaining = 3
+    last_time = path[-1][0] if path else None
+
+    for t, price in path:
+        action = pt_engine.evaluate_paper_trade_tick(
+            stop_loss=levels["stopLoss"], target1=levels["target1"], target2=levels["target2"],
+            trail_percent=cfg["trailPercent"], phase=phase, peak_premium=peak, current_premium=price,
+        )
+        if action is None:
+            continue
+        leg_pct = (price - entry_premium) / entry_premium * 100
+        act = action["action"]
+        if act == "STOP_ALL":
+            return pnl_pct + leg_pct, t, "stop_loss"
+        if act == "BOOK_LOT1":
+            pnl_pct += leg_pct / 3
+            phase, lots_remaining = "LOT1_BOOKED", 2
+        elif act == "STOP_REMAINING":
+            return pnl_pct + leg_pct * lots_remaining / 3, t, "stop_loss"
+        elif act == "BOOK_LOT2":
+            pnl_pct += leg_pct / 3
+            phase, lots_remaining, peak = "LOT2_BOOKED", 1, action["peak"]
+        elif act == "EXIT_LOT3":
+            return pnl_pct + leg_pct * lots_remaining / 3, t, "trail"
+        elif act == "UPDATE_PEAK":
+            peak = action["peak"]
+
+    if path:
+        last_price = path[-1][1]
+        pnl_pct += (last_price - entry_premium) / entry_premium * 100 * lots_remaining / 3
+    return pnl_pct, last_time, "eod"
+
+
+def _simulate_trades(enriched: list[dict], entries: list[tuple[int, str]], cfg: dict[str, float]) -> list[dict]:
+    trades: list[dict] = []
+    for idx, side in entries:
+        entry_point = enriched[idx]
+        entry_premium = entry_point.get("cePremium") if side == "buyCe" else entry_point.get("pePremium")
+        if entry_premium is None:
+            continue
+        path = _premium_path(enriched[idx:], side)
+        pnl_pct, exit_time, reason = _simulate_staged_exit(entry_premium, path, cfg)
+        trades.append({"side": side, "entryTime": entry_point["time"], "exitTime": exit_time, "reason": reason, "pnlPct": pnl_pct})
+    return trades
+
+
+def _summarize_trades(trades: list[dict]) -> dict:
+    pcts = [t["pnlPct"] for t in trades]
+    wins = [p for p in pcts if p > 0]
     return {
-        "count": len(events),
-        "avgPoints": (sum(points_list) / len(points_list)) if points_list else None,
-        "winRate": (len(wins) / len(points_list) * 100) if points_list else None,
-        "totalPoints": sum(points_list) if points_list else None,
+        "count": len(trades),
+        "avgPnlPct": (sum(pcts) / len(pcts)) if pcts else None,
+        "winRate": (len(wins) / len(pcts) * 100) if pcts else None,
+        "totalPnlPct": sum(pcts) if pcts else None,
     }
 
 
 async def backtest_oi_upgraded(dates: list[str] | None = None) -> dict:
     settings = get_settings()
     now = now_ist()
+    cfg = get_paper_trading_settings()
     candidate_dates = sorted(dates or get_pcr_oi_session_dates())[-BACKTEST_MAX_DAYS:]
 
     days: list[dict] = []
-    all_new_events: list[dict] = []
-    all_old_events: list[dict] = []
+    all_new_trades: list[dict] = []
+    all_old_trades: list[dict] = []
     for date in candidate_dates:
         points, candles = await _fetch_points_and_candles(settings, date, now)
         if not points:
             continue
         new_enriched = enrich_with_upgraded_signal(points, candles)
         old_enriched = enrich_with_signal(enrich_with_oi_regime(enrich_with_roc_and_confidence(points)))
-        new_events = _new_engine_events(new_enriched)
-        old_events = _old_engine_events(old_enriched)
-        all_new_events.extend(new_events)
-        all_old_events.extend(old_events)
-        days.append({"date": date, "new": _summarize_events(new_events), "old": _summarize_events(old_events)})
+        new_trades = _simulate_trades(new_enriched, _new_engine_entries(new_enriched), cfg)
+        old_trades = _simulate_trades(old_enriched, _old_engine_entries(old_enriched), cfg)
+        all_new_trades.extend(new_trades)
+        all_old_trades.extend(old_trades)
+        days.append({"date": date, "new": _summarize_trades(new_trades), "old": _summarize_trades(old_trades)})
 
     return {
         "days": days,
-        "totals": {"new": _summarize_events(all_new_events), "old": _summarize_events(all_old_events)},
+        "totals": {"new": _summarize_trades(all_new_trades), "old": _summarize_trades(all_old_trades)},
     }

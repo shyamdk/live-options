@@ -120,8 +120,25 @@ def _window_change(points: list[dict[str, Any]], idx: int, minutes: int, key: st
     return float(now_value) - past_value
 
 
-def _vwap_and_trend(candles: list[dict[str, Any]], at_time: int) -> tuple[float | None, float | None, float | None]:
-    """Returns (spot, vwap, 5-candle trend) as of the last candle at/before at_time."""
+FRESH_EXTREME_LOOKBACK = 8
+
+
+def _vwap_and_trend(candles: list[dict[str, Any]], at_time: int) -> tuple[float | None, float | None, float | None, bool, bool]:
+    """Returns (spot, vwap, 5-candle trend, freshLow, freshHigh) as of the
+    last candle at/before at_time.
+
+    freshLow/freshHigh: is the current close itself the lowest/highest of
+    the last FRESH_EXTREME_LOOKBACK candles? The 5-candle trend alone is a
+    trailing average that peaks in "bearishness" exactly as a decline is
+    ENDING, not while it's still developing -- backtesting against real
+    NIFTY sessions found two losing PE entries that fired within 1-2
+    points of the exact candle low of the move, immediately before it
+    reversed, precisely because trend5m stays negative for a beat after
+    price has already stopped falling. Requiring the entry candle to
+    itself be a fresh extreme (not already bouncing off one) is a
+    concrete confirmation that the move hasn't already reversed underneath
+    the lagging trend reading.
+    """
     idx = -1
     for i, candle in enumerate(candles):
         if candle["time"] <= at_time:
@@ -129,7 +146,7 @@ def _vwap_and_trend(candles: list[dict[str, Any]], at_time: int) -> tuple[float 
         else:
             break
     if idx < 0:
-        return None, None, None
+        return None, None, None, False, False
 
     cum_pv = 0.0
     cum_vol = 0.0
@@ -141,7 +158,12 @@ def _vwap_and_trend(candles: list[dict[str, Any]], at_time: int) -> tuple[float 
 
     spot = candles[idx]["close"]
     trend5m = (candles[idx]["close"] - candles[idx - 5]["close"]) if idx >= 5 else None
-    return spot, vwap, trend5m
+
+    lookback_start = max(0, idx - FRESH_EXTREME_LOOKBACK)
+    recent_closes = [c["close"] for c in candles[lookback_start : idx + 1]]
+    fresh_low = bool(recent_closes) and spot <= min(recent_closes)
+    fresh_high = bool(recent_closes) and spot >= max(recent_closes)
+    return spot, vwap, trend5m, fresh_low, fresh_high
 
 
 def enrich_with_upgraded_signal(points: list[dict[str, Any]], candles: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -193,14 +215,14 @@ def enrich_with_upgraded_signal(points: list[dict[str, Any]], candles: list[dict
         else:
             oi_state = "mixed"
 
-        spot, vwap, trend5m = _vwap_and_trend(candles, t)
+        spot, vwap, trend5m, fresh_low, fresh_high = _vwap_and_trend(candles, t)
         above_vwap = spot is not None and vwap is not None and spot > vwap
         below_vwap = spot is not None and vwap is not None and spot < vwap
         trend_bullish = trend5m is not None and trend5m > PRICE_TREND_EPS
         trend_bearish = trend5m is not None and trend5m < -PRICE_TREND_EPS
-        if above_vwap and trend_bullish:
+        if above_vwap and trend_bullish and fresh_high:
             price_state: PriceState = "bullish"
-        elif below_vwap and trend_bearish:
+        elif below_vwap and trend_bearish and fresh_low:
             price_state = "bearish"
         else:
             price_state = "neutral"
@@ -251,6 +273,16 @@ def enrich_with_upgraded_signal(points: list[dict[str, Any]], candles: list[dict
             + (1 if pe_iv_state == "supportive" else 0)
         )
 
+        # VIX/IV "risky" (a rapid spike, not a moderate rise) vetoes entry --
+        # backtesting against a real losing NIFTY trade found IV flagged
+        # "risky" right at entry: a rapid IV spike alongside a sharp price
+        # move is a classic capitulation/exhaustion signature, not genuine
+        # continuation. upgrade.md itself frames VIX/IV as a caution filter
+        # (sections 10-11); this was being scored but never actually gated
+        # a trade on it.
+        ce_quality_ok = vix_state != "risky" and ce_iv_state != "risky"
+        pe_quality_ok = vix_state != "risky" and pe_iv_state != "risky"
+
         raw_ce_ok = (
             ce_score >= CE_ENTRY_SCORE
             and (ce_score - pe_score) >= MIN_SCORE_DIFFERENCE
@@ -258,6 +290,7 @@ def enrich_with_upgraded_signal(points: list[dict[str, Any]], candles: list[dict
             and oi_state != "bearish"
             and price_state == "bullish"
             and ce_premium_rising
+            and ce_quality_ok
         )
         raw_pe_ok = (
             pe_score >= PE_ENTRY_SCORE
@@ -266,6 +299,7 @@ def enrich_with_upgraded_signal(points: list[dict[str, Any]], candles: list[dict
             and oi_state != "bullish"
             and price_state == "bearish"
             and pe_premium_rising
+            and pe_quality_ok
         )
         raw_signal: Signal = "buyCe" if raw_ce_ok else "buyPe" if raw_pe_ok else "noTrade"
         regime = _classify_regime(pcr_state, oi_state, price_state, ce_score, pe_score)
