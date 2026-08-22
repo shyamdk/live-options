@@ -4,6 +4,7 @@ import { ChevronDown, ChevronRight, Save } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { getPaperTrades, getPaperTradingSettings, updatePaperTradingSettings } from "@/lib/api";
+import { isMarketHoursNow } from "@/lib/marketHours";
 import type { PaperTrade, PaperTradingSettings } from "@/types/live";
 
 const REFRESH_MS = 60000;
@@ -76,7 +77,9 @@ export default function PaperTradingPanel() {
     }
 
     load();
-    const timer = window.setInterval(load, REFRESH_MS);
+    const timer = window.setInterval(() => {
+      if (isMarketHoursNow()) load();
+    }, REFRESH_MS);
     return () => {
       cancelled = true;
       window.clearInterval(timer);

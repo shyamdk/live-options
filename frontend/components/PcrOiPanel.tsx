@@ -19,6 +19,7 @@ import { ChevronDown, ChevronRight, Maximize2, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import { getPcrOiSessionDates, getPcrOiSnapshots, getTradeCandles } from "@/lib/api";
+import { isMarketHoursNow } from "@/lib/marketHours";
 import type { ConfidenceLevel, MarketCandle, PcrOiPayload, PcrOiSnapshot } from "@/types/live";
 
 const PANEL_REFRESH_MS = 120000;
@@ -164,7 +165,9 @@ export default function PcrOiPanel() {
         active = false;
       };
     }
-    const timer = window.setInterval(load, PANEL_REFRESH_MS);
+    const timer = window.setInterval(() => {
+      if (isMarketHoursNow()) load();
+    }, PANEL_REFRESH_MS);
     return () => {
       active = false;
       window.clearInterval(timer);
@@ -1040,7 +1043,9 @@ function PriceSignalChart({
     load();
     // A past session's candles are final -- no need to poll them.
     if (sessionDate) return () => { cancelled = true; };
-    const timer = window.setInterval(load, CANDLE_REFRESH_MS);
+    const timer = window.setInterval(() => {
+      if (isMarketHoursNow()) load();
+    }, CANDLE_REFRESH_MS);
     return () => {
       cancelled = true;
       window.clearInterval(timer);

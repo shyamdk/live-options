@@ -15,6 +15,7 @@ import {
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 
 import { approveRiskExit, closeTrade, getDhanSession, getLiveTrades, getTradeCandles, loginDhan, saveTradeLevels } from "@/lib/api";
+import { isMarketHoursNow } from "@/lib/marketHours";
 import type { DhanSession, LiveTrade, LiveTradeSnapshot, MarketCandle } from "@/types/live";
 import PaperTradingPanel from "@/components/PaperTradingPanel";
 import PcrOiPanel from "@/components/PcrOiPanel";
@@ -112,8 +113,12 @@ export default function ManageTradesPage() {
       Notification.requestPermission();
     }
     load();
-    const tradeTimer = window.setInterval(loadTrades, TRADE_REFRESH_MS);
-    const sessionTimer = window.setInterval(loadSession, SESSION_REFRESH_MS);
+    const tradeTimer = window.setInterval(() => {
+      if (isMarketHoursNow()) loadTrades();
+    }, TRADE_REFRESH_MS);
+    const sessionTimer = window.setInterval(() => {
+      if (isMarketHoursNow()) loadSession();
+    }, SESSION_REFRESH_MS);
     return () => {
       window.clearInterval(tradeTimer);
       window.clearInterval(sessionTimer);
@@ -689,7 +694,9 @@ function TradeChart({ trade }: { trade: LiveTrade }) {
       }
     }
     load();
-    const timer = window.setInterval(load, TRADE_CHART_REFRESH_MS);
+    const timer = window.setInterval(() => {
+      if (isMarketHoursNow()) load();
+    }, TRADE_CHART_REFRESH_MS);
     return () => {
       cancelled = true;
       window.clearInterval(timer);
@@ -858,7 +865,9 @@ function StrategyChartCard({ group }: { group: TagGroup }) {
       }
     }
     load();
-    const timer = window.setInterval(load, TRADE_CHART_REFRESH_MS);
+    const timer = window.setInterval(() => {
+      if (isMarketHoursNow()) load();
+    }, TRADE_CHART_REFRESH_MS);
     return () => {
       cancelled = true;
       window.clearInterval(timer);

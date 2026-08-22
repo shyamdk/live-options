@@ -4,6 +4,7 @@ import { ArrowDownRight, ArrowUpRight } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { getMarketIndices } from "@/lib/api";
+import { isMarketHoursNow } from "@/lib/marketHours";
 import type { MarketIndex } from "@/types/live";
 
 const numberFormat = new Intl.NumberFormat("en-IN", { maximumFractionDigits: 2, minimumFractionDigits: 2 });
@@ -33,7 +34,9 @@ export default function MarketStrip() {
       }
     }
     load();
-    const timer = window.setInterval(load, MARKET_REFRESH_MS);
+    const timer = window.setInterval(() => {
+      if (isMarketHoursNow()) load();
+    }, MARKET_REFRESH_MS);
     return () => {
       active = false;
       window.clearInterval(timer);
