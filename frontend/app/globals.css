@@ -568,6 +568,17 @@ button:disabled {
   cursor: pointer;
 }
 
+.strategy-chart-card {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 4px 14px 14px;
+  margin-top: 12px;
+}
+
+.strategy-chart-card:first-of-type {
+  margin-top: 8px;
+}
+
 .pcr-oi-session-row {
   display: flex;
   align-items: center;

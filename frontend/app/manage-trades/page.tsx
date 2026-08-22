@@ -1,7 +1,17 @@
 "use client";
 
-import { CandlestickSeries, ColorType, createChart, IChartApi, ISeriesApi, Time, UTCTimestamp } from "lightweight-charts";
-import { CandlestickChart, LogIn, RefreshCcw, Save, ShieldAlert, ShieldCheck, SquareArrowOutUpRight } from "lucide-react";
+import { CandlestickSeries, ColorType, createChart, IChartApi, ISeriesApi, LineSeries, Time, UTCTimestamp } from "lightweight-charts";
+import {
+  CandlestickChart,
+  ChevronDown,
+  ChevronRight,
+  LogIn,
+  RefreshCcw,
+  Save,
+  ShieldAlert,
+  ShieldCheck,
+  SquareArrowOutUpRight,
+} from "lucide-react";
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 
 import { approveRiskExit, closeTrade, getDhanSession, getLiveTrades, getTradeCandles, loginDhan, saveTradeLevels } from "@/lib/api";
@@ -28,6 +38,14 @@ const SESSION_REFRESH_MS = secondsToMs(process.env.NEXT_PUBLIC_SESSION_REFRESH_S
 const RISK_ALERT_REPEAT_MS = 15_000;
 const AWAITING_APPROVAL_KINDS = new Set(["stopLossSignal", "targetSignal", "orderFailed"]);
 const TRADE_CHART_REFRESH_MS = secondsToMs(process.env.NEXT_PUBLIC_TRADE_CHART_REFRESH_SECONDS, 20);
+const STRATEGY_PRICE_COLOR = "#2368b6";
+const STRATEGY_VWAP_COLOR = "#a56513";
+type StrategyInterval = "1" | "3" | "5";
+const STRATEGY_INTERVAL_OPTIONS: { value: StrategyInterval; label: string }[] = [
+  { value: "1", label: "1m" },
+  { value: "3", label: "3m" },
+  { value: "5", label: "5m" },
+];
 
 export default function ManageTradesPage() {
   const [session, setSession] = useState<DhanSession | null>(null);
@@ -258,6 +276,21 @@ export default function ManageTradesPage() {
           onToggleExpand={toggleExpand}
         />
       ))}
+
+      {groupsByTag.some((group) => group.openTrades.length > 0) ? (
+        <div className="pcr-oi-section">
+          <h3>Strategy Charts</h3>
+          <p className="pcr-oi-caption" style={{ margin: 0 }}>
+            One combined chart per label -- Strategy Price is the sum of each open leg's LTP, Strategy VWAP is the
+            same series volume-weighted (each leg's own traded volume, combined) since session start.
+          </p>
+          {groupsByTag
+            .filter((group) => group.openTrades.length > 0)
+            .map((group) => (
+              <StrategyChartCard key={group.tag} group={group} />
+            ))}
+        </div>
+      ) : null}
 
       {!loading && !closedTrades.length && !optionTrades.length && !snapshot?.groups.equity.length ? <div className="empty-state">No positions returned by Dhan.</div> : null}
     </section>
@@ -731,6 +764,183 @@ function TradeChart({ trade }: { trade: LiveTrade }) {
       <div className="subtext">5m candles — {tradeLabel(trade)}</div>
       {error ? <div className="alert error">{error}</div> : null}
       <div ref={containerRef} style={{ width: "100%" }} />
+    </div>
+  );
+}
+
+type StrategyPoint = { time: number; price: number; volume: number };
+
+/** Sums each leg's close (Strategy Price) and volume at matching 1-minute
+ * timestamps. Only keeps timestamps where every leg reported a candle --
+ * a partial sum from a mid-session gap in just one leg would silently
+ * understate the combined price rather than reflect a real reading.
+ */
+function combineLegCandles(legCandleArrays: MarketCandle[][]): StrategyPoint[] {
+  const byTime = new Map<number, { price: number; volume: number; legCount: number }>();
+  for (const candles of legCandleArrays) {
+    for (const candle of candles) {
+      const existing = byTime.get(candle.time) ?? { price: 0, volume: 0, legCount: 0 };
+      existing.price += candle.close;
+      existing.volume += candle.volume ?? 0;
+      existing.legCount += 1;
+      byTime.set(candle.time, existing);
+    }
+  }
+  return Array.from(byTime.entries())
+    .filter(([, v]) => v.legCount === legCandleArrays.length)
+    .map(([time, v]) => ({ time, price: v.price, volume: v.volume }))
+    .sort((a, b) => a.time - b.time);
+}
+
+function resampleStrategyPoints(points: StrategyPoint[], groupSize: number): StrategyPoint[] {
+  if (groupSize <= 1) return points;
+  const out: StrategyPoint[] = [];
+  for (let i = 0; i < points.length; i += groupSize) {
+    const group = points.slice(i, i + groupSize);
+    if (!group.length) continue;
+    out.push({
+      time: group[0].time,
+      price: group[group.length - 1].price,
+      volume: group.reduce((sum, p) => sum + p.volume, 0),
+    });
+  }
+  return out;
+}
+
+function withStrategyVwap(points: StrategyPoint[]): { time: number; price: number; vwap: number }[] {
+  let cumPriceVolume = 0;
+  let cumVolume = 0;
+  return points.map((p) => {
+    cumPriceVolume += p.price * p.volume;
+    cumVolume += p.volume;
+    return { time: p.time, price: p.price, vwap: cumVolume > 0 ? cumPriceVolume / cumVolume : p.price };
+  });
+}
+
+function StrategyChartCard({ group }: { group: TagGroup }) {
+  const [expanded, setExpanded] = useState(false);
+  const [chartInterval, setChartInterval] = useState<StrategyInterval>("5");
+  const [series, setSeries] = useState<{ time: number; price: number; vwap: number }[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const chartRef = useRef<IChartApi | null>(null);
+  const priceSeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
+  const vwapSeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
+
+  const legs = useMemo(
+    () => group.openTrades.filter((trade) => trade.securityId && trade.exchangeSegment),
+    [group.openTrades],
+  );
+  const legsKey = legs.map((trade) => trade.securityId).join(",");
+
+  useEffect(() => {
+    if (!expanded || !legs.length) return;
+    let cancelled = false;
+    async function load() {
+      try {
+        const results = await Promise.all(
+          legs.map((trade) =>
+            getTradeCandles({
+              securityId: trade.securityId as string,
+              exchangeSegment: trade.exchangeSegment as string,
+              instrument: trade.instrument || "OPTIDX",
+              interval: "1",
+            }),
+          ),
+        );
+        if (cancelled) return;
+        const combined = combineLegCandles(results.map((r) => r.candles));
+        const resampled = resampleStrategyPoints(combined, Number(chartInterval));
+        setSeries(withStrategyVwap(resampled));
+        setError(null);
+      } catch (exc) {
+        if (!cancelled) setError(exc instanceof Error ? exc.message : "Failed to load strategy candles.");
+      }
+    }
+    load();
+    const timer = window.setInterval(load, TRADE_CHART_REFRESH_MS);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [expanded, chartInterval, legsKey]);
+
+  useEffect(() => {
+    if (!expanded || !containerRef.current || chartRef.current) return;
+    const chart = createChart(containerRef.current, {
+      layout: { background: { type: ColorType.Solid, color: "#ffffff" }, textColor: "#252a32" },
+      grid: { vertLines: { color: "#edf0f4" }, horzLines: { color: "#edf0f4" } },
+      width: containerRef.current.clientWidth,
+      height: 280,
+      timeScale: { timeVisible: true, secondsVisible: false, tickMarkFormatter: (time: Time) => formatIstTime(time) },
+      localization: { timeFormatter: (time: Time) => formatIstTime(time) },
+    });
+    priceSeriesRef.current = chart.addSeries(LineSeries, { color: STRATEGY_PRICE_COLOR, lineWidth: 2, title: "Strategy Price" });
+    vwapSeriesRef.current = chart.addSeries(LineSeries, { color: STRATEGY_VWAP_COLOR, lineWidth: 2, title: "Strategy VWAP" });
+    chartRef.current = chart;
+
+    const resizeObserver = new ResizeObserver(() => {
+      if (containerRef.current) chart.applyOptions({ width: containerRef.current.clientWidth });
+    });
+    resizeObserver.observe(containerRef.current);
+
+    return () => {
+      resizeObserver.disconnect();
+      chart.remove();
+      chartRef.current = null;
+      priceSeriesRef.current = null;
+      vwapSeriesRef.current = null;
+    };
+  }, [expanded]);
+
+  useEffect(() => {
+    priceSeriesRef.current?.setData(series.map((p) => ({ time: p.time as UTCTimestamp, value: p.price })));
+    vwapSeriesRef.current?.setData(series.map((p) => ({ time: p.time as UTCTimestamp, value: p.vwap })));
+  }, [series]);
+
+  return (
+    <div className="strategy-chart-card">
+      <div className="section-title pcr-oi-title" onClick={() => setExpanded((v) => !v)}>
+        <h2 style={{ display: "inline-flex", alignItems: "center", gap: 8, fontSize: 15 }}>
+          <button className="icon-button" type="button" title={expanded ? "Collapse" : "Expand"}>
+            {expanded ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
+          </button>
+          {group.tag}
+        </h2>
+        <span className="subtext">
+          {legs.length} open leg{legs.length === 1 ? "" : "s"} — {legs.map((trade) => tradeLabel(trade)).join(", ")}
+        </span>
+      </div>
+      {expanded ? (
+        <div onClick={(event) => event.stopPropagation()}>
+          {!legs.length ? (
+            <p className="pcr-oi-caption">No open legs with a resolvable security id in this group.</p>
+          ) : (
+            <>
+              <div className="pcr-oi-session-row" style={{ marginTop: 0 }}>
+                <label className="subtext" htmlFor={`strategy-interval-${group.tag}`}>
+                  Refresh
+                </label>
+                <select
+                  id={`strategy-interval-${group.tag}`}
+                  className="pcr-oi-session-select"
+                  value={chartInterval}
+                  onChange={(event) => setChartInterval(event.target.value as StrategyInterval)}
+                >
+                  {STRATEGY_INTERVAL_OPTIONS.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              {error ? <div className="alert error">{error}</div> : null}
+              <div ref={containerRef} style={{ width: "100%" }} />
+            </>
+          )}
+        </div>
+      ) : null}
     </div>
   );
 }

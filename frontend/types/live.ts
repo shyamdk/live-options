@@ -74,6 +74,7 @@ export type MarketCandle = {
   high: number;
   low: number;
   close: number;
+  volume?: number | null;
 };
 
 export type MarketCandlesResponse = {
