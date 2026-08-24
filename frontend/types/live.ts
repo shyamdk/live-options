@@ -389,3 +389,8 @@ export type PaperTradingSettings = {
   sensexLots: number;
   sensexLotSize: number;
 };
+
+export type ChatMessage = {
+  role: "user" | "assistant";
+  content: string;
+};

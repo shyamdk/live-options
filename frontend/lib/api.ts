@@ -2,6 +2,7 @@ import type {
   AuthSession,
   AuthStatus,
   BacktestReport,
+  ChatMessage,
   DhanSession,
   Journal,
   JournalInsights,
@@ -405,5 +406,13 @@ export async function updatePaperTradingSettings(
     "/api/paper-trading/settings",
     { method: "PUT", body: JSON.stringify(fields) },
     "Failed to save paper trading settings",
+  );
+}
+
+export async function askAssistant(question: string, history: ChatMessage[]): Promise<{ answer: string }> {
+  return apiJson<{ answer: string }>(
+    "/api/assistant/ask",
+    { method: "POST", body: JSON.stringify({ question, history }) },
+    "Failed to reach the assistant",
   );
 }

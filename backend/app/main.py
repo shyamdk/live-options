@@ -5,6 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.animesh import router as animesh_router
 from app.api.app_auth import router as app_auth_router
+from app.api.assistant import router as assistant_router
 from app.api.auth import router as auth_router
 from app.api.credit_spread import router as credit_spread_router
 from app.api.ema5 import router as ema5_router
@@ -107,6 +108,7 @@ async def health() -> dict[str, str]:
 
 app.include_router(auth_router, prefix=settings.api_prefix)
 app.include_router(app_auth_router, prefix=settings.api_prefix)
+app.include_router(assistant_router, prefix=settings.api_prefix)
 app.include_router(journals_router, prefix=settings.api_prefix)
 app.include_router(market_router, prefix=settings.api_prefix)
 app.include_router(trades_router, prefix=settings.api_prefix)

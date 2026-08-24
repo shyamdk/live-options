@@ -4,6 +4,7 @@ import { LockKeyhole } from "lucide-react";
 import { FormEvent, useEffect, useState } from "react";
 
 import AppSidebar from "@/components/AppSidebar";
+import AssistantChat from "@/components/AssistantChat";
 import MarketNewsTicker from "@/components/MarketNewsTicker";
 import MarketStrip from "@/components/MarketStrip";
 import { clearAuthToken, getAuthSession, getAuthStatus, loginApp } from "@/lib/api";
@@ -100,6 +101,7 @@ export default function AuthShell({ children }: Readonly<{ children: React.React
         <MarketNewsTicker />
         {children}
       </main>
+      <AssistantChat />
     </div>
   );
 }
