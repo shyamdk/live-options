@@ -8,6 +8,7 @@ from app.api.app_auth import router as app_auth_router
 from app.api.assistant import router as assistant_router
 from app.api.auth import router as auth_router
 from app.api.credit_spread import router as credit_spread_router
+from app.api.crypto_swing import router as crypto_swing_router
 from app.api.ema5 import router as ema5_router
 from app.api.gamma_blast import router as gamma_blast_router
 from app.api.journals import router as journals_router
@@ -118,3 +119,4 @@ app.include_router(animesh_router, prefix=settings.api_prefix)
 app.include_router(credit_spread_router, prefix=settings.api_prefix)
 app.include_router(theta_router, prefix=settings.api_prefix)
 app.include_router(paper_trading_router, prefix=settings.api_prefix)
+app.include_router(crypto_swing_router, prefix=settings.api_prefix)

@@ -72,6 +72,17 @@ class DeltaExchangeService:
         result = await self._request("GET", "/v2/wallet/balances")
         return result if isinstance(result, list) else []
 
+    async def get_ticker(self, symbol: str) -> dict[str, Any]:
+        """Public market data (no signing needed) -- symbol is a Delta
+        perpetual-futures product like "BTCUSD" / "ETHUSD".
+        """
+        async with httpx.AsyncClient(timeout=20) as client:
+            response = await client.get(f"{self._settings.delta_exchange_base_url}/v2/tickers/{symbol}")
+        payload = response.json()
+        if response.status_code >= 400 or not payload.get("success"):
+            raise DeltaExchangeError(f"Delta Exchange ticker error ({response.status_code}): {payload}")
+        return payload.get("result") or {}
+
 
 async def _check_connection() -> None:
     service = DeltaExchangeService()

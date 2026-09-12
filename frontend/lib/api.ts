@@ -22,6 +22,7 @@ import type { Ema5CandlesResponse, Ema5Config, Ema5Session, Ema5SessionDetail, E
 import type { AnimeshCandlesResponse, AnimeshSession, AnimeshSessionDetail, AnimeshSide, AnimeshState } from "@/types/animesh";
 import type { CreditSpreadState } from "@/types/credit-spread";
 import type { ThetaRuntimeConfig, ThetaSession, ThetaSessionDetail, ThetaState } from "@/types/theta";
+import type { CryptoSwingWallet } from "@/types/crypto-swing";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8001";
 const AUTH_TOKEN_KEY = "live-options-auth-token";
@@ -407,6 +408,10 @@ export async function updatePaperTradingSettings(
     { method: "PUT", body: JSON.stringify(fields) },
     "Failed to save paper trading settings",
   );
+}
+
+export async function getCryptoSwingWallet(): Promise<CryptoSwingWallet> {
+  return apiJson<CryptoSwingWallet>("/api/crypto-swing/wallet", undefined, "Failed to load Delta Exchange wallet");
 }
 
 export async function askAssistant(question: string, history: ChatMessage[]): Promise<{ answer: string }> {

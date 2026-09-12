@@ -154,5 +154,7 @@ async def indices() -> dict:
                 {"name": "Bank Nifty", "lastPrice": None, "change": None, "percentChange": None},
                 {"name": "Sensex", "lastPrice": None, "change": None, "percentChange": None},
                 {"name": "India VIX", "lastPrice": None, "change": None, "percentChange": None},
+                {"name": "BTC/USD", "lastPrice": None, "change": None, "percentChange": None},
+                {"name": "ETH/USD", "lastPrice": None, "change": None, "percentChange": None},
             ],
         }

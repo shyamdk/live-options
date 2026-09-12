@@ -5,6 +5,7 @@ import time
 from typing import Any
 
 from app.core.config import Settings, get_settings
+from app.services.delta_exchange import DeltaExchangeService
 from app.services.dhan import DhanService
 
 
@@ -57,9 +58,37 @@ class MarketService:
                 self._index("Bank Nifty", data.get(str(self.settings.dhan_banknifty_security_id), {})),
                 self._index("Sensex", data.get(str(self.settings.dhan_sensex_security_id), {})),
                 self._index("India VIX", data.get(str(india_vix_security_id), {})),
+                *(await self._crypto_indices()),
             ],
         }
         return payload
+
+    async def _crypto_indices(self) -> list[dict[str, Any]]:
+        # Best-effort -- a Delta Exchange hiccup shouldn't take down the
+        # NIFTY/SENSEX strip, which is the primary thing this panel is for.
+        delta = DeltaExchangeService(self.settings)
+        results = []
+        for label, symbol in (("BTC/USD", "BTCUSD"), ("ETH/USD", "ETHUSD")):
+            try:
+                ticker = await delta.get_ticker(symbol)
+                results.append(self._crypto_index(label, ticker))
+            except Exception:
+                results.append({"name": label, "lastPrice": None, "change": None, "percentChange": None})
+        return results
+
+    def _crypto_index(self, name: str, ticker: dict[str, Any]) -> dict[str, Any]:
+        last_price = _number(ticker.get("close"))
+        open_price = _number(ticker.get("open"))
+        change = (last_price - open_price) if last_price is not None and open_price else None
+        percent_change = _number(ticker.get("ltp_change_24h"))
+        if percent_change is None and change is not None and open_price:
+            percent_change = change / open_price * 100
+        return {
+            "name": name,
+            "lastPrice": last_price,
+            "change": round(change, 2) if change is not None else None,
+            "percentChange": round(percent_change, 2) if percent_change is not None else None,
+        }
 
     def _stale_payload(self, warning: str) -> dict[str, Any] | None:
         if not _MARKET_CACHE:
