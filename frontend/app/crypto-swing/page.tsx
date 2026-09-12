@@ -14,8 +14,8 @@ import {
 import { Bitcoin, RefreshCw } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
-import { getCryptoSwingCandles, getCryptoSwingWallet } from "@/lib/api";
-import type { CryptoSwingIndicators, CryptoSwingSymbol, CryptoSwingWallet } from "@/types/crypto-swing";
+import { getCryptoSwingCandles, getCryptoSwingTrades, getCryptoSwingWallet } from "@/lib/api";
+import type { CryptoSwingIndicators, CryptoSwingSymbol, CryptoSwingTrade, CryptoSwingWallet } from "@/types/crypto-swing";
 
 function assetLabel(row: CryptoSwingWallet["balances"][number]): string {
   return row.asset_symbol ?? row.asset?.symbol ?? "?";
@@ -28,10 +28,134 @@ function fmtAmount(value: string | number | undefined): string {
 }
 
 const CANDLES_REFRESH_MS = secondsToMs(process.env.NEXT_PUBLIC_CRYPTO_SWING_CANDLES_REFRESH_SECONDS, 60);
+const TRADES_REFRESH_MS = secondsToMs(process.env.NEXT_PUBLIC_CRYPTO_SWING_TRADES_REFRESH_SECONDS, 30);
 
 function secondsToMs(value: string | undefined, fallbackSeconds: number): number {
   const seconds = Number(value);
   return Number.isFinite(seconds) && seconds > 0 ? seconds * 1000 : fallbackSeconds * 1000;
+}
+
+function fmtDateTime(epochSeconds: number | null | undefined): string {
+  if (!epochSeconds) return "—";
+  return new Date(epochSeconds * 1000).toLocaleString("en-IN", {
+    timeZone: "Asia/Kolkata",
+    day: "2-digit",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+}
+
+function fmtPrice(value: number | null | undefined): string {
+  if (value === null || value === undefined) return "—";
+  return value.toLocaleString("en-IN", { maximumFractionDigits: 2, minimumFractionDigits: 2 });
+}
+
+function fmtPnl(pct: number | null | undefined, amount: number | null | undefined): string {
+  if (pct === null || pct === undefined || amount === null || amount === undefined) return "—";
+  const sign = pct >= 0 ? "+" : "";
+  return `${sign}${pct.toFixed(2)}% (${sign}$${amount.toFixed(2)})`;
+}
+
+const EXIT_REASON_LABEL: Record<string, string> = { trap_confirmed_reversal: "Trend reversal confirmed" };
+
+function PaperTradesPanel() {
+  const [trades, setTrades] = useState<CryptoSwingTrade[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  async function load() {
+    setLoading(true);
+    try {
+      const payload = await getCryptoSwingTrades();
+      setTrades(payload.trades);
+      setError(null);
+    } catch (exc) {
+      setError(exc instanceof Error ? exc.message : "Failed to load paper trades.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    load();
+    const timer = window.setInterval(load, TRADES_REFRESH_MS);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  const usable = trades.filter((t) => t.status !== "error");
+  const errors = trades.filter((t) => t.status === "error");
+
+  return (
+    <div className="pcr-oi-section">
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <h3 style={{ margin: 0 }}>Paper trades</h3>
+        <button type="button" className="button secondary" onClick={load} disabled={loading}>
+          <RefreshCw size={14} /> {loading ? "Refreshing…" : "Refresh"}
+        </button>
+      </div>
+      <p className="pcr-oi-caption" style={{ margin: "4px 0 10px" }}>
+        Simulated only -- replayed deterministically from the 3-way confirmation strategy against 30m candle history.
+        No real orders are placed.
+      </p>
+      {error ? <div className="alert error">{error}</div> : null}
+      {errors.map((t) => (
+        <div className="alert error" key={t.symbol}>
+          {t.symbol}: {t.error}
+        </div>
+      ))}
+      {usable.length === 0 ? (
+        <p className="pcr-oi-caption">No trades yet -- the strategy hasn&apos;t fired an entry signal in the fetched history.</p>
+      ) : (
+        <div style={{ overflowX: "auto" }}>
+          <table>
+            <thead>
+              <tr>
+                <th>Symbol</th>
+                <th>Side</th>
+                <th>Status</th>
+                <th>Entry time</th>
+                <th>Entry price</th>
+                <th>Tranches</th>
+                <th>Current price</th>
+                <th>Current P&amp;L</th>
+                <th>Stop</th>
+                <th>Exit time</th>
+                <th>Exit price</th>
+                <th>Exit reason</th>
+              </tr>
+            </thead>
+            <tbody>
+              {usable.map((t, i) => {
+                const isOpen = t.status === "open";
+                const pnlPct = isOpen ? t.unrealizedPnlPercent : t.pnlPercent;
+                const pnlAmount = isOpen ? t.unrealizedPnlAmount : t.pnlAmount;
+                return (
+                  <tr key={`${t.symbol}-${t.entryTime}-${i}`}>
+                    <td>{t.symbol}</td>
+                    <td>
+                      <span className={`badge ${t.side === "long" ? "buy" : "sell"}`}>{t.side === "long" ? "LONG" : "SHORT"}</span>
+                    </td>
+                    <td>{isOpen ? <span className="badge buy">OPEN</span> : "Closed"}</td>
+                    <td>{fmtDateTime(t.entryTime)}</td>
+                    <td>{fmtPrice(t.entryPrice)}</td>
+                    <td>{t.tranches}</td>
+                    <td>{isOpen ? fmtPrice(t.currentPrice) : "—"}</td>
+                    <td style={{ color: (pnlPct ?? 0) >= 0 ? "var(--green)" : "var(--red)" }}>{fmtPnl(pnlPct, pnlAmount)}</td>
+                    <td>{fmtPrice(t.stopLoss)}</td>
+                    <td>{fmtDateTime(t.exitTime)}</td>
+                    <td>{fmtPrice(t.exitPrice)}</td>
+                    <td>{t.exitReason ? EXIT_REASON_LABEL[t.exitReason] ?? t.exitReason : "—"}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
 }
 
 export default function CryptoSwingPage() {
@@ -73,6 +197,8 @@ export default function CryptoSwingPage() {
           </button>
         </div>
       </header>
+
+      <PaperTradesPanel />
 
       {error ? <div className="alert error">{error}</div> : null}
 

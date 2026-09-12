@@ -93,16 +93,23 @@ def supertrend(
         prev_final_lower = final_lower[i - 1] if i > 0 else None
         prev_close = float(candles[i - 1]["close"]) if i > 0 else None
 
-        final_upper[i] = (
-            min(basic_upper, prev_final_upper)
-            if prev_final_upper is not None and prev_close is not None and prev_close > prev_final_upper
-            else basic_upper
-        )
-        final_lower[i] = (
-            max(basic_lower, prev_final_lower)
-            if prev_final_lower is not None and prev_close is not None and prev_close < prev_final_lower
-            else basic_lower
-        )
+        # The band only "moves toward price" (tightens); it holds its prior
+        # value whenever the new basic band would loosen it and price
+        # hasn't already broken through -- that's what makes it a trailing
+        # stop instead of just redrawing the raw ATR band every candle.
+        if prev_final_upper is None:
+            final_upper[i] = basic_upper
+        elif basic_upper < prev_final_upper or (prev_close is not None and prev_close > prev_final_upper):
+            final_upper[i] = basic_upper
+        else:
+            final_upper[i] = prev_final_upper
+
+        if prev_final_lower is None:
+            final_lower[i] = basic_lower
+        elif basic_lower > prev_final_lower or (prev_close is not None and prev_close < prev_final_lower):
+            final_lower[i] = basic_lower
+        else:
+            final_lower[i] = prev_final_lower
 
         prev_direction = directions[i - 1] if i > 0 else None
         if prev_direction is None:

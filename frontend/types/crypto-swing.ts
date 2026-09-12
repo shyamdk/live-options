@@ -21,6 +21,26 @@ export interface CryptoCandle {
 
 export type CryptoSwingSymbol = "BTCUSD" | "ETHUSD";
 
+export interface CryptoSwingTrade {
+  symbol: CryptoSwingSymbol;
+  side: "long" | "short";
+  status: "open" | "closed" | "error";
+  error?: string;
+  entryTime: number | null;
+  entryPrice: number | null;
+  tranches: number;
+  quantity: number;
+  stopLoss?: number;
+  exitTime: number | null;
+  exitPrice: number | null;
+  exitReason: string | null;
+  pnlPercent: number | null;
+  pnlAmount: number | null;
+  currentPrice?: number | null;
+  unrealizedPnlPercent?: number | null;
+  unrealizedPnlAmount?: number | null;
+}
+
 export interface CryptoSwingIndicators {
   symbol?: CryptoSwingSymbol;
   resolution?: string;
