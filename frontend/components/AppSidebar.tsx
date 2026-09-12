@@ -1,19 +1,19 @@
 "use client";
 
-import { BarChart3, BookOpenText, BriefcaseBusiness, ChevronLeft, ChevronRight, Coins, Lightbulb, RadioTower } from "lucide-react";
+import { BookOpenText, BriefcaseBusiness, ChevronLeft, ChevronRight, Lightbulb, RadioTower } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 
-// Gamma Blast, ema5, animesh-scalping, and BN Credit Spread are archived --
-// their pages/background monitors still exist (see .env's *_MONITOR_ENABLED
-// flags) but are intentionally kept off the nav to declutter around Theta
-// Book as the active strategy. Re-add the entry + flip the flag to unarchive.
+// Gamma Blast, ema5, animesh-scalping, BN Credit Spread, Theta Book, and OI
+// Analysis are archived -- their pages/background monitors still exist (see
+// .env's *_MONITOR_ENABLED flags -- OI Analysis has none of its own, since
+// its pcr_oi data feed is shared with OI Upgraded/OI Improvements, which
+// stay active) but are intentionally kept off the nav around the current
+// active strategy. Re-add the entry + flip the flag to unarchive.
 const navItems = [
   { href: "/manage-trades", label: "Manage Trades", short: "MT", icon: BriefcaseBusiness },
   { href: "/trade-journals", label: "Trade Journals", short: "TJ", icon: BookOpenText },
-  { href: "/theta-book", label: "Theta Book", short: "TB", icon: Coins },
-  { href: "/oi-analysis", label: "OI Analysis", short: "OI", icon: BarChart3 },
   { href: "/oi-upgraded", label: "OI - Upgraded", short: "OU", icon: RadioTower },
   { href: "/oi-improvements", label: "OI Improvements", short: "IM", icon: Lightbulb },
 ];
