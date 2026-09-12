@@ -22,7 +22,7 @@ import type { Ema5CandlesResponse, Ema5Config, Ema5Session, Ema5SessionDetail, E
 import type { AnimeshCandlesResponse, AnimeshSession, AnimeshSessionDetail, AnimeshSide, AnimeshState } from "@/types/animesh";
 import type { CreditSpreadState } from "@/types/credit-spread";
 import type { ThetaRuntimeConfig, ThetaSession, ThetaSessionDetail, ThetaState } from "@/types/theta";
-import type { CryptoSwingWallet } from "@/types/crypto-swing";
+import type { CryptoSwingIndicators, CryptoSwingSymbol, CryptoSwingWallet } from "@/types/crypto-swing";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8001";
 const AUTH_TOKEN_KEY = "live-options-auth-token";
@@ -412,6 +412,14 @@ export async function updatePaperTradingSettings(
 
 export async function getCryptoSwingWallet(): Promise<CryptoSwingWallet> {
   return apiJson<CryptoSwingWallet>("/api/crypto-swing/wallet", undefined, "Failed to load Delta Exchange wallet");
+}
+
+export async function getCryptoSwingCandles(symbol: CryptoSwingSymbol, resolution = "30m"): Promise<CryptoSwingIndicators> {
+  return apiJson<CryptoSwingIndicators>(
+    `/api/crypto-swing/candles?symbol=${symbol}&resolution=${resolution}`,
+    undefined,
+    `Failed to load ${symbol} candles`,
+  );
 }
 
 export async function askAssistant(question: string, history: ChatMessage[]): Promise<{ answer: string }> {

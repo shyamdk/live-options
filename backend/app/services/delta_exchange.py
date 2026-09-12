@@ -72,6 +72,20 @@ class DeltaExchangeService:
         result = await self._request("GET", "/v2/wallet/balances")
         return result if isinstance(result, list) else []
 
+    async def get_candles(self, symbol: str, resolution: str, start: int, end: int) -> list[dict[str, Any]]:
+        """Public OHLCV history (no signing needed). `resolution` is Delta's
+        own string format ("30m", "1h", "1d", ...); start/end are unix
+        seconds. Returns newest-first per Delta's API -- callers that need
+        chronological order should reverse it.
+        """
+        params = {"resolution": resolution, "symbol": symbol, "start": start, "end": end}
+        async with httpx.AsyncClient(timeout=20) as client:
+            response = await client.get(f"{self._settings.delta_exchange_base_url}/v2/history/candles", params=params)
+        payload = response.json()
+        if response.status_code >= 400 or not payload.get("success"):
+            raise DeltaExchangeError(f"Delta Exchange candles error ({response.status_code}): {payload}")
+        return payload.get("result") or []
+
     async def get_ticker(self, symbol: str) -> dict[str, Any]:
         """Public market data (no signing needed) -- symbol is a Delta
         perpetual-futures product like "BTCUSD" / "ETHUSD".
