@@ -264,6 +264,8 @@ function CryptoChart({ symbol }: { symbol: CryptoSwingSymbol }) {
   const macdLineSeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
   const signalLineSeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
   const histogramSeriesRef = useRef<ISeriesApi<"Histogram"> | null>(null);
+  const closeByTimeRef = useRef<Map<UTCTimestamp, number>>(new Map());
+  const macdByTimeRef = useRef<Map<UTCTimestamp, number>>(new Map());
 
   const [data, setData] = useState<CryptoSwingIndicators | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -332,6 +334,26 @@ function CryptoChart({ symbol }: { symbol: CryptoSwingSymbol }) {
       if (range) chart.timeScale().setVisibleLogicalRange(range);
     });
 
+    // Crosshair sync -- setCrosshairPosition is a programmatic move, not a
+    // real mouse event, so it doesn't re-trigger these handlers and can't
+    // feed back into an infinite loop between the two charts.
+    chart.subscribeCrosshairMove((param) => {
+      if (!param.point || param.time === undefined) {
+        macdChart.clearCrosshairPosition();
+        return;
+      }
+      const t = param.time as UTCTimestamp;
+      macdChart.setCrosshairPosition(macdByTimeRef.current.get(t) ?? 0, t, macdLine);
+    });
+    macdChart.subscribeCrosshairMove((param) => {
+      if (!param.point || param.time === undefined) {
+        chart.clearCrosshairPosition();
+        return;
+      }
+      const t = param.time as UTCTimestamp;
+      chart.setCrosshairPosition(closeByTimeRef.current.get(t) ?? 0, t, candleSeries);
+    });
+
     chartRef.current = chart;
     candleSeriesRef.current = candleSeries;
     emaSeriesRef.current = emaLine;
@@ -367,6 +389,9 @@ function CryptoChart({ symbol }: { symbol: CryptoSwingSymbol }) {
   useEffect(() => {
     if (!data || !candleSeriesRef.current) return;
     const times = data.candles.map((c) => c.time as UTCTimestamp);
+
+    closeByTimeRef.current = new Map(times.map((t, i) => [t, data.candles[i].close]));
+    macdByTimeRef.current = new Map(times.map((t, i) => [t, data.macdLine[i] ?? 0]));
 
     candleSeriesRef.current.setData(
       data.candles.map((c) => ({ time: c.time as UTCTimestamp, open: c.open, high: c.high, low: c.low, close: c.close })),
