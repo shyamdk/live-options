@@ -71,6 +71,13 @@ class Settings(BaseSettings):
     openai_api_key: str | None = None
     openai_model: str = "gpt-4o"
 
+    # Delta Exchange India -- key+secret HMAC-signed REST API, no browser
+    # session/2FA needed for programmatic access (2FA only gates their web
+    # UI login, which this app never automates).
+    delta_exchange_api_key: str | None = None
+    delta_exchange_api_secret: str | None = None
+    delta_exchange_base_url: str = "https://api.india.delta.exchange"
+
     journal_insights_monitor_enabled: bool = True
     journal_insights_refresh_time: str = "16:00"
     journal_insights_check_interval_seconds: int = 900
