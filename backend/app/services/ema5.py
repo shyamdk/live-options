@@ -33,7 +33,7 @@ from app.services.ema5_engine import (
     filter_completed_candles,
     scan_for_signal,
 )
-from app.services.ema5_instruments import resolve_atm_option, resolve_nearest_expiry
+from app.services.ema5_instruments import resolve_atm_option, resolve_next_expiry
 from app.services.orders import DhanOrderService
 from app.services.telegram import TelegramNotifier
 
@@ -194,7 +194,7 @@ async def _maybe_raise_entry_signal(settings: Settings, session_id: str, side: s
 
     try:
         dhan = DhanService(settings)
-        expiry = await resolve_nearest_expiry(dhan, settings.dhan_nifty_security_id)
+        expiry = await resolve_next_expiry(dhan, settings.dhan_nifty_security_id)
         option = (
             await resolve_atm_option(
                 dhan,

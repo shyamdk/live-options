@@ -290,6 +290,7 @@ export type OiUpgradedPoint = {
   ceScore: number;
   peScore: number;
   rawSignal: UpgradedSignal;
+  earlySignal: UpgradedSignal;
   regime: UpgradedRegime;
   state: UpgradedState;
   persistence: number;
@@ -353,7 +354,10 @@ export type PaperTrade = {
   id: number;
   underlying: "NIFTY" | "SENSEX";
   side: "CE" | "PE";
-  signalType: "signalVsPrice" | "priceBreakout";
+  // "earlySignal" is the only signal type new trades are entered under now;
+  // "signalVsPrice"/"priceBreakout" are retired but kept here since old
+  // trades in history still carry those values.
+  signalType: "earlySignal" | "signalVsPrice" | "priceBreakout";
   strike: number | null;
   expiry: string | null;
   securityId: string | null;
@@ -377,6 +381,13 @@ export type PaperTrade = {
   closedAt: number | null;
   createdAt: string;
   legs: PaperTradeLeg[];
+  // Only populated for open trades (live quote, refetched on every poll) --
+  // null on closed trades, and also null on open ones if the live quote
+  // fetch itself failed (currentPnl still reflects any already-booked legs
+  // in that case). See backend/app/api/paper_trading.py's _with_live_pnl.
+  currentPremium: number | null;
+  unrealizedPnl: number | null;
+  currentPnl: number | null;
 };
 
 export type PaperTradingSettings = {

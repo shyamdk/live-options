@@ -71,3 +71,39 @@ How to dtermine if the market is flatish and i can go slightly inside to get mor
 etc.
 
 First show me the strategy , we will review before we implement.
+
+
+there are another features that i want to implement .
+1. below the nifty , sensex... top bar , create a marquee news scroll which show top 2/3 important 
+news that can afffect nifty / sensex movement. the high impact ones should be highlighted in red.
+
+After the maange trades title
+create another collapable panel on the top,
+section 1 
+fetch pcr data for nifty and sensex 
+plot the pcr data as a chart with time on axis and pcr on y axis(on left - nifty and on the right sensex)
+as the day progresses the chart also shoould plot contiously
+
+section 2
+change in oi plot
+similar to previous plots
+on the left plot change in PE and CE for nifty and for sensex on the right
+PE and CE should be in the same chart
+
+
+there are too many buy signals, 
+is there is way we can combine PCR and generate lesser but more accuirate signals?
+just do the planning and let me know the options?
+
+In the manage trades , at the bottom of the chart, i want to create
+multiple strangle charts based on labels (same label, one chart.). Each 
+chart should be collapsable.
+
+As shown the. image it should have strategy price and strategy vwap, with
+1m, 3m, 5m refresh options.
+
+Let me know if you have any questions
+
+
+
+Create a tab - Crypto

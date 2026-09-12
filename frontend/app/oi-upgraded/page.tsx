@@ -4,6 +4,7 @@ import { FlaskConical, RadioTower, RefreshCcw } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { CE_COLOR, Legend, NIFTY_COLOR, OiChangeChart, PcrChart, PE_COLOR, IvChart } from "@/components/PcrOiPanel";
+import PaperTradingPanel from "@/components/PaperTradingPanel";
 import {
   getOiUpgradedBacktest,
   getOiUpgradedSignal,
@@ -56,6 +57,11 @@ const STATE_DISPLAY: Record<string, { label: string; cls: string }> = {
   cooldown: { label: "COOLDOWN", cls: "cooldown" },
 };
 
+// A confirmed BUY/HOLD already implies (and supersedes) the early read on
+// that same side -- the pill is only useful as a heads-up for what the
+// confirmed signal hasn't caught up to yet.
+const CONFIRMED_STATES = new Set(["buyCe", "holdCe", "buyPe", "holdPe"]);
+
 const LEGEND_ITEMS = [
   {
     title: "State: WATCH → BUY → HOLD → COOLDOWN",
@@ -76,6 +82,10 @@ const LEGEND_ITEMS = [
   {
     title: "Cooldown countdown",
     body: "When the badge shows COOLDOWN, a fresh signal on the opposite side is deliberately held back until the timer clears -- unless the opposite read is very strong (score 9+, fully confirmed), which overrides the block. The SAME direction can still rebuild during cooldown; only a reversal is blocked.",
+  },
+  {
+    title: "⚡ EARLY pill — faster, noisier, PCR+OI only",
+    body: "The confirmed badge above waits for price to print a fresh 8-candle high/low AND 2 consecutive polls to agree -- that's what was causing late entries near the end of a move, not the beginning. The EARLY pill skips both of those and fires the moment PCR + OI positioning alone agree on a direction, since options positioning often leads price. Treat it as a heads-up to start watching, not a trade trigger by itself -- it has none of the confirmed signal's safeguards and will flip more often.",
   },
   {
     title: "Two entry safeguards added after a real losing-trade review",
@@ -234,6 +244,8 @@ export default function OiUpgradedPage() {
 
       <SignalDashboard latest={latest} />
 
+      <PaperTradingPanel />
+
       <div className="pcr-oi-section">
         <h3>How to read this panel</h3>
         <div className="oi-upgraded-legend">
@@ -382,39 +394,19 @@ function SignalDashboard({ latest }: { latest: OiUpgradedPoint | null }) {
     );
   }
 
-  const { state, ceScore, peScore, persistence, exitStreak, cooldownUntil, reasons } = latest;
+  const { state, ceScore, peScore, persistence, exitStreak, cooldownUntil, earlySignal, reasons } = latest;
   const display = STATE_DISPLAY[state] ?? STATE_DISPLAY.noTrade;
   const cooldownRemainingMin = cooldownUntil ? Math.max(0, Math.round((cooldownUntil - latest.time) / 60)) : null;
+  const showEarlyPill = earlySignal !== "noTrade" && !CONFIRMED_STATES.has(state);
+  const earlyLabel = earlySignal === "buyCe" ? "⚡ EARLY — CE building" : "⚡ EARLY — PE building";
+  const earlyCls = earlySignal === "buyCe" ? "early-ce" : "early-pe";
 
   return (
     <div className="pcr-oi-section">
       <div className={`oi-upgraded-card ${display.cls}`}>
-        <div className="oi-upgraded-badge">{display.label}</div>
-        <div className="metric-grid oi-upgraded-metric-grid">
-          <div className="metric">
-            <span>Regime</span>
-            <strong>{REGIME_LABEL[latest.regime] ?? latest.regime}</strong>
-          </div>
-          <div className="metric">
-            <span>Score</span>
-            <strong>
-              {ceScore} CE / {peScore} PE
-            </strong>
-          </div>
-          <div className="metric">
-            <span>{state === "cooldown" ? "Cooldown left" : "Persistence"}</span>
-            <strong>
-              {state === "cooldown"
-                ? `${cooldownRemainingMin ?? 0} min`
-                : `${Math.min(persistence, PERSISTENCE_TARGET)} / ${PERSISTENCE_TARGET}`}
-            </strong>
-          </div>
-          <div className="metric">
-            <span>NIFTY vs VWAP</span>
-            <strong>
-              {latest.niftyPrice?.toFixed(2) ?? "—"} / {latest.vwap?.toFixed(2) ?? "—"}
-            </strong>
-          </div>
+        <div className="oi-upgraded-badge-row">
+          <div className="oi-upgraded-badge">{display.label}</div>
+          {showEarlyPill ? <div className={`oi-upgraded-early-pill ${earlyCls}`}>{earlyLabel}</div> : null}
         </div>
         {(state === "holdCe" || state === "holdPe") && exitStreak > 0 ? (
           <p className="pcr-oi-caption" style={{ margin: 0 }}>
@@ -422,15 +414,46 @@ function SignalDashboard({ latest }: { latest: OiUpgradedPoint | null }) {
             cooldown, unless it recovers first.
           </p>
         ) : null}
-        <ul className="oi-upgraded-reasons">
-          {reasons.map((reason) => (
-            <li key={reason.label} className={reason.met ? "met" : "unmet"}>
-              <span className="oi-upgraded-reason-mark">{reason.met ? "✓" : "•"}</span>
-              {reason.label}
-              {reason.value ? <span className="subtext"> — {STATE_LABEL[reason.value] ?? reason.value}</span> : null}
-            </li>
-          ))}
-        </ul>
+        <details className="oi-upgraded-details">
+          <summary>Show details — score, persistence, why</summary>
+          <div className="metric-grid oi-upgraded-metric-grid">
+            <div className="metric">
+              <span>Regime</span>
+              <strong>{REGIME_LABEL[latest.regime] ?? latest.regime}</strong>
+            </div>
+            <div className="metric">
+              <span>Score</span>
+              <strong>
+                {ceScore} CE / {peScore} PE
+              </strong>
+            </div>
+            <div className="metric">
+              <span>{state === "cooldown" ? "Cooldown left" : "Persistence"}</span>
+              <strong>
+                {state === "cooldown"
+                  ? `${cooldownRemainingMin ?? 0} min`
+                  : `${Math.min(persistence, PERSISTENCE_TARGET)} / ${PERSISTENCE_TARGET}`}
+              </strong>
+            </div>
+            <div className="metric">
+              <span>NIFTY vs VWAP</span>
+              <strong>
+                {latest.niftyPrice?.toFixed(2) ?? "—"} / {latest.vwap?.toFixed(2) ?? "—"}
+              </strong>
+            </div>
+          </div>
+          <ul className="oi-upgraded-reasons">
+            {reasons.map((reason) => (
+              <li key={reason.label} className={reason.met ? "met" : "unmet"}>
+                <span className="oi-upgraded-reason-mark">{reason.met ? "✓" : "•"}</span>
+                {reason.label}
+                {reason.value ? (
+                  <span className="subtext"> — {STATE_LABEL[reason.value] ?? reason.value}</span>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        </details>
         <p className="pcr-oi-caption" style={{ margin: 0 }}>
           Signal-engine design (upgrade.md phases 1-4), backtested against real NIFTY sessions but not yet validated
           over many days — treat as assistive, not a guarantee. NO TRADE is a valid, intended outcome when the

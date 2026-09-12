@@ -17,7 +17,6 @@ import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { approveRiskExit, closeTrade, getDhanSession, getLiveTrades, getTradeCandles, loginDhan, saveTradeLevels } from "@/lib/api";
 import { isMarketHoursNow } from "@/lib/marketHours";
 import type { DhanSession, LiveTrade, LiveTradeSnapshot, MarketCandle } from "@/types/live";
-import PaperTradingPanel from "@/components/PaperTradingPanel";
 import PcrOiPanel from "@/components/PcrOiPanel";
 
 type DraftLevels = {
@@ -224,8 +223,6 @@ export default function ManageTradesPage() {
       </header>
 
       <PcrOiPanel />
-
-      <PaperTradingPanel />
 
       {error ? <div className="alert error">{error}</div> : null}
       {snapshot?.warning ? <div className="alert warning">{snapshot.warning}</div> : null}

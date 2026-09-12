@@ -1,14 +1,19 @@
-"""Paper-only trading module: watches two signals and simulates a 3-lot,
-staged-exit option trade against each entry, purely for offline analysis.
-Never places a real order: only reads Dhan's option chain/candles/quotes,
-the same read-only footprint pcr_oi.py already has.
+"""Paper-only trading module: watches NIFTY's upgraded-engine EARLY signal
+and simulates a 3-lot, staged-exit option trade against each entry, purely
+for offline analysis. Never places a real order: only reads Dhan's option
+chain/candles/quotes, the same read-only footprint pcr_oi.py already has.
 
-"signalVsPrice" is the persistence-gated upgraded engine
-(oi_upgraded.get_upgraded_nifty_signal, see upgrade.md) for NIFTY, and the
-older oiSkew/PCR read (pcr_oi.enrich_with_signal) for SENSEX -- the
-upgrade is NIFTY-only for now. "priceBreakout" is the standalone
-price-momentum breakout (paper_trading_engine.compute_breakout_events),
-unchanged for both underlyings.
+"earlySignal" is oi_signal_engine.py's fast, PCR+OI-only tier (see its own
+docstring on EARLY_ENTRY_SCORE) -- NIFTY only, since that's the only
+underlying the upgraded engine covers. Two other auto-entry strategies used
+to feed this module -- "signalVsPrice" (the confirmed, persistence-gated
+signal for NIFTY / the older oiSkew-PCR read for SENSEX) and
+"priceBreakout" (a standalone price-momentum breakout, both underlyings) --
+were both retired: signalVsPrice's price "fresh extreme" gate + persistence
+wait was entering trades so late real losses resulted, and priceBreakout
+was a separate, also-losing strategy. Old trades under those signal_type
+values stay in history (paper_trades.signal_type is a free-text column, not
+an enum) -- only new entries are affected.
 
 One open paper trade per (underlying, signal_type) at a time -- a signal
 that's still active doesn't pyramid into more trades; the next entry for
@@ -26,17 +31,13 @@ from app.core.timeutil import in_time_window, now_ist, now_ist_epoch
 from app.db import sqlite as db
 from app.services import paper_trading_engine as engine
 from app.services.dhan import DhanService
-from app.services.ema5_instruments import resolve_atm_option, resolve_nearest_expiry
+from app.services.ema5_instruments import resolve_atm_option, resolve_next_expiry
 from app.services.oi_upgraded import get_upgraded_nifty_signal
-from app.services.pcr_oi import enrich_with_oi_regime, enrich_with_roc_and_confidence, enrich_with_signal
 
-UNDERLYINGS = ("NIFTY", "SENSEX")
-INDEX_SEGMENT = "IDX_I"
 # Matches ema5/gamma_blast/theta's own convention for both NIFTY and SENSEX
 # option contracts -- not touching that established (if oddly-named) choice.
 OPTION_SEGMENT = "NSE_FNO"
 STRIKE_STEP = {"NIFTY": 50.0, "SENSEX": 100.0}
-CANDLE_INTERVAL_MINUTES = 1
 
 
 def _security_id(settings: Settings, underlying: str) -> int:
@@ -82,15 +83,10 @@ async def _poll_once(settings: Settings, now: datetime) -> None:
     dhan = DhanService(settings)
     session_date = now.date().isoformat()
 
-    for underlying in UNDERLYINGS:
-        try:
-            await _maybe_enter_signal_vs_price(dhan, settings, underlying, session_date)
-        except Exception:
-            pass
-        try:
-            await _maybe_enter_breakout(dhan, settings, underlying, session_date)
-        except Exception:
-            pass
+    try:
+        await _maybe_enter_early_signal(dhan, settings, session_date)
+    except Exception:
+        pass
 
     try:
         await _manage_open_trades(dhan, settings, now)
@@ -98,68 +94,29 @@ async def _poll_once(settings: Settings, now: datetime) -> None:
         pass
 
 
-async def _maybe_enter_signal_vs_price(dhan: DhanService, settings: Settings, underlying: str, session_date: str) -> None:
-    if db.get_open_paper_trade(underlying, "signalVsPrice"):
+async def _maybe_enter_early_signal(dhan: DhanService, settings: Settings, session_date: str) -> None:
+    """NIFTY only -- the upgraded engine's EARLY tier (earlySignal, see
+    oi_signal_engine.py) is the sole auto-entry left in this module. It
+    trades the PCR+OI lead directly instead of waiting for price to
+    confirm, which is explicitly a noisier/faster read (see that module's
+    own docstring on EARLY_ENTRY_SCORE) -- the SL/target/trail state
+    machine below is what's expected to manage the extra noise, not a
+    confirmation gate up front."""
+    if db.get_open_paper_trade("NIFTY", "earlySignal"):
         return
-    # NIFTY's signalVsPrice entry now comes from the upgraded, persistence-
-    # gated engine (upgrade.md) instead of the older oiSkew/PCR read --
-    # SENSEX stays on the original pipeline since the upgrade is NIFTY-only
-    # for now (no VWAP/candle confirmation wired up for SENSEX yet).
-    if underlying == "NIFTY":
-        enriched = await get_upgraded_nifty_signal(session_date)
-        if not enriched:
-            return
-        signal = enriched[-1].get("signal")
-    else:
-        snapshots = db.get_pcr_oi_snapshots(session_date)
-        points = snapshots.get(underlying, [])
-        if not points:
-            return
-        enriched_old = enrich_with_signal(enrich_with_oi_regime(enrich_with_roc_and_confidence(points)))
-        signal = enriched_old[-1].get("signal")
+    enriched = await get_upgraded_nifty_signal(session_date)
+    if not enriched:
+        return
+    signal = enriched[-1].get("earlySignal")
     if signal not in ("buyCe", "buyPe"):
         return
     side = "CE" if signal == "buyCe" else "PE"
-    await _open_trade(dhan, settings, underlying, side, "signalVsPrice")
-
-
-async def _maybe_enter_breakout(dhan: DhanService, settings: Settings, underlying: str, session_date: str) -> None:
-    if db.get_open_paper_trade(underlying, "priceBreakout"):
-        return
-    now_epoch = now_ist_epoch()
-    from_date = f"{session_date} 09:15:00"
-    to_date = now_ist().strftime("%Y-%m-%d %H:%M:%S")
-    try:
-        raw = await dhan.intraday_candles(
-            security_id=_security_id(settings, underlying),
-            exchange_segment=INDEX_SEGMENT,
-            instrument="INDEX",
-            interval=str(CANDLE_INTERVAL_MINUTES),
-            from_date=from_date,
-            to_date=to_date,
-        )
-    except Exception:
-        return
-    completed = [c for c in raw if c["time"] + CANDLE_INTERVAL_MINUTES * 60 <= now_epoch]
-    if len(completed) < engine.BREAKOUT_MIN_OBSERVATIONS + 2:
-        return
-    events = engine.compute_breakout_events(completed)
-    if not events:
-        return
-    last_event = events[-1]
-    # Only act if the newest candle is what triggered this -- otherwise the
-    # breakout started earlier and either already has a trade (caught by
-    # the guard above) or already ran its course (last event would be an
-    # exit), so entering now would be acting on a stale, already-missed cue.
-    if last_event["kind"] != "enter" or last_event["time"] != completed[-1]["time"]:
-        return
-    side = "CE" if last_event["direction"] == "bullish" else "PE"
-    await _open_trade(dhan, settings, underlying, side, "priceBreakout")
+    await _open_trade(dhan, settings, "NIFTY", side, "earlySignal")
 
 
 async def _open_trade(dhan: DhanService, settings: Settings, underlying: str, side: str, signal_type: str) -> None:
     underlying_scrip = _security_id(settings, underlying)
-    expiry = await resolve_nearest_expiry(dhan, underlying_scrip)
+    expiry = await resolve_next_expiry(dhan, underlying_scrip)
     if not expiry:
         return
     option = await resolve_atm_option(

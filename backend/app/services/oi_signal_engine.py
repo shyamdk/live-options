@@ -54,6 +54,17 @@ CE_ENTRY_SCORE = 7
 PE_ENTRY_SCORE = 7
 MIN_SCORE_DIFFERENCE = 3
 
+# Early tier: a faster, PCR+OI-only heads-up that deliberately skips the
+# price "fresh extreme" gate and the persistence wait below -- those two are
+# the actual source of the multi-poll lag users were entering into losses
+# on (by the time price itself confirms a fresh 8-candle extreme, the move
+# is often already exhausting). Options positioning (PCR + OI) often leads
+# price, so this surfaces that lead separately, alongside the unchanged
+# confirmed signal -- it does NOT replace or loosen the confirmed pipeline's
+# own gates, and callers should treat it as noisier/earlier by design, not
+# as a second entry trigger with the same safety bar.
+EARLY_ENTRY_SCORE = 3
+
 # Hysteresis: once a side has actually triggered (state == buyCe/buyPe),
 # holding it uses a LOWER bar than entering it -- otherwise the display
 # would flicker in and out of NO TRADE on every small score wobble even
@@ -304,6 +315,14 @@ def enrich_with_upgraded_signal(points: list[dict[str, Any]], candles: list[dict
         raw_signal: Signal = "buyCe" if raw_ce_ok else "buyPe" if raw_pe_ok else "noTrade"
         regime = _classify_regime(pcr_state, oi_state, price_state, ce_score, pe_score)
 
+        # PCR+OI-only sub-score (a slice of the fuller ce_score/pe_score
+        # above, before price/premium/IV are added in) -- see EARLY_ENTRY_SCORE.
+        early_ce_score = (1 if pcr_state == "bullish" else 0) + (2 if ce_unwind else 0) + (2 if pe_writing else 0)
+        early_pe_score = (1 if pcr_state == "bearish" else 0) + (2 if pe_unwind else 0) + (2 if ce_writing else 0)
+        early_ce_ok = early_ce_score >= EARLY_ENTRY_SCORE and pcr_state != "bearish" and oi_state != "bearish"
+        early_pe_ok = early_pe_score >= EARLY_ENTRY_SCORE and pcr_state != "bullish" and oi_state != "bullish"
+        early_signal: Signal = "buyCe" if early_ce_ok else "buyPe" if early_pe_ok else "noTrade"
+
         holding_ce = state in ("buyCe", "holdCe")
         holding_pe = state in ("buyPe", "holdPe")
 
@@ -389,6 +408,7 @@ def enrich_with_upgraded_signal(points: list[dict[str, Any]], candles: list[dict
                 "ceScore": ce_score,
                 "peScore": pe_score,
                 "rawSignal": raw_signal,
+                "earlySignal": early_signal,
                 "regime": regime,
                 "state": state,
                 "persistence": persistence,

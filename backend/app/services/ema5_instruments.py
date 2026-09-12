@@ -1,7 +1,12 @@
-"""Resolves the ATM NIFTY option (CE or PE) to trade when an ema5 signal
-fires. Reuses DhanService's option-chain endpoints (same ones Gamma Blast
-uses), but resolves the NEAREST upcoming expiry rather than requiring today
-to BE the expiry date — ema5 trades every day, not just expiry day.
+"""Resolves the ATM NIFTY option (CE or PE) to trade when an ema5/animesh
+signal fires, or a paper trade is entered. Reuses DhanService's
+option-chain endpoints (same ones Gamma Blast uses), but resolves the NEXT
+upcoming expiry rather than requiring today to BE the expiry date -- these
+strategies trade every day, not just expiry day, and always buy the NEXT
+expiry (not the nearest/current one) for every option purchase, paper or
+real: the nearest expiry has the sharpest theta decay and gamma risk,
+especially close to/on expiry day itself, which isn't what these
+directional-buying strategies are trying to trade.
 """
 
 from __future__ import annotations
@@ -13,9 +18,14 @@ from app.services.dhan import DhanService
 INDEX_SEGMENT = "IDX_I"
 
 
-async def resolve_nearest_expiry(dhan: DhanService, underlying_scrip: int) -> str | None:
+async def resolve_next_expiry(dhan: DhanService, underlying_scrip: int) -> str | None:
     expiries = await dhan.expiry_list(underlying_scrip, INDEX_SEGMENT)
-    return expiries[0] if expiries else None
+    if not expiries:
+        return None
+    # expiries is nearest-first; index 1 is the one AFTER the nearest/current
+    # one. Falls back to the nearest expiry only in the rare case just one
+    # is listed at all (better to trade something than nothing).
+    return expiries[1] if len(expiries) > 1 else expiries[0]
 
 
 async def resolve_atm_option(

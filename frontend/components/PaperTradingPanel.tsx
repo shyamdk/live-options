@@ -7,11 +7,18 @@ import { getPaperTrades, getPaperTradingSettings, updatePaperTradingSettings } f
 import { isMarketHoursNow } from "@/lib/marketHours";
 import type { PaperTrade, PaperTradingSettings } from "@/types/live";
 
-const REFRESH_MS = 60000;
+// Shorter than the panel's old 60s -- open trades now show live LTP/P&L,
+// so a livelier cadence actually matters here. Cheap to poll this often:
+// the backend's quote fetch is already cached server-side (see
+// DhanService.market_quotes_by_segment / dhan_market_quote_cache_seconds),
+// so this doesn't add extra live Dhan calls beyond what's already
+// happening on the paper-trading monitor's own poll interval.
+const REFRESH_MS = 20000;
 
 const SIGNAL_TYPE_LABEL: Record<PaperTrade["signalType"], string> = {
-  signalVsPrice: "Signal vs Price",
-  priceBreakout: "Price Breakout",
+  earlySignal: "Early Signal (PCR+OI)",
+  signalVsPrice: "Signal vs Price (retired)",
+  priceBreakout: "Price Breakout (retired)",
 };
 
 const EXIT_REASON_LABEL: Record<string, string> = {
@@ -48,6 +55,16 @@ function formatTime(epochSeconds: number): string {
     minute: "2-digit",
     hour12: false,
   });
+}
+
+function formatDateTime(epochSeconds: number): string {
+  const d = new Date(epochSeconds * 1000);
+  const date = d.toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata", day: "2-digit", month: "short" });
+  return `${date} ${formatTime(epochSeconds)}`;
+}
+
+function pnlColor(value: number): string {
+  return value >= 0 ? "var(--green)" : "var(--red)";
 }
 
 export default function PaperTradingPanel() {
@@ -121,7 +138,7 @@ export default function PaperTradingPanel() {
           </button>
           Paper Trades
         </h2>
-        <span className="subtext">Simulated 3-lot entries on Signal vs Price &amp; Price Breakout · no real orders</span>
+        <span className="subtext">Simulated 3-lot NIFTY entries on the early PCR+OI signal · no real orders</span>
       </div>
       {expanded ? (
         <>
@@ -153,7 +170,15 @@ export default function PaperTradingPanel() {
           </div>
 
           <div className="pcr-oi-section">
-            <h3>Open Trades ({openTrades.length})</h3>
+            <div className="oi-analysis-section-head">
+              <h3>Open Trades ({openTrades.length})</h3>
+              {openTrades.length > 0 ? (
+                <span className="subtext">
+                  <span className="live-dot" /> Live · refreshes every {Math.round(REFRESH_MS / 1000)}s during market
+                  hours
+                </span>
+              ) : null}
+            </div>
             {openTrades.length === 0 ? (
               <p className="pcr-oi-caption">No open paper trades.</p>
             ) : (
@@ -165,8 +190,10 @@ export default function PaperTradingPanel() {
                       <th>Side</th>
                       <th>Signal</th>
                       <th>Strike</th>
-                      <th>Entry Time</th>
+                      <th>Entry Date &amp; Time</th>
                       <th>Entry Premium</th>
+                      <th>LTP</th>
+                      <th>Current P&amp;L</th>
                       <th>Status</th>
                       <th>Remaining Lots</th>
                       <th>Peak Premium</th>
@@ -184,8 +211,12 @@ export default function PaperTradingPanel() {
                         </td>
                         <td>{SIGNAL_TYPE_LABEL[trade.signalType]}</td>
                         <td>{trade.strike ?? "—"}</td>
-                        <td>{formatTime(trade.entryTime)}</td>
+                        <td>{formatDateTime(trade.entryTime)}</td>
                         <td>{moneyFormat.format(trade.entryPremium)}</td>
+                        <td>{trade.currentPremium != null ? moneyFormat.format(trade.currentPremium) : "—"}</td>
+                        <td style={{ color: trade.currentPnl != null ? pnlColor(trade.currentPnl) : undefined }}>
+                          {trade.currentPnl != null ? moneyFormat.format(trade.currentPnl) : "—"}
+                        </td>
                         <td>{PHASE_LABEL[trade.phase]}</td>
                         <td>{trade.remainingLots}</td>
                         <td>{trade.peakPremium != null ? moneyFormat.format(trade.peakPremium) : "—"}</td>
