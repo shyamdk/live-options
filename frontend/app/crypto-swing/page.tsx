@@ -4,10 +4,13 @@ import {
   CandlestickSeries,
   ColorType,
   createChart,
+  createSeriesMarkers,
   HistogramSeries,
   IChartApi,
   ISeriesApi,
+  ISeriesMarkersPluginApi,
   LineSeries,
+  SeriesMarker,
   Time,
   UTCTimestamp,
 } from "lightweight-charts";
@@ -60,30 +63,17 @@ function fmtPnl(pct: number | null | undefined, amount: number | null | undefine
 
 const EXIT_REASON_LABEL: Record<string, string> = { trap_confirmed_reversal: "Trend reversal confirmed" };
 
-function PaperTradesPanel() {
-  const [trades, setTrades] = useState<CryptoSwingTrade[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  async function load() {
-    setLoading(true);
-    try {
-      const payload = await getCryptoSwingTrades();
-      setTrades(payload.trades);
-      setError(null);
-    } catch (exc) {
-      setError(exc instanceof Error ? exc.message : "Failed to load paper trades.");
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  useEffect(() => {
-    load();
-    const timer = window.setInterval(load, TRADES_REFRESH_MS);
-    return () => window.clearInterval(timer);
-  }, []);
-
+function PaperTradesPanel({
+  trades,
+  loading,
+  error,
+  onRefresh,
+}: {
+  trades: CryptoSwingTrade[];
+  loading: boolean;
+  error: string | null;
+  onRefresh: () => void;
+}) {
   const usable = trades.filter((t) => t.status !== "error");
   const errors = trades.filter((t) => t.status === "error");
 
@@ -91,13 +81,13 @@ function PaperTradesPanel() {
     <div className="pcr-oi-section">
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <h3 style={{ margin: 0 }}>Paper trades</h3>
-        <button type="button" className="button secondary" onClick={load} disabled={loading}>
+        <button type="button" className="button secondary" onClick={onRefresh} disabled={loading}>
           <RefreshCw size={14} /> {loading ? "Refreshing…" : "Refresh"}
         </button>
       </div>
       <p className="pcr-oi-caption" style={{ margin: "4px 0 10px" }}>
         Simulated only -- replayed deterministically from the 3-way confirmation strategy against 30m candle history.
-        No real orders are placed.
+        No real orders are placed. Entries/exits are also marked on the charts below.
       </p>
       {error ? <div className="alert error">{error}</div> : null}
       {errors.map((t) => (
@@ -163,6 +153,10 @@ export default function CryptoSwingPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  const [trades, setTrades] = useState<CryptoSwingTrade[]>([]);
+  const [tradesLoading, setTradesLoading] = useState(true);
+  const [tradesError, setTradesError] = useState<string | null>(null);
+
   async function load() {
     setLoading(true);
     setError(null);
@@ -175,8 +169,27 @@ export default function CryptoSwingPage() {
     }
   }
 
+  async function loadTrades() {
+    setTradesLoading(true);
+    try {
+      const payload = await getCryptoSwingTrades();
+      setTrades(payload.trades);
+      setTradesError(null);
+    } catch (exc) {
+      setTradesError(exc instanceof Error ? exc.message : "Failed to load paper trades.");
+    } finally {
+      setTradesLoading(false);
+    }
+  }
+
   useEffect(() => {
     load();
+  }, []);
+
+  useEffect(() => {
+    loadTrades();
+    const timer = window.setInterval(loadTrades, TRADES_REFRESH_MS);
+    return () => window.clearInterval(timer);
   }, []);
 
   const nonZero = wallet?.balances.filter((row) => Number(row.balance ?? 0) !== 0) ?? [];
@@ -198,7 +211,7 @@ export default function CryptoSwingPage() {
         </div>
       </header>
 
-      <PaperTradesPanel />
+      <PaperTradesPanel trades={trades} loading={tradesLoading} error={tradesError} onRefresh={loadTrades} />
 
       {error ? <div className="alert error">{error}</div> : null}
 
@@ -241,18 +254,18 @@ export default function CryptoSwingPage() {
 
       <div className="pcr-oi-section">
         <h3>BTC/USD</h3>
-        <CryptoChart symbol="BTCUSD" />
+        <CryptoChart symbol="BTCUSD" trades={trades.filter((t) => t.symbol === "BTCUSD")} />
       </div>
 
       <div className="pcr-oi-section">
         <h3>ETH/USD</h3>
-        <CryptoChart symbol="ETHUSD" />
+        <CryptoChart symbol="ETHUSD" trades={trades.filter((t) => t.symbol === "ETHUSD")} />
       </div>
     </section>
   );
 }
 
-function CryptoChart({ symbol }: { symbol: CryptoSwingSymbol }) {
+function CryptoChart({ symbol, trades }: { symbol: CryptoSwingSymbol; trades: CryptoSwingTrade[] }) {
   const mainContainerRef = useRef<HTMLDivElement | null>(null);
   const macdContainerRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<IChartApi | null>(null);
@@ -264,6 +277,7 @@ function CryptoChart({ symbol }: { symbol: CryptoSwingSymbol }) {
   const macdLineSeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
   const signalLineSeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
   const histogramSeriesRef = useRef<ISeriesApi<"Histogram"> | null>(null);
+  const markersRef = useRef<ISeriesMarkersPluginApi<Time> | null>(null);
   const closeByTimeRef = useRef<Map<UTCTimestamp, number>>(new Map());
   const macdByTimeRef = useRef<Map<UTCTimestamp, number>>(new Map());
 
@@ -363,6 +377,7 @@ function CryptoChart({ symbol }: { symbol: CryptoSwingSymbol }) {
     macdLineSeriesRef.current = macdLine;
     signalLineSeriesRef.current = signalLine;
     histogramSeriesRef.current = histogramSeries;
+    markersRef.current = createSeriesMarkers(candleSeries, []);
 
     const resizeObserver = new ResizeObserver(() => {
       if (mainContainerRef.current) chart.applyOptions({ width: mainContainerRef.current.clientWidth });
@@ -372,6 +387,7 @@ function CryptoChart({ symbol }: { symbol: CryptoSwingSymbol }) {
 
     return () => {
       resizeObserver.disconnect();
+      markersRef.current?.detach();
       chart.remove();
       macdChart.remove();
       chartRef.current = null;
@@ -383,6 +399,7 @@ function CryptoChart({ symbol }: { symbol: CryptoSwingSymbol }) {
       macdLineSeriesRef.current = null;
       signalLineSeriesRef.current = null;
       histogramSeriesRef.current = null;
+      markersRef.current = null;
     };
   }, []);
 
@@ -412,6 +429,11 @@ function CryptoChart({ symbol }: { symbol: CryptoSwingSymbol }) {
     );
   }, [data]);
 
+  useEffect(() => {
+    if (!markersRef.current) return;
+    markersRef.current.setMarkers(buildTradeMarkers(trades));
+  }, [trades]);
+
   return (
     <div>
       {error ? <div className="alert error">{error}</div> : null}
@@ -422,6 +444,33 @@ function CryptoChart({ symbol }: { symbol: CryptoSwingSymbol }) {
       <div ref={macdContainerRef} style={{ width: "100%" }} />
     </div>
   );
+}
+
+function buildTradeMarkers(trades: CryptoSwingTrade[]): SeriesMarker<Time>[] {
+  const markers: SeriesMarker<Time>[] = [];
+  for (const t of trades) {
+    if (t.status === "error" || t.entryTime === null) continue;
+    const isLong = t.side === "long";
+    markers.push({
+      time: t.entryTime as UTCTimestamp,
+      position: isLong ? "belowBar" : "aboveBar",
+      color: isLong ? "#168448" : "#c93535",
+      shape: isLong ? "arrowUp" : "arrowDown",
+      text: `Entry ${fmtPrice(t.entryPrice)}`,
+    });
+    if (t.status === "closed" && t.exitTime !== null) {
+      const positive = (t.pnlPercent ?? 0) >= 0;
+      markers.push({
+        time: t.exitTime as UTCTimestamp,
+        position: isLong ? "aboveBar" : "belowBar",
+        color: positive ? "#168448" : "#c93535",
+        shape: "circle",
+        text: `Exit ${fmtPrice(t.exitPrice)} (${(t.pnlPercent ?? 0).toFixed(2)}%)`,
+      });
+    }
+  }
+  markers.sort((a, b) => (a.time as number) - (b.time as number));
+  return markers;
 }
 
 function numericSeries(times: UTCTimestamp[], values: (number | null)[]): { time: UTCTimestamp; value: number }[] {
