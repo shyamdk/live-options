@@ -68,11 +68,13 @@ function PaperTradesPanel({
   loading,
   error,
   onRefresh,
+  title = "Paper trades",
 }: {
   trades: CryptoSwingTrade[];
   loading: boolean;
   error: string | null;
   onRefresh: () => void;
+  title?: string;
 }) {
   const usable = trades.filter((t) => t.status !== "error");
   const errors = trades.filter((t) => t.status === "error");
@@ -80,7 +82,7 @@ function PaperTradesPanel({
   return (
     <div className="pcr-oi-section">
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <h3 style={{ margin: 0 }}>Paper trades</h3>
+        <h3 style={{ margin: 0 }}>{title}</h3>
         <button type="button" className="button secondary" onClick={onRefresh} disabled={loading}>
           <RefreshCw size={14} /> {loading ? "Refreshing…" : "Refresh"}
         </button>
@@ -261,6 +263,14 @@ export default function CryptoSwingPage() {
         <h3>ETH/USD</h3>
         <CryptoChart symbol="ETHUSD" trades={trades.filter((t) => t.symbol === "ETHUSD")} />
       </div>
+
+      <PaperTradesPanel
+        trades={trades}
+        loading={tradesLoading}
+        error={tradesError}
+        onRefresh={loadTrades}
+        title="All paper trades so far"
+      />
     </section>
   );
 }
