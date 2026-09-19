@@ -23,6 +23,7 @@ import type { AnimeshCandlesResponse, AnimeshSession, AnimeshSessionDetail, Anim
 import type { CreditSpreadState } from "@/types/credit-spread";
 import type { ThetaRuntimeConfig, ThetaSession, ThetaSessionDetail, ThetaState } from "@/types/theta";
 import type { CryptoSwingIndicators, CryptoSwingSymbol, CryptoSwingTrade, CryptoSwingWallet } from "@/types/crypto-swing";
+import type { PstrategyData, PstrategyResolution } from "@/types/pstrategy";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8001";
 const AUTH_TOKEN_KEY = "live-options-auth-token";
@@ -424,6 +425,10 @@ export async function getCryptoSwingCandles(symbol: CryptoSwingSymbol, resolutio
 
 export async function getCryptoSwingTrades(): Promise<{ trades: CryptoSwingTrade[] }> {
   return apiJson<{ trades: CryptoSwingTrade[] }>("/api/crypto-swing/trades", undefined, "Failed to load crypto-swing paper trades");
+}
+
+export async function getPstrategyCandles(resolution: PstrategyResolution): Promise<PstrategyData> {
+  return apiJson<PstrategyData>(`/api/pstrategy/candles?resolution=${resolution}`, undefined, "Failed to load XAUTUSD candles");
 }
 
 export async function askAssistant(question: string, history: ChatMessage[]): Promise<{ answer: string }> {

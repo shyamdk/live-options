@@ -62,6 +62,21 @@ def _true_range(candles: list[dict[str, Any]]) -> list[float]:
     return tr
 
 
+def atr(candles: list[dict[str, Any]], period: int = 14) -> list[float | None]:
+    """Wilder-smoothed average true range -- the same warm-up/smoothing
+    supertrend() uses internally, exposed standalone for callers (like the
+    pStrategy consolidation detector) that need a volatility reference
+    without computing a full Supertrend.
+    """
+    tr = _true_range(candles)
+    result: list[float | None] = [None] * len(candles)
+    if len(candles) >= period:
+        result[period - 1] = sum(tr[:period]) / period
+        for i in range(period, len(candles)):
+            result[i] = (result[i - 1] * (period - 1) + tr[i]) / period
+    return result
+
+
 def supertrend(
     candles: list[dict[str, Any]], period: int = 13, multiplier: float = 4.0
 ) -> tuple[list[float | None], list[Direction | None]]:

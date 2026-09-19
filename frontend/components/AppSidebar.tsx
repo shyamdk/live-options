@@ -1,6 +1,6 @@
 "use client";
 
-import { Bitcoin, BookOpenText, BriefcaseBusiness, ChevronLeft, ChevronRight, Lightbulb, RadioTower } from "lucide-react";
+import { Bitcoin, BookOpenText, BriefcaseBusiness, ChevronLeft, ChevronRight, Lightbulb, PenTool, RadioTower } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -17,6 +17,7 @@ const navItems = [
   { href: "/oi-upgraded", label: "OI - Upgraded", short: "OU", icon: RadioTower },
   { href: "/oi-improvements", label: "OI Improvements", short: "IM", icon: Lightbulb },
   { href: "/crypto-swing", label: "Crypto-Swing", short: "CS", icon: Bitcoin },
+  { href: "/pstrategy", label: "pStrategy", short: "PS", icon: PenTool },
 ];
 
 const STORAGE_KEY = "live-options-sidebar-collapsed";

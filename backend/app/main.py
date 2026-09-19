@@ -14,6 +14,7 @@ from app.api.gamma_blast import router as gamma_blast_router
 from app.api.journals import router as journals_router
 from app.api.market import router as market_router
 from app.api.paper_trading import router as paper_trading_router
+from app.api.pstrategy import router as pstrategy_router
 from app.api.theta import router as theta_router
 from app.api.trades import router as trades_router
 from app.core.config import get_settings
@@ -120,3 +121,4 @@ app.include_router(credit_spread_router, prefix=settings.api_prefix)
 app.include_router(theta_router, prefix=settings.api_prefix)
 app.include_router(paper_trading_router, prefix=settings.api_prefix)
 app.include_router(crypto_swing_router, prefix=settings.api_prefix)
+app.include_router(pstrategy_router, prefix=settings.api_prefix)
