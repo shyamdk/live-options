@@ -39,6 +39,12 @@ on a *sent* exit order. A blocked/failed/rejected order leaves the DB
 state exactly as it was and logs the reason -- the next poll's diff against
 simulate_trades' history will simply retry, rather than this code ever
 recording a position that doesn't actually exist at the broker.
+
+Only polls within the actual trading session (nifty_swing_live_session_
+start/end_time) on weekdays -- no separate opening-minutes entry delay
+like pStrategy-Nifty's, since this strategy's 30m/1h candles can't confirm
+a fresh signal before a candle closes (earliest possible: 9:45 for the
+first bar of the day), already well past the opening volatility window.
 """
 
 from __future__ import annotations
@@ -48,6 +54,7 @@ import logging
 from typing import Any
 
 from app.core.config import Settings, get_settings
+from app.core.timeutil import in_time_window, now_ist
 from app.db import sqlite as db
 from app.services.crypto_swing import simulate_trades
 from app.services.crypto_swing_live import start_of_today_ist_epoch
@@ -232,7 +239,11 @@ async def _loop() -> None:
     while True:
         try:
             settings = get_settings()
-            if settings.nifty_swing_live_enabled:
+            now = now_ist()
+            in_hours = in_time_window(
+                now.time(), settings.nifty_swing_live_session_start_time, settings.nifty_swing_live_session_end_time
+            )
+            if settings.nifty_swing_live_enabled and in_hours and now.weekday() < 5:
                 await evaluate(settings)
         except asyncio.CancelledError:
             raise

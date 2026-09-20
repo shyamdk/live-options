@@ -5,7 +5,7 @@ trading dates must go through here rather than bare datetime.now().
 
 from __future__ import annotations
 
-from datetime import datetime, time
+from datetime import datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
 _IST = ZoneInfo("Asia/Kolkata")
@@ -40,6 +40,21 @@ def today_ist() -> str:
 
 def in_time_window(now: time, start: str, end: str) -> bool:
     return _parse_time(start) <= now <= _parse_time(end)
+
+
+def add_minutes(hhmm: str, minutes: int) -> time:
+    """`hhmm` ("09:15") plus a number of minutes, as a plain time-of-day --
+    e.g. add_minutes("09:15", 15) -> 09:30. Used to derive an "entries only
+    after the opening minutes have settled" cutoff from a strategy's own
+    session-start setting, rather than hardcoding a second absolute time
+    that could drift out of sync with it.
+    """
+    base = _combine_today(_parse_time(hhmm))
+    return (base + timedelta(minutes=minutes)).time()
+
+
+def _combine_today(value: time) -> datetime:
+    return datetime.combine(datetime.today(), value)
 
 
 def epoch_to_ist_time(epoch: int) -> time:

@@ -109,6 +109,13 @@ class Settings(BaseSettings):
     nifty_swing_live_max_capital_rupees: float = 50_000.0
     nifty_swing_live_max_daily_loss_rupees: float = 2_000.0
     nifty_swing_live_product_type: str = "CNC"
+    # Live orders only fire within the actual trading session. No separate
+    # opening-minutes entry delay setting here like pStrategy-Nifty's --
+    # this strategy's 30m/1h candles already can't confirm a signal before
+    # a candle closes (earliest possible: 9:45), well past the opening
+    # volatility window on their own.
+    nifty_swing_live_session_start_time: str = "09:15"
+    nifty_swing_live_session_end_time: str = "15:30"
 
     journal_insights_monitor_enabled: bool = True
     journal_insights_refresh_time: str = "16:00"
@@ -149,6 +156,12 @@ class Settings(BaseSettings):
     pstrategy_nifty_poll_interval_seconds: int = 30
     pstrategy_nifty_session_start_time: str = "09:15"
     pstrategy_nifty_session_end_time: str = "15:30"
+    # The engine watches/manages positions across the full session above,
+    # but new ENTRIES are held back until session_start + this many minutes
+    # -- the opening minutes of NSE trading are known to whipsaw, and a 1m/
+    # 3m breakout signal is exactly the kind of fast, noisy timeframe that's
+    # most exposed to it.
+    pstrategy_nifty_entry_delay_minutes: int = 15
     pstrategy_nifty_stop_loss_percent: float = 35.0
     pstrategy_nifty_lots: int = 1
     pstrategy_nifty_lot_size: int = 65

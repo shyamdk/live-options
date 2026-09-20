@@ -22,6 +22,12 @@ or a hard stop-loss on the option premium itself
 (pstrategy_nifty_stop_loss_percent), since a held position can mask fast
 option decay that the underlying's rule alone wouldn't catch. Force-closed
 at end of day regardless.
+
+New entries are held back until pstrategy_nifty_entry_delay_minutes after
+session start (default 15) -- the opening minutes of NSE trading are
+known to whipsaw, and a 1m/3m breakout is exactly the kind of fast, noisy
+signal most exposed to it. Already-open positions are still managed (and
+can still exit) through that window; only fresh entries wait.
 """
 
 from __future__ import annotations
@@ -31,7 +37,7 @@ from datetime import datetime, time
 from typing import Any
 
 from app.core.config import Settings, get_settings
-from app.core.timeutil import in_time_window, now_ist, now_ist_epoch
+from app.core.timeutil import add_minutes, in_time_window, now_ist, now_ist_epoch
 from app.db import sqlite as db
 from app.services.crypto_indicators import atr as compute_atr
 from app.services.crypto_indicators import ema, resample_ohlc
@@ -134,6 +140,10 @@ async def _evaluate_resolution(
         return
 
     if is_eod:
+        return
+
+    entries_open_from = add_minutes(settings.pstrategy_nifty_session_start_time, settings.pstrategy_nifty_entry_delay_minutes)
+    if now_ist().time() < entries_open_from:
         return
 
     closes = [float(c["close"]) for c in candles]
