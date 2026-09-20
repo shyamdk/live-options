@@ -39,9 +39,10 @@ Side = Literal["long", "short"]
 
 def detect_patterns(candles: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """Returns (boxes, breakouts). `breakouts` entries are
-    {time, index, side} -- `index` lets the caller look up that candle's
-    EMA20 value to apply the side-of-trend filter before treating it as a
-    confirmed momentum candle.
+    {time, index, side, boxIndex} -- `index` lets the caller look up that
+    candle's EMA value to apply the side-of-trend filter, and `boxIndex`
+    points back into `boxes` so the caller can read the support/resistance
+    that stop/target levels get computed from.
     """
     n = len(candles)
     atr_values = atr(candles, ATR_LOOKBACK)
@@ -96,8 +97,80 @@ def detect_patterns(candles: list[dict[str, Any]]) -> tuple[list[dict[str, Any]]
             if b_body > BODY_ATR_RATIO * ref_atr:
                 side: Side | None = "long" if b_close > resistance else "short" if b_close < support else None
                 if side:
-                    breakouts.append({"time": breakout["time"], "index": j + 1, "side": side})
+                    breakouts.append({"time": breakout["time"], "index": j + 1, "side": side, "boxIndex": len(boxes) - 1})
 
         i = j + 2  # resume past the breakout candle -- if there wasn't one, j+2 still safely exceeds n and ends the loop
 
     return boxes, breakouts
+
+
+def propose_entries_and_exits(
+    candles: list[dict[str, Any]],
+    boxes: list[dict[str, Any]],
+    confirmed_momentum: list[dict[str, Any]],
+    ema_fast: list[float | None],
+    ema_slow: list[float | None],
+    ema_enabled: bool,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Entry/exit rule synthesized from standard breakout-trading practice
+    (measured-move target off the consolidation's own height, stop at the
+    opposite side of the range, trail-exit on a trend-indicator flip once
+    in profit) rather than invented from scratch:
+
+    - Entry: at the close of the confirmed momentum candle itself -- the
+      same candle already required to close beyond the range with a
+      genuinely large body (and, when EMA is on, on the right side of the
+      slow EMA). That close *is* the "decisive close beyond the level"
+      entry trigger.
+    - Stop: the opposite boundary of the consolidation box that was
+      broken -- where the setup is invalidated. The distance from entry
+      to this stop is the trade's risk, R.
+    - Target: 2R -- a 1:2 risk-reward target, per the standard breakout
+      guidance, measured from the actual entry price rather than a raw
+      box-height projection. A pure box-height measured move turned out
+      to sit *inside* the momentum candle's own overshoot past the box
+      (tested against live data: targets were hitting one candle after
+      entry almost every time), since the momentum candle's body and the
+      box's own height are both bounded by the same ATR reference. R
+      naturally includes that overshoot, so 2R gives the trade real room.
+    - Early exit: if EMA is enabled, an EMA9/20 cross back against the
+      position (the "close below the trailing MA means momentum is
+      fading" rule) exits before either the stop or target is reached.
+
+    Whichever of stop/target/trend-flip happens first, checked on each
+    candle's close going forward, is the exit. A momentum candle near the
+    end of the fetched history may have no exit yet -- that trade is
+    still "open" as far as this history shows, so it gets an entry
+    marker with no matching exit.
+    """
+    n = len(candles)
+    entries: list[dict[str, Any]] = []
+    exits: list[dict[str, Any]] = []
+
+    for m in confirmed_momentum:
+        idx = m["index"]
+        side = m["side"]
+        box = boxes[m["boxIndex"]]
+        entry_price = float(candles[idx]["close"])
+        stop = box["support"] if side == "long" else box["resistance"]
+        risk = abs(entry_price - stop)
+        target = entry_price + 2 * risk if side == "long" else entry_price - 2 * risk
+
+        entries.append({"time": candles[idx]["time"], "side": side})
+
+        for k in range(idx + 1, n):
+            close_k = float(candles[k]["close"])
+            hit_stop = (side == "long" and close_k <= stop) or (side == "short" and close_k >= stop)
+            hit_target = (side == "long" and close_k >= target) or (side == "short" and close_k <= target)
+            trend_flip = False
+            if ema_enabled and ema_fast[k - 1] is not None and ema_slow[k - 1] is not None and ema_fast[k] is not None and ema_slow[k] is not None:
+                prev_diff = ema_fast[k - 1] - ema_slow[k - 1]
+                curr_diff = ema_fast[k] - ema_slow[k]
+                trend_flip = (side == "long" and prev_diff >= 0 > curr_diff) or (side == "short" and prev_diff <= 0 < curr_diff)
+
+            if hit_stop or hit_target or trend_flip:
+                reason = "target" if hit_target else "trend_flip" if trend_flip else "stop"
+                exits.append({"time": candles[k]["time"], "side": side, "reason": reason})
+                break
+
+    return entries, exits

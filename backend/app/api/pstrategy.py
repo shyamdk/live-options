@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, Query
 from app.services.app_auth import require_auth
 from app.services.crypto_indicators import ema
 from app.services.delta_exchange import DeltaExchangeError, DeltaExchangeService
-from app.services.pstrategy import detect_patterns
+from app.services.pstrategy import detect_patterns, propose_entries_and_exits
 
 router = APIRouter(prefix="/pstrategy", tags=["pstrategy"])
 
@@ -58,7 +58,7 @@ async def candles(
         ema_fast = ema(closes, ema_fast_period)
         ema_slow = ema(closes, ema_slow_period)
 
-        momentum_candles: list[dict[str, Any]] = []
+        confirmed = []
         for b in breakouts:
             idx = b["index"]
             slow_value = ema_slow[idx]
@@ -66,7 +66,7 @@ async def candles(
                 continue
             close_price = float(ordered[idx]["close"])
             if (b["side"] == "long" and close_price > slow_value) or (b["side"] == "short" and close_price < slow_value):
-                momentum_candles.append({"time": b["time"], "side": b["side"]})
+                confirmed.append(b)
 
         for k in range(1, len(ordered)):
             fast_prev, slow_prev = ema_fast[k - 1], ema_slow[k - 1]
@@ -80,7 +80,10 @@ async def candles(
             elif prev_diff >= 0 > curr_diff:
                 crossovers.append({"time": ordered[k]["time"], "direction": "bearish"})
     else:
-        momentum_candles = [{"time": b["time"], "side": b["side"]} for b in breakouts]
+        confirmed = breakouts
+
+    momentum_candles = [{"time": b["time"], "side": b["side"]} for b in confirmed]
+    entries, exits = propose_entries_and_exits(ordered, boxes, confirmed, ema_fast, ema_slow, ema_enabled)
 
     return {
         "symbol": SYMBOL,
@@ -94,6 +97,8 @@ async def candles(
         ],
         "consolidations": boxes,
         "momentumCandles": momentum_candles,
+        "entries": entries,
+        "exits": exits,
         "emaFastValues": ema_fast,
         "emaSlowValues": ema_slow,
         "crossovers": crossovers,

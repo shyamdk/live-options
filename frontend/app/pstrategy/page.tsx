@@ -17,7 +17,7 @@ import { PenTool, Trash2, TrendingUp } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import { getPstrategyCandles } from "@/lib/api";
-import type { ConsolidationBox, EmaSettings, PstrategyData, PstrategyResolution } from "@/types/pstrategy";
+import type { ConsolidationBox, EmaSettings, PstrategyData, PstrategyResolution, TradeExit } from "@/types/pstrategy";
 
 const RESOLUTIONS: PstrategyResolution[] = ["1m", "5m", "15m"];
 const REFRESH_MS = secondsToMs(process.env.NEXT_PUBLIC_PSTRATEGY_REFRESH_SECONDS, 30);
@@ -438,9 +438,11 @@ function PstrategyChart({ resolution }: { resolution: PstrategyResolution }) {
           </span>
         ) : null}
         <span className="pcr-oi-caption" style={{ alignSelf: "center" }}>
-          Blue lines = auto-detected support/resistance. Orange lines = your own -- drag an end to resize, the middle
-          to shift. {emaSettings.enabled ? `EMA${emaSettings.fast} (teal) / EMA${emaSettings.slow} (violet), crossovers as circles. ` : ""}
-          Green/red arrows = momentum candle (long/short).
+          Blue lines = support/resistance. Orange lines = your own -- drag an end to resize, the middle to shift.
+          {emaSettings.enabled ? ` EMA${emaSettings.fast} (teal) / EMA${emaSettings.slow} (violet), crossovers as circles.` : ""}{" "}
+          M = momentum candle. EN = proposed entry. EX = proposed exit (green=target, red=stop, grey=trend flip) --
+          a 1:2 risk-reward rule using the box boundary as the stop, per standard breakout-trading practice. Markings
+          only, not real trades.
         </span>
       </div>
       <div ref={containerRef} style={{ width: "100%" }} />
@@ -454,6 +456,8 @@ function numericSeries(times: UTCTimestamp[], values: (number | null)[]): { time
     .filter((point): point is { time: UTCTimestamp; value: number } => point !== null);
 }
 
+const EXIT_COLOR: Record<TradeExit["reason"], string> = { target: "#168448", stop: "#c93535", trend_flip: "#8391a3" };
+
 function buildMarkers(data: PstrategyData): SeriesMarker<Time>[] {
   const markers: SeriesMarker<Time>[] = [];
   for (const m of data.momentumCandles) {
@@ -463,7 +467,25 @@ function buildMarkers(data: PstrategyData): SeriesMarker<Time>[] {
       position: isLong ? "belowBar" : "aboveBar",
       color: isLong ? "#168448" : "#c93535",
       shape: isLong ? "arrowUp" : "arrowDown",
-      text: isLong ? "Momentum ↑" : "Momentum ↓",
+      text: "M",
+    });
+  }
+  for (const e of data.entries) {
+    markers.push({
+      time: e.time as UTCTimestamp,
+      position: "inBar",
+      color: e.side === "long" ? "#168448" : "#c93535",
+      shape: "square",
+      text: "EN",
+    });
+  }
+  for (const x of data.exits) {
+    markers.push({
+      time: x.time as UTCTimestamp,
+      position: "inBar",
+      color: EXIT_COLOR[x.reason],
+      shape: "square",
+      text: "EX",
     });
   }
   for (const c of data.crossovers) {

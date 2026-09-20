@@ -20,6 +20,17 @@ export interface MomentumCandle {
   side: "long" | "short";
 }
 
+export interface TradeEntry {
+  time: number;
+  side: "long" | "short";
+}
+
+export interface TradeExit {
+  time: number;
+  side: "long" | "short";
+  reason: "target" | "stop" | "trend_flip";
+}
+
 export interface Crossover {
   time: number;
   direction: "bullish" | "bearish";
@@ -41,6 +52,8 @@ export interface PstrategyData {
   candles: PstrategyCandle[];
   consolidations: ConsolidationBox[];
   momentumCandles: MomentumCandle[];
+  entries: TradeEntry[];
+  exits: TradeExit[];
   emaFastValues: (number | null)[];
   emaSlowValues: (number | null)[];
   crossovers: Crossover[];
