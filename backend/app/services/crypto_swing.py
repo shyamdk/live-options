@@ -124,7 +124,22 @@ def simulate_trades(
     atr_values: list[float | None],
     trail_arm_atr_multiple: float = TRAIL_ARM_ATR_MULTIPLE,
     trail_atr_multiple: float = TRAIL_ATR_MULTIPLE,
+    allow_short: bool = True,
+    quantity_per_tranche: float | None = None,
 ) -> list[dict[str, Any]]:
+    """`allow_short=False` skips the short-entry branch entirely -- for an
+    instrument that can't realistically be shorted (e.g. an ETF bought
+    outright, see nifty_swing.py), a bearish 3-way confirmation just means
+    staying flat rather than opening a notional short.
+
+    `quantity_per_tranche`, when set, switches P&L from crypto-swing's
+    notional-per-tranche convention (fills weighted 1.0 each, P&L amount =
+    pct/100 * NOTIONAL_PER_TRANCHE * tranches) to real share-quantity P&L
+    (fills weighted by this literal quantity, P&L amount = pct/100 *
+    avg_entry * total_qty) -- i.e. what buying actual shares/units pays out,
+    not a leveraged notional. `None` preserves crypto-swing's exact existing
+    behavior.
+    """
     trades: list[dict[str, Any]] = []
     n = len(candles)
 
@@ -156,6 +171,11 @@ def simulate_trades(
         avg_entry = avg_entry_price()
         direction = 1 if position == "long" else -1
         pnl_pct = (exit_price - avg_entry) / avg_entry * 100 * direction
+        pnl_amount = (
+            pnl_pct / 100 * avg_entry * total_qty
+            if quantity_per_tranche is not None
+            else pnl_pct / 100 * NOTIONAL_PER_TRANCHE * len(fills)
+        )
         trades.append(
             {
                 "side": position,
@@ -168,7 +188,7 @@ def simulate_trades(
                 "exitPrice": exit_price,
                 "exitReason": reason,
                 "pnlPercent": pnl_pct,
-                "pnlAmount": pnl_pct / 100 * NOTIONAL_PER_TRANCHE * len(fills),
+                "pnlAmount": pnl_amount,
                 "peakPrice": best_close,
                 "trailStop": trail_stop,
             }
@@ -194,12 +214,13 @@ def simulate_trades(
         if position is None:
             flipped_up = direction == "up" and prev_direction == "down"
             flipped_down = direction == "down" and prev_direction == "up"
+            tranche_qty = quantity_per_tranche if quantity_per_tranche is not None else 1.0
             if flipped_up and close > ema and macd_v > 0 and signal_v > 0 and hist_v > 0:
-                position, entry_time, fills = "long", candles[i]["time"], [(close, 1.0)]
+                position, entry_time, fills = "long", candles[i]["time"], [(close, tranche_qty)]
                 stop = st_values[i] or close
                 best_close, trail_stop = close, None
-            elif flipped_down and close < ema and macd_v < 0 and signal_v < 0 and hist_v < 0:
-                position, entry_time, fills = "short", candles[i]["time"], [(close, 1.0)]
+            elif allow_short and flipped_down and close < ema and macd_v < 0 and signal_v < 0 and hist_v < 0:
+                position, entry_time, fills = "short", candles[i]["time"], [(close, tranche_qty)]
                 stop = st_values[i] or close
                 best_close, trail_stop = close, None
             continue
@@ -234,7 +255,7 @@ def simulate_trades(
                 # was a trap; treat this as a high-probability continuation
                 # and scale in (Section 5), then drop the trap state.
                 if len(fills) < MAX_TRANCHES:
-                    fills.append((close, 1.0))
+                    fills.append((close, quantity_per_tranche if quantity_per_tranche is not None else 1.0))
                 trap_active, pivot_level, pivot_volume = False, 0.0, -1.0
             continue
 

@@ -11,10 +11,10 @@ from app.services.crypto_indicators import ema, rsi
 from app.services.delta_exchange import DeltaExchangeError, DeltaExchangeService
 from app.services.pstrategy import (
     ATR_LOOKBACK,
-    EMA_CONFIRM_ATR_BUFFER,
     LEVERAGE,
     build_paper_trades,
     charges_percent_of_margin,
+    confirm_momentum,
     detect_patterns,
 )
 
@@ -74,19 +74,7 @@ async def candles(
         ema_fast = ema(closes, ema_fast_period)
         ema_slow = ema(closes, ema_slow_period)
 
-        confirmed = []
-        for b in breakouts:
-            idx = b["index"]
-            slow_value = ema_slow[idx]
-            atr_at_idx = atr_values[idx]
-            if slow_value is None or not atr_at_idx:
-                continue
-            close_price = float(ordered[idx]["close"])
-            buffer = EMA_CONFIRM_ATR_BUFFER * atr_at_idx
-            if (b["side"] == "long" and close_price > slow_value + buffer) or (
-                b["side"] == "short" and close_price < slow_value - buffer
-            ):
-                confirmed.append(b)
+        confirmed = confirm_momentum(breakouts, ordered, ema_slow, atr_values)
 
         for k in range(1, len(ordered)):
             fast_prev, slow_prev = ema_fast[k - 1], ema_slow[k - 1]

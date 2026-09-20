@@ -656,6 +656,35 @@ def init_db() -> None:
         )
         conn.execute(
             """
+            CREATE TABLE IF NOT EXISTS pstrategy_nifty_trades (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                resolution TEXT NOT NULL,
+                side TEXT NOT NULL,
+                strike REAL NOT NULL,
+                expiry TEXT NOT NULL,
+                security_id TEXT NOT NULL,
+                exchange_segment TEXT NOT NULL,
+                lots INTEGER NOT NULL,
+                lot_size INTEGER NOT NULL,
+                entry_time INTEGER NOT NULL,
+                entry_premium REAL NOT NULL,
+                entry_underlying_price REAL NOT NULL,
+                stop_loss_percent REAL NOT NULL,
+                peak_premium REAL,
+                best_underlying_close REAL NOT NULL,
+                trail_stop_underlying REAL,
+                status TEXT NOT NULL DEFAULT 'open',
+                exit_time INTEGER,
+                exit_premium REAL,
+                exit_reason TEXT,
+                realized_pnl REAL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
             CREATE TABLE IF NOT EXISTS oi_upgraded_signal_log (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 session_date TEXT NOT NULL,
@@ -1415,6 +1444,149 @@ def _paper_trade_leg_from_row(row: sqlite3.Row) -> dict[str, Any]:
         "exitReason": row["exit_reason"],
         "pnlPoints": row["pnl_points"],
         "pnlAmount": row["pnl_amount"],
+    }
+
+
+# pStrategy-Nifty: deliberately its own table, not a reuse of paper_trades --
+# that table's schema (target1/target2/phase) is tightly coupled to
+# paper_trading_engine.py's 3-lot staged-exit state machine, and its
+# background loop (paper_trading.py's _manage_open_trades) manages every
+# row in paper_trades regardless of signal_type. Sharing it would mean that
+# loop tries to manage pStrategy-Nifty's trades with the wrong exit logic.
+# One open trade per resolution ("1m"/"3m") at a time, same no-pyramiding
+# rule as pStrategy itself.
+
+
+def create_pstrategy_nifty_trade(
+    *,
+    resolution: str,
+    side: str,
+    strike: float,
+    expiry: str,
+    security_id: str,
+    exchange_segment: str,
+    lots: int,
+    lot_size: int,
+    entry_time: int,
+    entry_premium: float,
+    entry_underlying_price: float,
+    stop_loss_percent: float,
+) -> int:
+    now = datetime.now().isoformat(timespec="seconds")
+    with _DB_LOCK, _connect() as conn:
+        cur = conn.execute(
+            """
+            INSERT INTO pstrategy_nifty_trades (
+                resolution, side, strike, expiry, security_id, exchange_segment,
+                lots, lot_size, entry_time, entry_premium, entry_underlying_price,
+                stop_loss_percent, peak_premium, best_underlying_close, trail_stop_underlying,
+                status, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, NULL, 'open', ?, ?)
+            """,
+            (
+                resolution,
+                side,
+                strike,
+                expiry,
+                security_id,
+                exchange_segment,
+                lots,
+                lot_size,
+                entry_time,
+                entry_premium,
+                entry_underlying_price,
+                stop_loss_percent,
+                entry_underlying_price,
+                now,
+                now,
+            ),
+        )
+        conn.commit()
+        return int(cur.lastrowid)
+
+
+def get_open_pstrategy_nifty_trade(resolution: str) -> dict[str, Any] | None:
+    with _DB_LOCK, _connect() as conn:
+        row = conn.execute(
+            "SELECT * FROM pstrategy_nifty_trades WHERE resolution = ? AND status = 'open' ORDER BY id DESC LIMIT 1",
+            (resolution,),
+        ).fetchone()
+    return _pstrategy_nifty_trade_from_row(row) if row else None
+
+
+def list_open_pstrategy_nifty_trades() -> list[dict[str, Any]]:
+    with _DB_LOCK, _connect() as conn:
+        rows = conn.execute("SELECT * FROM pstrategy_nifty_trades WHERE status = 'open'").fetchall()
+    return [_pstrategy_nifty_trade_from_row(row) for row in rows]
+
+
+def update_pstrategy_nifty_trade_progress(
+    trade_id: int, *, peak_premium: float | None, best_underlying_close: float, trail_stop_underlying: float | None
+) -> None:
+    now = datetime.now().isoformat(timespec="seconds")
+    with _DB_LOCK, _connect() as conn:
+        conn.execute(
+            """
+            UPDATE pstrategy_nifty_trades
+            SET peak_premium = ?, best_underlying_close = ?, trail_stop_underlying = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (peak_premium, best_underlying_close, trail_stop_underlying, now, trade_id),
+        )
+        conn.commit()
+
+
+def close_pstrategy_nifty_trade(
+    trade_id: int, *, exit_time: int, exit_premium: float, exit_reason: str, realized_pnl: float
+) -> None:
+    now = datetime.now().isoformat(timespec="seconds")
+    with _DB_LOCK, _connect() as conn:
+        conn.execute(
+            """
+            UPDATE pstrategy_nifty_trades
+            SET status = 'closed', exit_time = ?, exit_premium = ?, exit_reason = ?, realized_pnl = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (exit_time, exit_premium, exit_reason, realized_pnl, now, trade_id),
+        )
+        conn.commit()
+
+
+def list_pstrategy_nifty_trades(resolution: str | None = None) -> list[dict[str, Any]]:
+    with _DB_LOCK, _connect() as conn:
+        if resolution:
+            rows = conn.execute(
+                "SELECT * FROM pstrategy_nifty_trades WHERE resolution = ? ORDER BY entry_time DESC", (resolution,)
+            ).fetchall()
+        else:
+            rows = conn.execute("SELECT * FROM pstrategy_nifty_trades ORDER BY entry_time DESC").fetchall()
+    return [_pstrategy_nifty_trade_from_row(row) for row in rows]
+
+
+def _pstrategy_nifty_trade_from_row(row: sqlite3.Row) -> dict[str, Any]:
+    return {
+        "id": row["id"],
+        "resolution": row["resolution"],
+        "side": row["side"],
+        "strike": row["strike"],
+        "expiry": row["expiry"],
+        "securityId": row["security_id"],
+        "exchangeSegment": row["exchange_segment"],
+        "lots": row["lots"],
+        "lotSize": row["lot_size"],
+        "entryTime": row["entry_time"],
+        "entryPremium": row["entry_premium"],
+        "entryUnderlyingPrice": row["entry_underlying_price"],
+        "stopLossPercent": row["stop_loss_percent"],
+        "peakPremium": row["peak_premium"],
+        "bestUnderlyingClose": row["best_underlying_close"],
+        "trailStopUnderlying": row["trail_stop_underlying"],
+        "status": row["status"],
+        "exitTime": row["exit_time"],
+        "exitPremium": row["exit_premium"],
+        "exitReason": row["exit_reason"],
+        "realizedPnl": row["realized_pnl"],
+        "createdAt": row["created_at"],
     }
 
 

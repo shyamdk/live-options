@@ -24,6 +24,8 @@ import type { CreditSpreadState } from "@/types/credit-spread";
 import type { ThetaRuntimeConfig, ThetaSession, ThetaSessionDetail, ThetaState } from "@/types/theta";
 import type { CryptoSwingIndicators, CryptoSwingLiveStatus, CryptoSwingSymbol, CryptoSwingTrade, CryptoSwingWallet } from "@/types/crypto-swing";
 import type { EmaSettings, PstrategyData, PstrategyResolution } from "@/types/pstrategy";
+import type { NiftySwingIndicators, NiftySwingResolution, NiftySwingTrade } from "@/types/nifty-swing";
+import type { PstrategyNiftyCandlesData, PstrategyNiftyResolution, PstrategyNiftyTrade } from "@/types/pstrategy-nifty";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8001";
 const AUTH_TOKEN_KEY = "live-options-auth-token";
@@ -456,6 +458,50 @@ export async function getPstrategyCandles(
   });
   if (paperCapitalInr) query.set("paperCapital", String(paperCapitalInr));
   return apiJson<PstrategyData>(`/api/pstrategy/candles?${query.toString()}`, undefined, "Failed to load XAUTUSD candles");
+}
+
+export async function getNiftySwingCandles(resolution: NiftySwingResolution = "30m"): Promise<NiftySwingIndicators> {
+  return apiJson<NiftySwingIndicators>(
+    `/api/nifty-swing/candles?resolution=${resolution}`,
+    undefined,
+    "Failed to load NIFTYBEES candles",
+  );
+}
+
+export async function getNiftySwingTrades(
+  resolution: NiftySwingResolution,
+  trail?: CryptoSwingTrailSettings,
+  quantity?: number,
+): Promise<{ trades: NiftySwingTrade[]; trailArm: number; trailMultiple: number; quantity: number }> {
+  const query = new URLSearchParams({ resolution });
+  if (trail) {
+    query.set("trailArm", String(trail.arm));
+    query.set("trailMultiple", String(trail.multiple));
+  }
+  if (quantity) query.set("quantity", String(quantity));
+  return apiJson<{ trades: NiftySwingTrade[]; trailArm: number; trailMultiple: number; quantity: number }>(
+    `/api/nifty-swing/trades?${query.toString()}`,
+    undefined,
+    "Failed to load Nifty-Swing paper trades",
+  );
+}
+
+export async function getPstrategyNiftyCandles(resolution: PstrategyNiftyResolution): Promise<PstrategyNiftyCandlesData> {
+  return apiJson<PstrategyNiftyCandlesData>(
+    `/api/pstrategy-nifty/candles?resolution=${resolution}`,
+    undefined,
+    "Failed to load NIFTY candles",
+  );
+}
+
+export async function getPstrategyNiftyTrades(
+  resolution: PstrategyNiftyResolution,
+): Promise<{ trades: PstrategyNiftyTrade[]; resolution: PstrategyNiftyResolution }> {
+  return apiJson<{ trades: PstrategyNiftyTrade[]; resolution: PstrategyNiftyResolution }>(
+    `/api/pstrategy-nifty/trades?resolution=${resolution}`,
+    undefined,
+    "Failed to load pStrategy-Nifty paper trades",
+  );
 }
 
 export async function askAssistant(question: string, history: ChatMessage[]): Promise<{ answer: string }> {

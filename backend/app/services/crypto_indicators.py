@@ -94,6 +94,57 @@ def _true_range(candles: list[dict[str, Any]]) -> list[float]:
     return tr
 
 
+def resample_ohlc(candles: list[dict[str, Any]], group_size: int, day_key: Any = None) -> list[dict[str, Any]]:
+    """Groups consecutive candles into `group_size`-sized OHLC bars -- for
+    building a resolution Dhan doesn't serve natively (e.g. 30m from 15m
+    pairs, or 3m from 1m triples; see nifty_swing.py and pstrategy_nifty.py).
+
+    Grouping restarts at each session boundary (`day_key`, e.g. a date
+    string) rather than treating the whole series as one continuous run --
+    otherwise the overnight gap between two trading days would get folded
+    into a single bar. A trailing partial group (fewer than group_size
+    candles left at the end of a day) is still emitted as a shorter final
+    bar rather than dropped, same as how a live chart's last bar of the day
+    is naturally shorter.
+
+    Input must already be chronological (oldest-first) and gap-free within
+    a day; `time`/`volume` of the resulting bar come from its first/last
+    input candle respectively (`time` is a bar's open time by convention
+    elsewhere in this codebase).
+    """
+    if group_size <= 1:
+        return candles
+
+    def key_of(c: dict[str, Any]) -> Any:
+        return day_key(c) if day_key is not None else None
+
+    bars: list[dict[str, Any]] = []
+    chunk: list[dict[str, Any]] = []
+    current_key: Any = None
+    for c in candles:
+        k = key_of(c)
+        if chunk and (k != current_key or len(chunk) >= group_size):
+            bars.append(_merge_ohlc(chunk))
+            chunk = []
+        current_key = k
+        chunk.append(c)
+    if chunk:
+        bars.append(_merge_ohlc(chunk))
+    return bars
+
+
+def _merge_ohlc(chunk: list[dict[str, Any]]) -> dict[str, Any]:
+    volumes = [c.get("volume") for c in chunk if c.get("volume") is not None]
+    return {
+        "time": chunk[0]["time"],
+        "open": chunk[0]["open"],
+        "high": max(c["high"] for c in chunk),
+        "low": min(c["low"] for c in chunk),
+        "close": chunk[-1]["close"],
+        "volume": sum(volumes) if volumes else None,
+    }
+
+
 def atr(candles: list[dict[str, Any]], period: int = 14) -> list[float | None]:
     """Wilder-smoothed average true range -- the same warm-up/smoothing
     supertrend() uses internally, exposed standalone for callers (like the

@@ -63,6 +63,84 @@ EMA_CONFIRM_ATR_BUFFER = 0.1
 Side = Literal["long", "short"]
 
 
+def stop_fill_price(side: Side, level: float, open_price: float) -> float:
+    # A stop order fills the instant price touches it intrabar, not only at
+    # the candle's close -- and if the candle gapped straight past the
+    # level, the fill is the open (can't get a better price than what the
+    # market opened at), not the level itself.
+    if side == "long":
+        return min(open_price, level) if open_price <= level else level
+    return max(open_price, level) if open_price >= level else level
+
+
+def check_ema_trail_exit(
+    *,
+    side: Side,
+    entry_price: float,
+    best_close: float,
+    close: float,
+    high: float,
+    low: float,
+    open_price: float,
+    ema_slow_value: float | None,
+    atr_value: float | None,
+    trail_stop: float | None,
+) -> dict[str, Any]:
+    """One tick of pStrategy's EMA-hold + ATR-Chandelier-trail exit rule for
+    an already-open position -- shared verbatim between the batch replay
+    below (build_paper_trades) and a live per-tick poll loop (see
+    pstrategy_nifty.py) so both apply exactly the same rule rather than two
+    hand-maintained copies that could drift apart.
+
+    Held as long as `close` stays on the favorable side of `ema_slow_value`.
+    Layered on top: once up TRAIL_ARM_ATR_MULTIPLE x ATR from entry, a
+    Chandelier stop arms at `best_close` -/+ TRAIL_ATR_MULTIPLE x ATR,
+    ratcheting only in the position's favor, checked intrabar (low/high) --
+    this can exit even while `close` is still technically held.
+
+    Returns {"exit", "bestClose", "trailStop", "exitPrice", "reason"} --
+    `bestClose`/`trailStop` are always returned (updated even when not
+    exiting) so the caller carries them into the next tick; `exitPrice`/
+    `reason` are None unless `exit` is True.
+    """
+    new_best_close = max(best_close, close) if side == "long" else min(best_close, close)
+    new_trail_stop = trail_stop
+
+    if ema_slow_value is None:
+        return {"exit": False, "bestClose": new_best_close, "trailStop": new_trail_stop, "exitPrice": None, "reason": None}
+
+    if atr_value:
+        favorable_move = (new_best_close - entry_price) if side == "long" else (entry_price - new_best_close)
+        if new_trail_stop is not None or favorable_move >= TRAIL_ARM_ATR_MULTIPLE * atr_value:
+            candidate = (
+                new_best_close - TRAIL_ATR_MULTIPLE * atr_value
+                if side == "long"
+                else new_best_close + TRAIL_ATR_MULTIPLE * atr_value
+            )
+            new_trail_stop = (
+                candidate
+                if new_trail_stop is None
+                else (max(new_trail_stop, candidate) if side == "long" else min(new_trail_stop, candidate))
+            )
+
+    # Checked intrabar (low/high), not just the close -- a sharp reversal
+    # that round-trips within a single candle would otherwise only be
+    # caught after the fact, at the close, defeating the point of a
+    # trailing stop.
+    hit_trail = new_trail_stop is not None and (
+        (side == "long" and low <= new_trail_stop) or (side == "short" and high >= new_trail_stop)
+    )
+    if hit_trail:
+        exit_price = stop_fill_price(side, new_trail_stop, open_price)
+        return {"exit": True, "bestClose": new_best_close, "trailStop": new_trail_stop, "exitPrice": exit_price, "reason": "trail_stop"}
+
+    held = (side == "long" and close > ema_slow_value) or (side == "short" and close < ema_slow_value)
+    if held:
+        return {"exit": False, "bestClose": new_best_close, "trailStop": new_trail_stop, "exitPrice": None, "reason": None}
+
+    return {"exit": True, "bestClose": new_best_close, "trailStop": new_trail_stop, "exitPrice": close, "reason": "ema_exit"}
+
+
 def charges_percent_of_margin(entry_price: float, exit_price: float) -> float:
     """Round-trip taker fee, expressed as a percent of margin (same units as
     pnlPercent) so it can be subtracted from it directly.
@@ -145,6 +223,35 @@ def detect_patterns(candles: list[dict[str, Any]]) -> tuple[list[dict[str, Any]]
         i = j + 2  # resume past the breakout candle -- if there wasn't one, j+2 still safely exceeds n and ends the loop
 
     return boxes, breakouts
+
+
+def confirm_momentum(
+    breakouts: list[dict[str, Any]],
+    candles: list[dict[str, Any]],
+    ema_slow: list[float | None],
+    atr_values: list[float | None],
+) -> list[dict[str, Any]]:
+    """Applies the EMA20 side-of-trend filter to raw breakouts from
+    detect_patterns -- shared between the batch API (api/pstrategy.py) and
+    the live poll loop (pstrategy_nifty.py) so both use the identical rule.
+    A breakout only counts once its candle's close clears the slow EMA by
+    at least EMA_CONFIRM_ATR_BUFFER x ATR in its own direction (see that
+    constant's docstring for why a bare `>`/`<` isn't enough).
+    """
+    confirmed = []
+    for b in breakouts:
+        idx = b["index"]
+        slow_value = ema_slow[idx]
+        atr_at_idx = atr_values[idx]
+        if slow_value is None or not atr_at_idx:
+            continue
+        close_price = float(candles[idx]["close"])
+        buffer = EMA_CONFIRM_ATR_BUFFER * atr_at_idx
+        if (b["side"] == "long" and close_price > slow_value + buffer) or (
+            b["side"] == "short" and close_price < slow_value - buffer
+        ):
+            confirmed.append(b)
+    return confirmed
 
 
 def build_paper_trades(
@@ -237,53 +344,39 @@ def build_paper_trades(
         best_close = entry_price
         trail_stop: float | None = None
 
-        def stop_fill_price(level: float, open_k: float) -> float:
-            # A stop order fills the instant price touches it intrabar,
-            # not only at the candle's close -- and if the candle gapped
-            # straight past the level, the fill is the open (can't get a
-            # better price than what the market opened at), not the
-            # level itself. Targets, by contrast, are limit orders --
-            # filled at the target price even on a favorable gap through
-            # it, so they don't need this adjustment.
-            if side == "long":
-                return min(open_k, level) if open_k <= level else level
-            return max(open_k, level) if open_k >= level else level
-
         for k in range(idx + 1, n):
             close_k = float(candles[k]["close"])
             high_k, low_k, open_k = float(candles[k]["high"]), float(candles[k]["low"]), float(candles[k]["open"])
-            best_close = max(best_close, close_k) if side == "long" else min(best_close, close_k)
             exit_price = close_k
 
             if ema_enabled and ema_slow[k] is not None:
-                atr_k = atr_values[k]
-                if atr_k:
-                    favorable_move = (best_close - entry_price) if side == "long" else (entry_price - best_close)
-                    if trail_stop is not None or favorable_move >= TRAIL_ARM_ATR_MULTIPLE * atr_k:
-                        candidate = best_close - TRAIL_ATR_MULTIPLE * atr_k if side == "long" else best_close + TRAIL_ATR_MULTIPLE * atr_k
-                        trail_stop = candidate if trail_stop is None else (max(trail_stop, candidate) if side == "long" else min(trail_stop, candidate))
-
-                # Checked intrabar (low/high), not just the close -- a
-                # sharp reversal that round-trips within a single candle
-                # (seen live: a 5m candle that opened 4379.77, dipped to
-                # 4378.09, closed 4378.11) would otherwise only be caught
-                # after the fact, at the close, defeating the point of a
-                # trailing stop.
-                hit_trail = trail_stop is not None and ((side == "long" and low_k <= trail_stop) or (side == "short" and high_k >= trail_stop))
-                if hit_trail:
-                    exit_price = stop_fill_price(trail_stop, open_k)
-                held = (side == "long" and close_k > ema_slow[k]) or (side == "short" and close_k < ema_slow[k])
-                if not hit_trail and held:
+                result = check_ema_trail_exit(
+                    side=side,
+                    entry_price=entry_price,
+                    best_close=best_close,
+                    close=close_k,
+                    high=high_k,
+                    low=low_k,
+                    open_price=open_k,
+                    ema_slow_value=ema_slow[k],
+                    atr_value=atr_values[k],
+                    trail_stop=trail_stop,
+                )
+                best_close = result["bestClose"]
+                trail_stop = result["trailStop"]
+                if not result["exit"]:
                     continue
-                reason = "trail_stop" if hit_trail else "ema_exit"
+                exit_price = result["exitPrice"]
+                reason = result["reason"]
             else:
+                best_close = max(best_close, close_k) if side == "long" else min(best_close, close_k)
                 hit_stop = (side == "long" and low_k <= stop) or (side == "short" and high_k >= stop)
                 hit_target = (side == "long" and high_k >= target) or (side == "short" and low_k <= target)
                 if not (hit_stop or hit_target):
                     continue
                 # Stop takes priority if a single wild candle hits both.
                 reason = "stop" if hit_stop else "target"
-                exit_price = stop_fill_price(stop, open_k) if hit_stop else target
+                exit_price = stop_fill_price(side, stop, open_k) if hit_stop else target
 
             pnl_percent = (exit_price - entry_price) / entry_price * 100 * direction * LEVERAGE
             charges_percent = charges_percent_of_margin(entry_price, exit_price)

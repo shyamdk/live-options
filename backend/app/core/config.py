@@ -123,6 +123,19 @@ class Settings(BaseSettings):
     paper_trading_session_start_time: str = "09:15"
     paper_trading_session_end_time: str = "15:30"
 
+    # pStrategy-Nifty: paper-only, buys ATM CE/PE on a pStrategy-style
+    # momentum breakout in NIFTY spot at 1m/3m. Off by default like every
+    # new monitor in this codebase. stop_loss_percent is the hard backstop
+    # on the option premium itself (on top of the EMA/ATR exit mirrored
+    # from pStrategy -- see check_ema_trail_exit in pstrategy.py).
+    pstrategy_nifty_monitor_enabled: bool = False
+    pstrategy_nifty_poll_interval_seconds: int = 30
+    pstrategy_nifty_session_start_time: str = "09:15"
+    pstrategy_nifty_session_end_time: str = "15:30"
+    pstrategy_nifty_stop_loss_percent: float = 35.0
+    pstrategy_nifty_lots: int = 1
+    pstrategy_nifty_lot_size: int = 65
+
     # Logs each new oi_signal_engine poll to oi_upgraded_signal_log (phase 5
     # signal history) -- read-only, no order placement, off by default.
     oi_upgraded_monitor_enabled: bool = False
