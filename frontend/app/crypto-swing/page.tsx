@@ -70,6 +70,7 @@ function PaperTradesPanel({
   onRefresh,
   title,
   variant,
+  secondsUntilRefresh,
 }: {
   trades: CryptoSwingTrade[];
   loading: boolean;
@@ -77,6 +78,7 @@ function PaperTradesPanel({
   onRefresh: () => void;
   title: string;
   variant: "open" | "closed";
+  secondsUntilRefresh: number;
 }) {
   const usable = trades.filter((t) => t.status === variant);
   const errors = trades.filter((t) => t.status === "error");
@@ -85,9 +87,12 @@ function PaperTradesPanel({
     <div className="pcr-oi-section">
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <h3 style={{ margin: 0 }}>{title}</h3>
-        <button type="button" className="button secondary" onClick={onRefresh} disabled={loading}>
-          <RefreshCw size={14} /> {loading ? "Refreshing…" : "Refresh"}
-        </button>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span className="pcr-oi-caption">Auto-refreshes in {secondsUntilRefresh}s</span>
+          <button type="button" className="button secondary" onClick={onRefresh} disabled={loading}>
+            <RefreshCw size={14} /> {loading ? "Refreshing…" : "Refresh"}
+          </button>
+        </div>
       </div>
       <p className="pcr-oi-caption" style={{ margin: "4px 0 10px" }}>
         Simulated only -- replayed deterministically from the 3-way confirmation strategy against 30m candle history.
@@ -178,6 +183,13 @@ export default function CryptoSwingPage() {
   const [trades, setTrades] = useState<CryptoSwingTrade[]>([]);
   const [tradesLoading, setTradesLoading] = useState(true);
   const [tradesError, setTradesError] = useState<string | null>(null);
+  const [lastTradesRefreshAt, setLastTradesRefreshAt] = useState(Date.now());
+  const [nowTick, setNowTick] = useState(Date.now());
+
+  useEffect(() => {
+    const tick = window.setInterval(() => setNowTick(Date.now()), 1000);
+    return () => window.clearInterval(tick);
+  }, []);
 
   async function load() {
     setLoading(true);
@@ -193,6 +205,7 @@ export default function CryptoSwingPage() {
 
   async function loadTrades() {
     setTradesLoading(true);
+    setLastTradesRefreshAt(Date.now());
     try {
       const payload = await getCryptoSwingTrades();
       setTrades(payload.trades);
@@ -215,6 +228,7 @@ export default function CryptoSwingPage() {
   }, []);
 
   const nonZero = wallet?.balances.filter((row) => Number(row.balance ?? 0) !== 0) ?? [];
+  const secondsUntilTradesRefresh = Math.max(0, Math.ceil((TRADES_REFRESH_MS - (nowTick - lastTradesRefreshAt)) / 1000));
 
   return (
     <section className="page">
@@ -226,14 +240,23 @@ export default function CryptoSwingPage() {
           </h1>
           <p>Delta Exchange India connectivity and account funds. Strategy execution isn&apos;t wired up yet -- this confirms the connection and shows what capital is available to trade.</p>
         </div>
-        <div className="toolbar">
+        <div className="toolbar" style={{ alignItems: "center", gap: 8 }}>
+          <span className="pcr-oi-caption">Manual refresh only</span>
           <button type="button" className="button secondary" onClick={load} disabled={loading}>
             <RefreshCw size={14} /> {loading ? "Checking…" : "Refresh"}
           </button>
         </div>
       </header>
 
-      <PaperTradesPanel trades={trades} loading={tradesLoading} error={tradesError} onRefresh={loadTrades} title="Current trades" variant="open" />
+      <PaperTradesPanel
+        trades={trades}
+        loading={tradesLoading}
+        error={tradesError}
+        onRefresh={loadTrades}
+        title="Current trades"
+        variant="open"
+        secondsUntilRefresh={secondsUntilTradesRefresh}
+      />
 
       {error ? <div className="alert error">{error}</div> : null}
 
@@ -296,6 +319,7 @@ export default function CryptoSwingPage() {
         onRefresh={loadTrades}
         title="Closed trades"
         variant="closed"
+        secondsUntilRefresh={secondsUntilTradesRefresh}
       />
     </section>
   );
