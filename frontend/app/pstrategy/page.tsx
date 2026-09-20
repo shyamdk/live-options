@@ -606,8 +606,8 @@ function PstrategyChart({ resolution, emaSettings }: { resolution: PstrategyReso
         <span className="pcr-oi-caption" style={{ alignSelf: "center" }}>
           Blue lines = support/resistance. Orange lines = your own -- drag an end to resize, the middle to shift.
           {emaSettings.enabled ? ` EMA${emaSettings.fast} (teal) / EMA${emaSettings.slow} (violet), crossovers as circles.` : ""}{" "}
-          M = momentum candle. EN = proposed entry. EX = proposed exit (green=target, red=stop, grey=trend flip) --
-          a 1:2 risk-reward rule using the box boundary as the stop, per standard breakout-trading practice.
+          EN = entry (arrow = confirmed momentum candle). EX = exit (green=target, red=stop, grey=trend flip) -- a
+          1:2 risk-reward rule using the box boundary as the stop, per standard breakout-trading practice.
         </span>
       </div>
       <div ref={containerRef} style={{ width: "100%" }} />
@@ -625,30 +625,26 @@ const EXIT_COLOR: Record<ExitReason, string> = { target: "#168448", stop: "#c935
 
 function buildMarkers(data: PstrategyData): SeriesMarker<Time>[] {
   const markers: SeriesMarker<Time>[] = [];
-  for (const m of data.momentumCandles) {
-    const isLong = m.side === "long";
+  // EN always lands on the same candle as a confirmed momentum candle (by
+  // construction -- entry *is* that candle's close), so a separate "M"
+  // marker there was pure duplicate clutter. EN/EX sit on opposite sides
+  // of the candle (matching Crypto-Swing's entry/exit marker convention)
+  // so they don't stack when a trade opens and closes in quick succession.
+  for (const t of data.trades) {
+    const isLong = t.side === "long";
     markers.push({
-      time: m.time as UTCTimestamp,
+      time: t.entryTime as UTCTimestamp,
       position: isLong ? "belowBar" : "aboveBar",
       color: isLong ? "#168448" : "#c93535",
       shape: isLong ? "arrowUp" : "arrowDown",
-      text: "M",
-    });
-  }
-  for (const t of data.trades) {
-    markers.push({
-      time: t.entryTime as UTCTimestamp,
-      position: "inBar",
-      color: t.side === "long" ? "#168448" : "#c93535",
-      shape: "square",
       text: "EN",
     });
     if (t.status === "closed" && t.exitTime !== null && t.exitReason) {
       markers.push({
         time: t.exitTime as UTCTimestamp,
-        position: "inBar",
+        position: isLong ? "aboveBar" : "belowBar",
         color: EXIT_COLOR[t.exitReason],
-        shape: "square",
+        shape: "circle",
         text: "EX",
       });
     }
