@@ -14,14 +14,22 @@ router = APIRouter(prefix="/pstrategy", tags=["pstrategy"])
 
 SYMBOL = "XAUTUSD"
 RESOLUTION_SECONDS = {"1m": 60, "5m": 300, "15m": 900}
-EMA_FAST = 9
-EMA_SLOW = 20
+DEFAULT_EMA_FAST = 9
+DEFAULT_EMA_SLOW = 20
 
 
 @router.get("/candles", dependencies=[Depends(require_auth)])
-async def candles(resolution: str = Query(default="5m")) -> dict[str, Any]:
+async def candles(
+    resolution: str = Query(default="5m"),
+    ema_enabled: bool = Query(default=True, alias="emaEnabled"),
+    ema_fast_period: int = Query(default=DEFAULT_EMA_FAST, alias="emaFast", ge=2, le=200),
+    ema_slow_period: int = Query(default=DEFAULT_EMA_SLOW, alias="emaSlow", ge=2, le=200),
+) -> dict[str, Any]:
     if resolution not in RESOLUTION_SECONDS:
         return {"error": f"Unsupported resolution {resolution!r}", "candles": []}
+    if ema_fast_period >= ema_slow_period:
+        ema_fast_period, ema_slow_period = DEFAULT_EMA_FAST, DEFAULT_EMA_SLOW
+
     step = RESOLUTION_SECONDS[resolution]
     # Enough history for the ATR warm-up plus a healthy scroll-back window
     # of already-resolved consolidation boxes.
@@ -35,48 +43,58 @@ async def candles(resolution: str = Query(default="5m")) -> dict[str, Any]:
         return {"error": str(exc), "candles": []}
 
     ordered = sorted(raw, key=lambda c: c["time"])
-    closes = [float(c["close"]) for c in ordered]
-    ema_fast = ema(closes, EMA_FAST)
-    ema_slow = ema(closes, EMA_SLOW)
-
     boxes, breakouts = detect_patterns(ordered)
 
-    # A breakout only counts as a confirmed momentum candle once it also
-    # clears the EMA20 side-of-trend filter -- long momentum must close
-    # above EMA20, short below, per the strategy review.
-    momentum_candles: list[dict[str, Any]] = []
-    for b in breakouts:
-        idx = b["index"]
-        e20 = ema_slow[idx]
-        if e20 is None:
-            continue
-        close_price = float(ordered[idx]["close"])
-        if (b["side"] == "long" and close_price > e20) or (b["side"] == "short" and close_price < e20):
-            momentum_candles.append({"time": b["time"], "side": b["side"]})
-
+    # The EMA side-of-trend filter (long momentum must close above the
+    # slow EMA, short below) and the crossover markers are both gated by
+    # the same enable flag -- when off, a breakout counts as momentum on
+    # body+direction alone, and no EMA series/crossovers are computed.
+    ema_fast: list[float | None] = []
+    ema_slow: list[float | None] = []
     crossovers: list[dict[str, Any]] = []
-    for k in range(1, len(ordered)):
-        fast_prev, slow_prev = ema_fast[k - 1], ema_slow[k - 1]
-        fast_now, slow_now = ema_fast[k], ema_slow[k]
-        if fast_prev is None or slow_prev is None or fast_now is None or slow_now is None:
-            continue
-        prev_diff = fast_prev - slow_prev
-        curr_diff = fast_now - slow_now
-        if prev_diff <= 0 < curr_diff:
-            crossovers.append({"time": ordered[k]["time"], "direction": "bullish"})
-        elif prev_diff >= 0 > curr_diff:
-            crossovers.append({"time": ordered[k]["time"], "direction": "bearish"})
+
+    if ema_enabled:
+        closes = [float(c["close"]) for c in ordered]
+        ema_fast = ema(closes, ema_fast_period)
+        ema_slow = ema(closes, ema_slow_period)
+
+        momentum_candles: list[dict[str, Any]] = []
+        for b in breakouts:
+            idx = b["index"]
+            slow_value = ema_slow[idx]
+            if slow_value is None:
+                continue
+            close_price = float(ordered[idx]["close"])
+            if (b["side"] == "long" and close_price > slow_value) or (b["side"] == "short" and close_price < slow_value):
+                momentum_candles.append({"time": b["time"], "side": b["side"]})
+
+        for k in range(1, len(ordered)):
+            fast_prev, slow_prev = ema_fast[k - 1], ema_slow[k - 1]
+            fast_now, slow_now = ema_fast[k], ema_slow[k]
+            if fast_prev is None or slow_prev is None or fast_now is None or slow_now is None:
+                continue
+            prev_diff = fast_prev - slow_prev
+            curr_diff = fast_now - slow_now
+            if prev_diff <= 0 < curr_diff:
+                crossovers.append({"time": ordered[k]["time"], "direction": "bullish"})
+            elif prev_diff >= 0 > curr_diff:
+                crossovers.append({"time": ordered[k]["time"], "direction": "bearish"})
+    else:
+        momentum_candles = [{"time": b["time"], "side": b["side"]} for b in breakouts]
 
     return {
         "symbol": SYMBOL,
         "resolution": resolution,
+        "emaEnabled": ema_enabled,
+        "emaFast": ema_fast_period,
+        "emaSlow": ema_slow_period,
         "candles": [
             {"time": c["time"], "open": c["open"], "high": c["high"], "low": c["low"], "close": c["close"]}
             for c in ordered
         ],
         "consolidations": boxes,
         "momentumCandles": momentum_candles,
-        "ema9": ema_fast,
-        "ema20": ema_slow,
+        "emaFastValues": ema_fast,
+        "emaSlowValues": ema_slow,
         "crossovers": crossovers,
     }

@@ -25,14 +25,23 @@ export interface Crossover {
   direction: "bullish" | "bearish";
 }
 
+export interface EmaSettings {
+  enabled: boolean;
+  fast: number;
+  slow: number;
+}
+
 export interface PstrategyData {
   symbol?: string;
   resolution?: PstrategyResolution;
   error?: string;
+  emaEnabled: boolean;
+  emaFast: number;
+  emaSlow: number;
   candles: PstrategyCandle[];
   consolidations: ConsolidationBox[];
   momentumCandles: MomentumCandle[];
-  ema9: (number | null)[];
-  ema20: (number | null)[];
+  emaFastValues: (number | null)[];
+  emaSlowValues: (number | null)[];
   crossovers: Crossover[];
 }

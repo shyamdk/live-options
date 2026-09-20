@@ -13,15 +13,17 @@ import {
   Time,
   UTCTimestamp,
 } from "lightweight-charts";
-import { PenTool, Trash2 } from "lucide-react";
+import { PenTool, Trash2, TrendingUp } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import { getPstrategyCandles } from "@/lib/api";
-import type { ConsolidationBox, PstrategyData, PstrategyResolution } from "@/types/pstrategy";
+import type { ConsolidationBox, EmaSettings, PstrategyData, PstrategyResolution } from "@/types/pstrategy";
 
 const RESOLUTIONS: PstrategyResolution[] = ["1m", "5m", "15m"];
 const REFRESH_MS = secondsToMs(process.env.NEXT_PUBLIC_PSTRATEGY_REFRESH_SECONDS, 30);
 const STORAGE_PREFIX = "live-options-pstrategy-lines";
+const EMA_SETTINGS_KEY = "live-options-pstrategy-ema-settings";
+const DEFAULT_EMA_SETTINGS: EmaSettings = { enabled: true, fast: 9, slow: 20 };
 // Pixel tolerance for "close enough to grab" when hit-testing the mouse
 // against a drawn line's endpoints or body.
 const HIT_PX = 8;
@@ -60,6 +62,24 @@ function saveManualLines(resolution: PstrategyResolution, lines: ManualLine[]): 
   }
 }
 
+function loadEmaSettings(): EmaSettings {
+  try {
+    const raw = window.localStorage.getItem(EMA_SETTINGS_KEY);
+    if (raw) return { ...DEFAULT_EMA_SETTINGS, ...(JSON.parse(raw) as Partial<EmaSettings>) };
+  } catch {
+    // fall through to defaults
+  }
+  return DEFAULT_EMA_SETTINGS;
+}
+
+function saveEmaSettings(settings: EmaSettings): void {
+  try {
+    window.localStorage.setItem(EMA_SETTINGS_KEY, JSON.stringify(settings));
+  } catch {
+    // Best-effort only.
+  }
+}
+
 export default function PstrategyPage() {
   const [resolution, setResolution] = useState<PstrategyResolution>("5m");
 
@@ -73,8 +93,9 @@ export default function PstrategyPage() {
           </h1>
           <p>
             XAUTUSD (gold) consolidation detection -- a variable-length run of narrow candles gets a
-            support/resistance box, and the candle that breaks out of it (on the correct side of EMA20) is marked as
-            a momentum candle. EMA9/EMA20 crossovers are marked too. Draw your own lines and drag to reposition them.
+            support/resistance box, and the candle that breaks out of it is marked as a momentum candle (when EMA
+            cross is on, it must also close on the correct side of the slow EMA). EMA periods and the crossover
+            markers are configurable and can be turned off entirely. Draw your own lines and drag to reposition them.
             Markings only for now -- no paper trades yet.
           </p>
         </div>
@@ -115,6 +136,33 @@ function PstrategyChart({ resolution }: { resolution: PstrategyResolution }) {
   const [error, setError] = useState<string | null>(null);
   const [manualLines, setManualLines] = useState<ManualLine[]>([]);
   const [drawMode, setDrawMode] = useState(false);
+  const [emaSettings, setEmaSettings] = useState<EmaSettings>(DEFAULT_EMA_SETTINGS);
+  const [emaFastInput, setEmaFastInput] = useState(String(DEFAULT_EMA_SETTINGS.fast));
+  const [emaSlowInput, setEmaSlowInput] = useState(String(DEFAULT_EMA_SETTINGS.slow));
+
+  useEffect(() => {
+    const loaded = loadEmaSettings();
+    setEmaSettings(loaded);
+    setEmaFastInput(String(loaded.fast));
+    setEmaSlowInput(String(loaded.slow));
+  }, []);
+
+  useEffect(() => {
+    saveEmaSettings(emaSettings);
+  }, [emaSettings]);
+
+  function commitEmaPeriods() {
+    const fast = Math.max(2, Math.min(200, Math.round(Number(emaFastInput)) || DEFAULT_EMA_SETTINGS.fast));
+    const slow = Math.max(2, Math.min(200, Math.round(Number(emaSlowInput)) || DEFAULT_EMA_SETTINGS.slow));
+    if (fast >= slow) {
+      setEmaFastInput(String(emaSettings.fast));
+      setEmaSlowInput(String(emaSettings.slow));
+      return;
+    }
+    setEmaFastInput(String(fast));
+    setEmaSlowInput(String(slow));
+    setEmaSettings((current) => ({ ...current, fast, slow }));
+  }
 
   useEffect(() => {
     drawModeRef.current = drawMode;
@@ -137,7 +185,7 @@ function PstrategyChart({ resolution }: { resolution: PstrategyResolution }) {
     let cancelled = false;
     async function load() {
       try {
-        const payload = await getPstrategyCandles(resolution);
+        const payload = await getPstrategyCandles(resolution, emaSettings);
         if (cancelled) return;
         if (payload.error) {
           setError(payload.error);
@@ -155,7 +203,7 @@ function PstrategyChart({ resolution }: { resolution: PstrategyResolution }) {
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [resolution]);
+  }, [resolution, emaSettings]);
 
   // Chart lifecycle -- created once, reused across resolution switches
   // (only the data changes; the same candlestick series gets fresh data).
@@ -176,8 +224,8 @@ function PstrategyChart({ resolution }: { resolution: PstrategyResolution }) {
       wickUpColor: "#168448",
       wickDownColor: "#c93535",
     });
-    const ema9Series = chart.addSeries(LineSeries, { color: "#14b8a6", lineWidth: 1, title: "EMA9" });
-    const ema20Series = chart.addSeries(LineSeries, { color: "#8b5cf6", lineWidth: 1, title: "EMA20" });
+    const ema9Series = chart.addSeries(LineSeries, { color: "#14b8a6", lineWidth: 2, title: "EMA fast" });
+    const ema20Series = chart.addSeries(LineSeries, { color: "#8b5cf6", lineWidth: 2, title: "EMA slow" });
 
     chartRef.current = chart;
     candleSeriesRef.current = candleSeries;
@@ -297,8 +345,8 @@ function PstrategyChart({ resolution }: { resolution: PstrategyResolution }) {
     candleSeriesRef.current.setData(
       data.candles.map((c) => ({ time: c.time as UTCTimestamp, open: c.open, high: c.high, low: c.low, close: c.close })),
     );
-    ema9SeriesRef.current?.setData(numericSeries(times, data.ema9));
-    ema20SeriesRef.current?.setData(numericSeries(times, data.ema20));
+    ema9SeriesRef.current?.setData(data.emaEnabled ? numericSeries(times, data.emaFastValues) : []);
+    ema20SeriesRef.current?.setData(data.emaEnabled ? numericSeries(times, data.emaSlowValues) : []);
 
     for (const series of boxSeriesRef.current) chartRef.current.removeSeries(series);
     boxSeriesRef.current = [];
@@ -354,10 +402,45 @@ function PstrategyChart({ resolution }: { resolution: PstrategyResolution }) {
         <button type="button" className="button secondary" onClick={() => setManualLines([])} disabled={manualLines.length === 0}>
           <Trash2 size={14} /> Clear drawn lines
         </button>
+        <button
+          type="button"
+          className="button secondary"
+          style={emaSettings.enabled ? { background: "var(--accent, #2368b6)", color: "#fff" } : undefined}
+          onClick={() => setEmaSettings((current) => ({ ...current, enabled: !current.enabled }))}
+        >
+          <TrendingUp size={14} /> EMA cross: {emaSettings.enabled ? "ON" : "OFF"}
+        </button>
+        {emaSettings.enabled ? (
+          <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
+            <input
+              type="number"
+              value={emaFastInput}
+              onChange={(e) => setEmaFastInput(e.target.value)}
+              onBlur={commitEmaPeriods}
+              onKeyDown={(e) => e.key === "Enter" && commitEmaPeriods()}
+              style={{ width: 52 }}
+              min={2}
+              max={200}
+              aria-label="Fast EMA period"
+            />
+            <span>/</span>
+            <input
+              type="number"
+              value={emaSlowInput}
+              onChange={(e) => setEmaSlowInput(e.target.value)}
+              onBlur={commitEmaPeriods}
+              onKeyDown={(e) => e.key === "Enter" && commitEmaPeriods()}
+              style={{ width: 52 }}
+              min={2}
+              max={200}
+              aria-label="Slow EMA period"
+            />
+          </span>
+        ) : null}
         <span className="pcr-oi-caption" style={{ alignSelf: "center" }}>
           Blue lines = auto-detected support/resistance. Orange lines = your own -- drag an end to resize, the middle
-          to shift. EMA9 (teal) / EMA20 (violet). Green/red arrows = momentum candle (long/short). Circles = EMA9/20
-          crossover.
+          to shift. {emaSettings.enabled ? `EMA${emaSettings.fast} (teal) / EMA${emaSettings.slow} (violet), crossovers as circles. ` : ""}
+          Green/red arrows = momentum candle (long/short).
         </span>
       </div>
       <div ref={containerRef} style={{ width: "100%" }} />
@@ -390,7 +473,7 @@ function buildMarkers(data: PstrategyData): SeriesMarker<Time>[] {
       position: "inBar",
       color: bullish ? "#168448" : "#c93535",
       shape: "circle",
-      text: bullish ? "9×20↑" : "9×20↓",
+      text: `${data.emaFast}×${data.emaSlow}${bullish ? "↑" : "↓"}`,
     });
   }
   markers.sort((a, b) => (a.time as number) - (b.time as number));
