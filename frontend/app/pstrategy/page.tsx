@@ -300,7 +300,8 @@ function PaperTradesPanel({
       <p className="pcr-oi-caption" style={{ margin: "4px 0 10px" }}>
         Simulated only -- replayed deterministically from the proposed entry/exit rule against 5m candle history. No
         real orders are placed. P&amp;L is the return on margin at {leverage}x leverage (matching Delta's XAUTUSD
-        perpetual), not the raw price move.
+        perpetual), not the raw price move. Peak = best price reached since entry; Trail stop = the current
+        Chandelier level once armed (1x ATR in profit), showing what's actually protecting the gain.
       </p>
       {error ? <div className="alert error">{error}</div> : null}
       {filtered.length === 0 ? (
@@ -313,11 +314,13 @@ function PaperTradesPanel({
                 <th>Side</th>
                 <th>Entry time</th>
                 <th>Entry price</th>
+                <th>Peak</th>
+                <th>Trail stop</th>
                 {variant === "open" ? (
                   <>
                     <th>Current price</th>
                     <th>Current P&amp;L ({leverage}x)</th>
-                    <th>Stop</th>
+                    <th>Box stop</th>
                   </>
                 ) : (
                   <>
@@ -340,6 +343,8 @@ function PaperTradesPanel({
                     </td>
                     <td>{fmtDateTime(t.entryTime)}</td>
                     <td>{fmtPriceValue(t.entryPrice)}</td>
+                    <td>{fmtPriceValue(t.peakPrice)}</td>
+                    <td>{t.trailStop !== null ? fmtPriceValue(t.trailStop) : <span className="pcr-oi-caption">not armed</span>}</td>
                     {isOpen ? (
                       <>
                         <td>{fmtPriceValue(t.currentPrice)}</td>

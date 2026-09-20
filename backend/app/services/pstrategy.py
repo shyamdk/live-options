@@ -159,8 +159,12 @@ def build_paper_trades(
     exit yet -- that trade stays "open" as far as this history shows.
 
     Returns one dict per trade: {side, status, entryTime, entryPrice,
-    stopLoss, exitTime, exitPrice, exitReason, pnlPercent} -- status/exit*
-    fields are None while a trade is still open.
+    stopLoss, peakPrice, trailStop, exitTime, exitPrice, exitReason,
+    pnlPercent} -- status/exit* fields are None while a trade is still
+    open. peakPrice/trailStop are the running best-close-since-entry and
+    current Chandelier trail level (None until armed) -- for a closed
+    trade these are the values as of the exit candle; for an open one,
+    as of the latest fetched candle.
     """
     n = len(candles)
     trades: list[dict[str, Any]] = []
@@ -181,6 +185,8 @@ def build_paper_trades(
             "entryTime": candles[idx]["time"],
             "entryPrice": entry_price,
             "stopLoss": stop,
+            "peakPrice": entry_price,
+            "trailStop": None,
             "exitTime": None,
             "exitPrice": None,
             "exitReason": None,
@@ -244,8 +250,17 @@ def build_paper_trades(
                 exitPrice=exit_price,
                 exitReason=reason,
                 pnlPercent=(exit_price - entry_price) / entry_price * 100 * direction * LEVERAGE,
+                peakPrice=best_close,
+                trailStop=trail_stop,
             )
             break
+        else:
+            # Loop ran to the end of history without exiting -- still
+            # open, but expose the running peak/trail so it's visible
+            # what's currently protecting the position, not just the
+            # original box-boundary stop.
+            trade["peakPrice"] = best_close
+            trade["trailStop"] = trail_stop
 
         trades.append(trade)
 

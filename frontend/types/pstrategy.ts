@@ -28,6 +28,8 @@ export interface PstrategyTrade {
   entryTime: number;
   entryPrice: number;
   stopLoss: number;
+  peakPrice: number;
+  trailStop: number | null;
   exitTime: number | null;
   exitPrice: number | null;
   exitReason: ExitReason | null;
