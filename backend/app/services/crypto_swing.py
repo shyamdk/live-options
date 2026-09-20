@@ -16,6 +16,13 @@ Resolved ambiguities from the strategy doc (confirmed with the user):
   Section 4 names (Supertrend flips back in the position's favor after a
   counter-trend excursion), not on every pullback touch -- otherwise
   adds would be unbounded. Capped at max_tranches regardless.
+- Entry doesn't require all three conditions (Supertrend flip, EMA200
+  side, MACD alignment) to land on the exact same candle -- see
+  FLIP_CONFIRM_WINDOW_CANDLES. A strict same-candle read missed a real
+  BTCUSD re-entry: Supertrend flipped up with price/EMA200/MACD-line all
+  already bullish, but the MACD signal line (a slower EMA of MACD) was
+  still catching up by one candle, so the strict version stayed flat
+  through the next +3.9% of an already-confirmed trend.
 - Position sizing is illustrative paper notional per tranche (not real
   capital), since no live orders are placed yet.
 - An ATR trailing stop (same mechanism as pStrategy's, added for the
@@ -62,6 +69,17 @@ ATR_LOOKBACK = 14
 # because this needs more data to validate properly.
 TRAIL_ARM_ATR_MULTIPLE = 2.0
 TRAIL_ATR_MULTIPLE = 1.5
+# A Supertrend flip and full MACD (line/signal/histogram) alignment don't
+# always land on the same candle -- MACD's signal line is itself a slower
+# EMA of the MACD line, and can lag a flip by a candle or two. Requiring
+# them to coincide exactly missed a real BTCUSD re-entry (see the module
+# docstring). Instead, a flip opens a window this many candles wide during
+# which momentum confirming on ANY candle in it (not just the flip candle
+# itself) still counts as the entry -- using that later candle's own price
+# and Supertrend stop, not the original flip candle's. A fresh flip in
+# either direction cancels a still-open, unconfirmed window from before
+# it, since the trend itself has already moved on.
+FLIP_CONFIRM_WINDOW_CANDLES = 3
 
 SYMBOLS = ("BTCUSD", "ETHUSD", "XAUTUSD")
 RESOLUTION_SECONDS = {"5m": 300, "15m": 900, "30m": 1800, "1h": 3600}
@@ -126,6 +144,7 @@ def simulate_trades(
     trail_atr_multiple: float = TRAIL_ATR_MULTIPLE,
     allow_short: bool = True,
     quantity_per_tranche: float | None = None,
+    flip_confirm_window_candles: int = FLIP_CONFIRM_WINDOW_CANDLES,
 ) -> list[dict[str, Any]]:
     """`allow_short=False` skips the short-entry branch entirely -- for an
     instrument that can't realistically be shorted (e.g. an ETF bought
@@ -147,6 +166,8 @@ def simulate_trades(
     entry_time: int | None = None
     fills: list[tuple[float, float]] = []  # (price, quantity) per tranche, for a weighted avg entry
     stop = 0.0
+    pending_side: Side | None = None
+    pending_flip_index: int | None = None
     trap_active = False
     pivot_level = 0.0
     pivot_volume = -1.0
@@ -215,14 +236,29 @@ def simulate_trades(
             flipped_up = direction == "up" and prev_direction == "down"
             flipped_down = direction == "down" and prev_direction == "up"
             tranche_qty = quantity_per_tranche if quantity_per_tranche is not None else 1.0
-            if flipped_up and close > ema and macd_v > 0 and signal_v > 0 and hist_v > 0:
+
+            # A fresh flip (either direction) opens a new confirmation
+            # window, replacing whatever window was already open -- the
+            # trend has moved on, so a stale unconfirmed flip from before
+            # it no longer applies.
+            if flipped_up:
+                pending_side, pending_flip_index = "long", i
+            elif flipped_down:
+                pending_side, pending_flip_index = ("short", i) if allow_short else (None, None)
+
+            if pending_flip_index is not None and i - pending_flip_index > flip_confirm_window_candles:
+                pending_side, pending_flip_index = None, None
+
+            if pending_side == "long" and close > ema and macd_v > 0 and signal_v > 0 and hist_v > 0:
                 position, entry_time, fills = "long", candles[i]["time"], [(close, tranche_qty)]
                 stop = st_values[i] or close
                 best_close, trail_stop = close, None
-            elif allow_short and flipped_down and close < ema and macd_v < 0 and signal_v < 0 and hist_v < 0:
+                pending_side, pending_flip_index = None, None
+            elif pending_side == "short" and close < ema and macd_v < 0 and signal_v < 0 and hist_v < 0:
                 position, entry_time, fills = "short", candles[i]["time"], [(close, tranche_qty)]
                 stop = st_values[i] or close
                 best_close, trail_stop = close, None
+                pending_side, pending_flip_index = None, None
             continue
 
         best_close = max(best_close, close) if position == "long" else min(best_close, close)

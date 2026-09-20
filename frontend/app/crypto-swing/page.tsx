@@ -40,7 +40,7 @@ function fmtAmount(value: string | number | undefined): string {
 const CANDLES_REFRESH_MS = secondsToMs(process.env.NEXT_PUBLIC_CRYPTO_SWING_CANDLES_REFRESH_SECONDS, 60);
 const TRADES_REFRESH_MS = secondsToMs(process.env.NEXT_PUBLIC_CRYPTO_SWING_TRADES_REFRESH_SECONDS, 30);
 const TRAIL_SETTINGS_KEY = "live-options-crypto-swing-trail-settings";
-const DEFAULT_TRAIL_SETTINGS: CryptoSwingTrailSettings = { arm: 2.0, multiple: 1.5 };
+const DEFAULT_TRAIL_SETTINGS: CryptoSwingTrailSettings = { arm: 2.0, multiple: 1.5, flipConfirmWindow: 3 };
 
 function loadTrailSettings(): CryptoSwingTrailSettings {
   try {
@@ -346,12 +346,14 @@ export default function CryptoSwingPage() {
   const [trailSettings, setTrailSettings] = useState<CryptoSwingTrailSettings>(DEFAULT_TRAIL_SETTINGS);
   const [trailArmInput, setTrailArmInput] = useState(String(DEFAULT_TRAIL_SETTINGS.arm));
   const [trailMultipleInput, setTrailMultipleInput] = useState(String(DEFAULT_TRAIL_SETTINGS.multiple));
+  const [flipConfirmWindowInput, setFlipConfirmWindowInput] = useState(String(DEFAULT_TRAIL_SETTINGS.flipConfirmWindow));
 
   useEffect(() => {
     const loaded = loadTrailSettings();
     setTrailSettings(loaded);
     setTrailArmInput(String(loaded.arm));
     setTrailMultipleInput(String(loaded.multiple));
+    setFlipConfirmWindowInput(String(loaded.flipConfirmWindow ?? DEFAULT_TRAIL_SETTINGS.flipConfirmWindow));
   }, []);
 
   useEffect(() => {
@@ -361,9 +363,14 @@ export default function CryptoSwingPage() {
   function commitTrailSettings() {
     const arm = Math.max(0.1, Math.min(10, Number(trailArmInput) || DEFAULT_TRAIL_SETTINGS.arm));
     const multiple = Math.max(0.1, Math.min(10, Number(trailMultipleInput) || DEFAULT_TRAIL_SETTINGS.multiple));
+    const flipConfirmWindow = Math.max(
+      0,
+      Math.min(20, Math.round(Number(flipConfirmWindowInput)) || DEFAULT_TRAIL_SETTINGS.flipConfirmWindow!),
+    );
     setTrailArmInput(String(arm));
     setTrailMultipleInput(String(multiple));
-    setTrailSettings({ arm, multiple });
+    setFlipConfirmWindowInput(String(flipConfirmWindow));
+    setTrailSettings({ arm, multiple, flipConfirmWindow });
   }
 
   const [liveStatus, setLiveStatus] = useState<CryptoSwingLiveStatus | null>(null);
@@ -490,9 +497,27 @@ export default function CryptoSwingPage() {
           />
           <span className="pcr-oi-caption">x ATR</span>
         </span>
+        <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
+          <span className="pcr-oi-caption">Flip confirm window</span>
+          <input
+            type="number"
+            value={flipConfirmWindowInput}
+            onChange={(e) => setFlipConfirmWindowInput(e.target.value)}
+            onBlur={commitTrailSettings}
+            onKeyDown={(e) => e.key === "Enter" && commitTrailSettings()}
+            style={{ width: 44 }}
+            min={0}
+            max={20}
+            step={1}
+            aria-label="Flip confirmation window in candles"
+          />
+          <span className="pcr-oi-caption">candles</span>
+        </span>
         <span className="pcr-oi-caption">
           Defaults (2.0 / 1.5) were tuned for this 30m/multi-day context, not pStrategy&apos;s 5m default (1.0 / 3.0)
-          -- adjust and compare against the trade history below.
+          -- adjust and compare against the trade history below. Flip confirm window (default 3): a Supertrend flip
+          doesn&apos;t need full MACD alignment on the exact same candle -- confirmation landing within this many
+          candles after the flip still counts as an entry, using that later candle&apos;s own price.
         </span>
       </div>
 

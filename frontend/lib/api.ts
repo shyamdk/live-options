@@ -432,14 +432,21 @@ export async function getCryptoSwingCandles(symbol: CryptoSwingSymbol, resolutio
 export interface CryptoSwingTrailSettings {
   arm: number;
   multiple: number;
+  flipConfirmWindow?: number;
 }
 
 export async function getCryptoSwingTrades(
   trail?: CryptoSwingTrailSettings,
-): Promise<{ trades: CryptoSwingTrade[]; trailArm: number; trailMultiple: number }> {
-  const query = trail ? `?trailArm=${trail.arm}&trailMultiple=${trail.multiple}` : "";
-  return apiJson<{ trades: CryptoSwingTrade[]; trailArm: number; trailMultiple: number }>(
-    `/api/crypto-swing/trades${query}`,
+): Promise<{ trades: CryptoSwingTrade[]; trailArm: number; trailMultiple: number; flipConfirmWindow: number }> {
+  const query = new URLSearchParams();
+  if (trail) {
+    query.set("trailArm", String(trail.arm));
+    query.set("trailMultiple", String(trail.multiple));
+    if (trail.flipConfirmWindow !== undefined) query.set("flipConfirmWindow", String(trail.flipConfirmWindow));
+  }
+  const qs = query.toString();
+  return apiJson<{ trades: CryptoSwingTrade[]; trailArm: number; trailMultiple: number; flipConfirmWindow: number }>(
+    `/api/crypto-swing/trades${qs ? `?${qs}` : ""}`,
     undefined,
     "Failed to load crypto-swing paper trades",
   );
@@ -477,6 +484,7 @@ export async function getNiftySwingTrades(
   if (trail) {
     query.set("trailArm", String(trail.arm));
     query.set("trailMultiple", String(trail.multiple));
+    if (trail.flipConfirmWindow !== undefined) query.set("flipConfirmWindow", String(trail.flipConfirmWindow));
   }
   if (quantity) query.set("quantity", String(quantity));
   return apiJson<{ trades: NiftySwingTrade[]; trailArm: number; trailMultiple: number; quantity: number }>(

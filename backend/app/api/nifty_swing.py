@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, Query
 from app.core.config import get_settings
 from app.db import sqlite as db
 from app.services.app_auth import require_auth
-from app.services.crypto_swing import TRAIL_ARM_ATR_MULTIPLE, TRAIL_ATR_MULTIPLE, simulate_trades
+from app.services.crypto_swing import FLIP_CONFIRM_WINDOW_CANDLES, TRAIL_ARM_ATR_MULTIPLE, TRAIL_ATR_MULTIPLE, simulate_trades
 from app.services.crypto_swing_live import start_of_today_ist_epoch
 from app.services.dhan import DhanService
 from app.services.dhan_scrip_master import ScripMasterError
@@ -46,11 +46,18 @@ async def trades(
     trail_arm: float = Query(default=TRAIL_ARM_ATR_MULTIPLE, alias="trailArm", ge=0.1, le=10),
     trail_multiple: float = Query(default=TRAIL_ATR_MULTIPLE, alias="trailMultiple", ge=0.1, le=10),
     quantity: float = Query(default=DEFAULT_QUANTITY_PER_TRANCHE, ge=1, le=100_000),
+    flip_confirm_window: int = Query(default=FLIP_CONFIRM_WINDOW_CANDLES, alias="flipConfirmWindow", ge=0, le=20),
 ) -> dict[str, Any]:
     try:
         bundle = await load_indicators(resolution)
     except Exception as exc:
-        return {"trades": [{"status": "error", "error": str(exc)}], "trailArm": trail_arm, "trailMultiple": trail_multiple, "quantity": quantity}
+        return {
+            "trades": [{"status": "error", "error": str(exc)}],
+            "trailArm": trail_arm,
+            "trailMultiple": trail_multiple,
+            "quantity": quantity,
+            "flipConfirmWindow": flip_confirm_window,
+        }
 
     all_trades = simulate_trades(
         bundle.ordered,
@@ -65,12 +72,19 @@ async def trades(
         trail_multiple,
         allow_short=False,
         quantity_per_tranche=quantity,
+        flip_confirm_window_candles=flip_confirm_window,
     )
     if all_trades and all_trades[-1]["status"] == "open":
         await _with_live_pnl(all_trades[-1])
 
     all_trades.sort(key=lambda t: t.get("entryTime") or 0, reverse=True)
-    return {"trades": all_trades, "trailArm": trail_arm, "trailMultiple": trail_multiple, "quantity": quantity}
+    return {
+        "trades": all_trades,
+        "trailArm": trail_arm,
+        "trailMultiple": trail_multiple,
+        "quantity": quantity,
+        "flipConfirmWindow": flip_confirm_window,
+    }
 
 
 async def _with_live_pnl(open_trade: dict[str, Any]) -> None:
