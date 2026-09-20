@@ -31,6 +31,7 @@ from app.services.market_news import (
     stop_market_news_task,
 )
 from app.services.oi_upgraded import start_oi_upgraded_task, stop_oi_upgraded_task
+from app.services.crypto_swing_live import start_crypto_swing_live_task, stop_crypto_swing_live_task
 from app.services.paper_trading import start_paper_trading_task, stop_paper_trading_task
 from app.services.pcr_oi import start_pcr_oi_task, stop_pcr_oi_task
 from app.services.theta import start_theta_task, stop_theta_task
@@ -57,6 +58,7 @@ market_calendar_task = None
 pcr_oi_task = None
 paper_trading_task = None
 oi_upgraded_task = None
+crypto_swing_live_task = None
 
 app.add_middleware(
     CORSMiddleware,
@@ -69,7 +71,7 @@ app.add_middleware(
 
 @app.on_event("startup")
 async def startup() -> None:
-    global risk_order_monitor_task, spot_distance_monitor_task, gamma_blast_task, journal_insights_task, ema5_task, animesh_task, credit_spread_task, theta_task, market_news_task, market_calendar_task, pcr_oi_task, paper_trading_task, oi_upgraded_task
+    global risk_order_monitor_task, spot_distance_monitor_task, gamma_blast_task, journal_insights_task, ema5_task, animesh_task, credit_spread_task, theta_task, market_news_task, market_calendar_task, pcr_oi_task, paper_trading_task, oi_upgraded_task, crypto_swing_live_task
     init_db()
     spot_distance_monitor_task = start_spot_distance_monitor_task()
     risk_order_monitor_task = start_risk_order_monitor_task()
@@ -84,6 +86,7 @@ async def startup() -> None:
     pcr_oi_task = start_pcr_oi_task()
     paper_trading_task = start_paper_trading_task()
     oi_upgraded_task = start_oi_upgraded_task()
+    crypto_swing_live_task = start_crypto_swing_live_task()
 
 
 @app.on_event("shutdown")
@@ -101,6 +104,7 @@ async def shutdown() -> None:
     await stop_pcr_oi_task(pcr_oi_task)
     await stop_paper_trading_task(paper_trading_task)
     await stop_oi_upgraded_task(oi_upgraded_task)
+    await stop_crypto_swing_live_task(crypto_swing_live_task)
 
 
 @app.get("/health")

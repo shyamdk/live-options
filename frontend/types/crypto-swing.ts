@@ -41,6 +41,40 @@ export interface CryptoSwingTrade {
   unrealizedPnlAmount?: number | null;
 }
 
+export interface CryptoSwingLiveTrade {
+  id: number;
+  symbol: CryptoSwingSymbol;
+  side: "long" | "short";
+  mode: "shadow" | "live";
+  status: "open" | "closed";
+  entryTime: number;
+  entryPrice: number;
+  sizeContracts: number;
+  notionalUsd: number;
+  stopLoss: number | null;
+  tranches: number;
+  exitTime: number | null;
+  exitPrice: number | null;
+  exitReason: string | null;
+  pnlUsd: number | null;
+  orderId: string | null;
+  note: string | null;
+}
+
+export interface CryptoSwingLiveStatus {
+  liveEnabled: boolean;
+  shadowMode: boolean;
+  mode: "shadow" | "live";
+  riskPercentPerTrade: number;
+  maxDailyLossPercent: number;
+  maxConcurrentPositions: number;
+  minMarginBufferPercent: number;
+  leverage: string;
+  openPositions: number;
+  todayRealizedPnlUsd: number;
+  trades: CryptoSwingLiveTrade[];
+}
+
 export interface CryptoSwingIndicators {
   symbol?: CryptoSwingSymbol;
   resolution?: string;

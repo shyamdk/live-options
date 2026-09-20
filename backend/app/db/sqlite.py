@@ -676,6 +676,31 @@ def init_db() -> None:
             )
             """
         )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS crypto_swing_live_trades (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                symbol TEXT NOT NULL,
+                side TEXT NOT NULL,
+                mode TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'open',
+                entry_time INTEGER NOT NULL,
+                entry_price REAL NOT NULL,
+                size_contracts INTEGER NOT NULL,
+                notional_usd REAL NOT NULL,
+                stop_loss REAL,
+                tranches INTEGER NOT NULL DEFAULT 1,
+                exit_time INTEGER,
+                exit_price REAL,
+                exit_reason TEXT,
+                pnl_usd REAL,
+                order_id TEXT,
+                note TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
         conn.commit()
 
 
@@ -1445,3 +1470,126 @@ def get_oi_upgraded_signal_log(session_date: str) -> list[dict[str, Any]]:
         }
         for row in rows
     ]
+
+
+def create_crypto_swing_live_trade(
+    *,
+    symbol: str,
+    side: str,
+    mode: str,
+    entry_time: int,
+    entry_price: float,
+    size_contracts: int,
+    notional_usd: float,
+    stop_loss: float | None,
+    order_id: str | None = None,
+    note: str | None = None,
+) -> int:
+    now = datetime.now().isoformat(timespec="seconds")
+    with _DB_LOCK, _connect() as conn:
+        cur = conn.execute(
+            """
+            INSERT INTO crypto_swing_live_trades (
+                symbol, side, mode, status, entry_time, entry_price, size_contracts,
+                notional_usd, stop_loss, tranches, order_id, note, created_at, updated_at
+            ) VALUES (?, ?, ?, 'open', ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)
+            """,
+            (symbol, side, mode, entry_time, entry_price, size_contracts, notional_usd, stop_loss, order_id, note, now, now),
+        )
+        conn.commit()
+        return int(cur.lastrowid)
+
+
+def get_open_crypto_swing_live_trade(symbol: str, mode: str) -> dict[str, Any] | None:
+    with _DB_LOCK, _connect() as conn:
+        row = conn.execute(
+            "SELECT * FROM crypto_swing_live_trades WHERE symbol = ? AND mode = ? AND status = 'open' ORDER BY id DESC LIMIT 1",
+            (symbol, mode),
+        ).fetchone()
+    return _crypto_swing_live_trade_from_row(row) if row else None
+
+
+def count_open_crypto_swing_live_trades(mode: str) -> int:
+    with _DB_LOCK, _connect() as conn:
+        row = conn.execute(
+            "SELECT COUNT(*) AS n FROM crypto_swing_live_trades WHERE mode = ? AND status = 'open'", (mode,)
+        ).fetchone()
+    return int(row["n"]) if row else 0
+
+
+def add_crypto_swing_live_tranche(trade_id: int, *, size_contracts: int, notional_usd: float) -> None:
+    now = datetime.now().isoformat(timespec="seconds")
+    with _DB_LOCK, _connect() as conn:
+        conn.execute(
+            """
+            UPDATE crypto_swing_live_trades
+            SET size_contracts = size_contracts + ?, notional_usd = notional_usd + ?, tranches = tranches + 1, updated_at = ?
+            WHERE id = ?
+            """,
+            (size_contracts, notional_usd, now, trade_id),
+        )
+        conn.commit()
+
+
+def close_crypto_swing_live_trade(
+    trade_id: int, *, exit_time: int, exit_price: float, exit_reason: str, pnl_usd: float
+) -> None:
+    now = datetime.now().isoformat(timespec="seconds")
+    with _DB_LOCK, _connect() as conn:
+        conn.execute(
+            """
+            UPDATE crypto_swing_live_trades
+            SET status = 'closed', exit_time = ?, exit_price = ?, exit_reason = ?, pnl_usd = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (exit_time, exit_price, exit_reason, pnl_usd, now, trade_id),
+        )
+        conn.commit()
+
+
+def list_crypto_swing_live_trades(limit: int = 200) -> list[dict[str, Any]]:
+    with _DB_LOCK, _connect() as conn:
+        rows = conn.execute(
+            "SELECT * FROM crypto_swing_live_trades ORDER BY entry_time DESC LIMIT ?", (limit,)
+        ).fetchall()
+    return [_crypto_swing_live_trade_from_row(row) for row in rows]
+
+
+def get_today_realized_pnl_usd(mode: str, start_of_day_epoch: int) -> float:
+    """Sum of pnl_usd for trades closed today (IST) in this mode -- the
+    daily-loss-cap guardrail's running total. `start_of_day_epoch` is
+    computed by the caller (which owns the IST timezone logic) rather than
+    this module reaching for a timezone itself.
+    """
+    with _DB_LOCK, _connect() as conn:
+        row = conn.execute(
+            """
+            SELECT COALESCE(SUM(pnl_usd), 0) AS total
+            FROM crypto_swing_live_trades
+            WHERE mode = ? AND status = 'closed' AND exit_time >= ?
+            """,
+            (mode, start_of_day_epoch),
+        ).fetchone()
+    return float(row["total"]) if row else 0.0
+
+
+def _crypto_swing_live_trade_from_row(row: sqlite3.Row) -> dict[str, Any]:
+    return {
+        "id": row["id"],
+        "symbol": row["symbol"],
+        "side": row["side"],
+        "mode": row["mode"],
+        "status": row["status"],
+        "entryTime": row["entry_time"],
+        "entryPrice": row["entry_price"],
+        "sizeContracts": row["size_contracts"],
+        "notionalUsd": row["notional_usd"],
+        "stopLoss": row["stop_loss"],
+        "tranches": row["tranches"],
+        "exitTime": row["exit_time"],
+        "exitPrice": row["exit_price"],
+        "exitReason": row["exit_reason"],
+        "pnlUsd": row["pnl_usd"],
+        "orderId": row["order_id"],
+        "note": row["note"],
+    }

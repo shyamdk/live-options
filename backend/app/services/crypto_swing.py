@@ -22,12 +22,62 @@ Resolved ambiguities from the strategy doc (confirmed with the user):
 
 from __future__ import annotations
 
+import time
 from typing import Any, Literal
+
+from app.services.crypto_indicators import ema, macd, supertrend
+from app.services.delta_exchange import DeltaExchangeService
 
 Side = Literal["long", "short"]
 
 MAX_TRANCHES = 3
 NOTIONAL_PER_TRANCHE = 500.0
+
+SYMBOLS = ("BTCUSD", "ETHUSD", "XAUTUSD")
+RESOLUTION_SECONDS = {"5m": 300, "15m": 900, "30m": 1800, "1h": 3600}
+
+
+class IndicatorBundle:
+    def __init__(
+        self,
+        ordered: list[dict[str, Any]],
+        ema200: list[float | None],
+        macd_line: list[float | None],
+        signal_line: list[float | None],
+        histogram: list[float | None],
+        st_values: list[float | None],
+        st_directions: list[str | None],
+    ) -> None:
+        self.ordered = ordered
+        self.ema200 = ema200
+        self.macd_line = macd_line
+        self.signal_line = signal_line
+        self.histogram = histogram
+        self.st_values = st_values
+        self.st_directions = st_directions
+
+
+async def load_indicators(symbol: str, resolution: str) -> IndicatorBundle:
+    """Shared by the paper-trading API (per-request replay) and the live
+    engine (per-poll state diff) so both always agree on what the strategy
+    is currently doing -- one implementation, not two that could drift.
+    """
+    step = RESOLUTION_SECONDS.get(resolution, 1800)
+    # 200 EMA needs 200+ candles of history; fetch a healthy buffer beyond
+    # that so the indicator has already stabilized by the earliest candle
+    # actually shown/simulated.
+    lookback_candles = 400
+    end = int(time.time())
+    start = end - step * lookback_candles
+
+    raw = await DeltaExchangeService().get_candles(symbol, resolution, start, end)
+    ordered = sorted(raw, key=lambda c: c["time"])
+    closes = [float(c["close"]) for c in ordered]
+
+    ema200 = ema(closes, 200)
+    macd_line, signal_line, histogram = macd(closes)
+    st_values, st_directions = supertrend(ordered, period=13, multiplier=4.0)
+    return IndicatorBundle(ordered, ema200, macd_line, signal_line, histogram, st_values, st_directions)
 
 
 def simulate_trades(

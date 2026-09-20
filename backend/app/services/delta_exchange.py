@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import json
 import time
 from typing import Any
 
@@ -38,7 +39,13 @@ class DeltaExchangeService:
         prehash = f"{method}{timestamp}{path}{query}{body}"
         return hmac.new(secret.encode(), prehash.encode(), hashlib.sha256).hexdigest()
 
-    async def _request(self, method: str, path: str, params: dict[str, Any] | None = None) -> Any:
+    async def _request(
+        self,
+        method: str,
+        path: str,
+        params: dict[str, Any] | None = None,
+        json_body: dict[str, Any] | None = None,
+    ) -> Any:
         api_key = self._settings.delta_exchange_api_key
         api_secret = self._settings.delta_exchange_api_secret
         if not api_key or not api_secret:
@@ -47,8 +54,13 @@ class DeltaExchangeService:
         query = ""
         if params:
             query = "?" + "&".join(f"{k}={v}" for k, v in params.items())
+        # Compact, deterministic serialization -- the signature covers the
+        # exact bytes sent, so this same string is what's transmitted below
+        # rather than letting httpx re-serialize (which could reorder/
+        # respace and invalidate the signature).
+        body_str = json.dumps(json_body, separators=(",", ":")) if json_body is not None else ""
         timestamp = str(int(time.time()))
-        signature = self._sign(method, path, query, "", timestamp)
+        signature = self._sign(method, path, query, body_str, timestamp)
 
         headers = {
             "api-key": api_key,
@@ -59,7 +71,7 @@ class DeltaExchangeService:
         }
         url = f"{self._settings.delta_exchange_base_url}{path}{query}"
         async with httpx.AsyncClient(timeout=20) as client:
-            response = await client.request(method, url, headers=headers)
+            response = await client.request(method, url, headers=headers, content=body_str.encode() if body_str else None)
         try:
             payload = response.json()
         except ValueError:
@@ -96,6 +108,59 @@ class DeltaExchangeService:
         if response.status_code >= 400 or not payload.get("success"):
             raise DeltaExchangeError(f"Delta Exchange ticker error ({response.status_code}): {payload}")
         return payload.get("result") or {}
+
+    # -- Trading (real capital -- everything below actually moves money
+    # once called with live_enabled + shadow_mode off; see
+    # crypto_swing_live.py, which is the only caller). --
+
+    async def get_product(self, symbol: str) -> dict[str, Any]:
+        """Contract spec (product_id, contract_value, tick_size) needed to
+        convert a desired notional into an integer number of contracts.
+        """
+        result = await self._request("GET", f"/v2/products/{symbol}")
+        return result if isinstance(result, dict) else {}
+
+    async def get_positions(self, product_id: int | None = None) -> list[dict[str, Any]]:
+        params = {"product_id": product_id} if product_id is not None else None
+        result = await self._request("GET", "/v2/positions", params=params)
+        if isinstance(result, list):
+            return result
+        return [result] if isinstance(result, dict) else []
+
+    async def set_leverage(self, product_id: int, leverage: str) -> dict[str, Any]:
+        result = await self._request("POST", f"/v2/products/{product_id}/orders/leverage", json_body={"leverage": leverage})
+        return result if isinstance(result, dict) else {}
+
+    async def place_order(
+        self,
+        product_id: int,
+        size: int,
+        side: str,
+        order_type: str = "market_order",
+        limit_price: str | None = None,
+        time_in_force: str = "gtc",
+        reduce_only: bool = False,
+        client_order_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Places a REAL order -- size is in contracts (Delta's own unit,
+        via product.contract_value), not underlying quantity or USD. Only
+        ever called from crypto_swing_live.py, and only when both
+        crypto_swing_live_enabled and NOT crypto_swing_shadow_mode.
+        """
+        body: dict[str, Any] = {
+            "product_id": product_id,
+            "size": size,
+            "side": side,
+            "order_type": order_type,
+            "time_in_force": time_in_force,
+            "reduce_only": reduce_only,
+        }
+        if limit_price is not None:
+            body["limit_price"] = limit_price
+        if client_order_id is not None:
+            body["client_order_id"] = client_order_id
+        result = await self._request("POST", "/v2/orders", json_body=body)
+        return result if isinstance(result, dict) else {}
 
 
 async def _check_connection() -> None:

@@ -1,49 +1,17 @@
 from __future__ import annotations
 
-import time
 from typing import Any
 
 from fastapi import APIRouter, Depends, Query
 
+from app.core.config import get_settings
+from app.db import sqlite as db
 from app.services.app_auth import require_auth
-from app.services.crypto_indicators import ema, macd, supertrend
-from app.services.crypto_swing import NOTIONAL_PER_TRANCHE, simulate_trades
+from app.services.crypto_swing import NOTIONAL_PER_TRANCHE, SYMBOLS, load_indicators, simulate_trades
+from app.services.crypto_swing_live import start_of_today_ist_epoch
 from app.services.delta_exchange import DeltaExchangeError, DeltaExchangeService
 
 router = APIRouter(prefix="/crypto-swing", tags=["crypto-swing"])
-
-SYMBOLS = ("BTCUSD", "ETHUSD", "XAUTUSD")
-RESOLUTION_SECONDS = {"5m": 300, "15m": 900, "30m": 1800, "1h": 3600}
-
-
-class _IndicatorBundle:
-    def __init__(self, ordered: list[dict[str, Any]], ema200, macd_line, signal_line, histogram, st_values, st_directions):
-        self.ordered = ordered
-        self.ema200 = ema200
-        self.macd_line = macd_line
-        self.signal_line = signal_line
-        self.histogram = histogram
-        self.st_values = st_values
-        self.st_directions = st_directions
-
-
-async def _load_indicators(symbol: str, resolution: str) -> _IndicatorBundle:
-    step = RESOLUTION_SECONDS.get(resolution, 1800)
-    # 200 EMA needs 200+ candles of history; fetch a healthy buffer beyond
-    # that so the indicator has already stabilized by the earliest candle
-    # actually shown/simulated.
-    lookback_candles = 400
-    end = int(time.time())
-    start = end - step * lookback_candles
-
-    raw = await DeltaExchangeService().get_candles(symbol, resolution, start, end)
-    ordered = sorted(raw, key=lambda c: c["time"])
-    closes = [float(c["close"]) for c in ordered]
-
-    ema200 = ema(closes, 200)
-    macd_line, signal_line, histogram = macd(closes)
-    st_values, st_directions = supertrend(ordered, period=13, multiplier=4.0)
-    return _IndicatorBundle(ordered, ema200, macd_line, signal_line, histogram, st_values, st_directions)
 
 
 @router.get("/wallet", dependencies=[Depends(require_auth)])
@@ -64,7 +32,7 @@ async def candles(
     if symbol not in SYMBOLS:
         return {"error": f"Unsupported symbol {symbol!r}", "candles": []}
     try:
-        bundle = await _load_indicators(symbol, resolution)
+        bundle = await load_indicators(symbol, resolution)
     except DeltaExchangeError as exc:
         return {"error": str(exc), "candles": []}
 
@@ -89,7 +57,7 @@ async def trades(resolution: str = Query(default="30m")) -> dict[str, Any]:
     all_trades: list[dict[str, Any]] = []
     for symbol in SYMBOLS:
         try:
-            bundle = await _load_indicators(symbol, resolution)
+            bundle = await load_indicators(symbol, resolution)
         except Exception as exc:
             all_trades.append({"symbol": symbol, "status": "error", "error": str(exc)})
             continue
@@ -111,6 +79,25 @@ async def trades(resolution: str = Query(default="30m")) -> dict[str, Any]:
 
     all_trades.sort(key=lambda t: t.get("entryTime") or 0, reverse=True)
     return {"trades": all_trades}
+
+
+@router.get("/live-status", dependencies=[Depends(require_auth)])
+async def live_status() -> dict[str, Any]:
+    settings = get_settings()
+    mode = "live" if not settings.crypto_swing_shadow_mode else "shadow"
+    return {
+        "liveEnabled": settings.crypto_swing_live_enabled,
+        "shadowMode": settings.crypto_swing_shadow_mode,
+        "mode": mode,
+        "riskPercentPerTrade": settings.crypto_swing_risk_percent_per_trade,
+        "maxDailyLossPercent": settings.crypto_swing_max_daily_loss_percent,
+        "maxConcurrentPositions": settings.crypto_swing_max_concurrent_positions,
+        "minMarginBufferPercent": settings.crypto_swing_min_margin_buffer_percent,
+        "leverage": settings.crypto_swing_leverage,
+        "openPositions": db.count_open_crypto_swing_live_trades(mode),
+        "todayRealizedPnlUsd": db.get_today_realized_pnl_usd(mode, start_of_today_ist_epoch()),
+        "trades": db.list_crypto_swing_live_trades(),
+    }
 
 
 async def _with_live_pnl(open_trade: dict[str, Any]) -> None:

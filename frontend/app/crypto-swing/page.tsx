@@ -17,8 +17,14 @@ import {
 import { Bitcoin, RefreshCw } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
-import { getCryptoSwingCandles, getCryptoSwingTrades, getCryptoSwingWallet } from "@/lib/api";
-import type { CryptoSwingIndicators, CryptoSwingSymbol, CryptoSwingTrade, CryptoSwingWallet } from "@/types/crypto-swing";
+import { getCryptoSwingCandles, getCryptoSwingLiveStatus, getCryptoSwingTrades, getCryptoSwingWallet } from "@/lib/api";
+import type {
+  CryptoSwingIndicators,
+  CryptoSwingLiveStatus,
+  CryptoSwingSymbol,
+  CryptoSwingTrade,
+  CryptoSwingWallet,
+} from "@/types/crypto-swing";
 
 function assetLabel(row: CryptoSwingWallet["balances"][number]): string {
   return row.asset_symbol ?? row.asset?.symbol ?? "?";
@@ -32,6 +38,121 @@ function fmtAmount(value: string | number | undefined): string {
 
 const CANDLES_REFRESH_MS = secondsToMs(process.env.NEXT_PUBLIC_CRYPTO_SWING_CANDLES_REFRESH_SECONDS, 60);
 const TRADES_REFRESH_MS = secondsToMs(process.env.NEXT_PUBLIC_CRYPTO_SWING_TRADES_REFRESH_SECONDS, 30);
+const LIVE_STATUS_REFRESH_MS = secondsToMs(process.env.NEXT_PUBLIC_CRYPTO_SWING_LIVE_STATUS_REFRESH_SECONDS, 60);
+
+function fmtUsd(value: number | null | undefined): string {
+  if (value === null || value === undefined) return "—";
+  const sign = value >= 0 ? "+" : "";
+  return `${sign}$${value.toFixed(2)}`;
+}
+
+function LiveStatusPanel({ status, loading, error }: { status: CryptoSwingLiveStatus | null; loading: boolean; error: string | null }) {
+  return (
+    <div className="pcr-oi-section">
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <h3 style={{ margin: 0 }}>Live trading status</h3>
+        {status ? (
+          <span
+            className="badge"
+            style={{
+              background: !status.liveEnabled ? "#8391a3" : status.mode === "shadow" ? "#2368b6" : "#c93535",
+              color: "#fff",
+            }}
+          >
+            {!status.liveEnabled ? "DISABLED" : status.mode === "shadow" ? "SHADOW (no real orders)" : "LIVE -- REAL ORDERS"}
+          </span>
+        ) : null}
+      </div>
+      {error ? <div className="alert error">{error}</div> : null}
+      {loading && !status ? <p className="pcr-oi-caption">Loading…</p> : null}
+      {status ? (
+        <>
+          <p className="pcr-oi-caption" style={{ margin: "4px 0 10px" }}>
+            {!status.liveEnabled
+              ? "Live engine is off entirely -- only the deterministic paper-replay panels below are active."
+              : status.mode === "shadow"
+                ? "Every signal is evaluated and logged (entry/exit, size, guardrail checks) exactly as if it were real, but no order is ever sent to Delta."
+                : "Both crypto_swing_live_enabled and crypto_swing_shadow_mode=false are set -- real orders are being placed with real capital."}
+          </p>
+          <div className="metric-grid" style={{ marginBottom: 10 }}>
+            <div className="metric">
+              <span>Open positions</span>
+              <strong>
+                {status.openPositions} / {status.maxConcurrentPositions}
+              </strong>
+            </div>
+            <div className="metric">
+              <span>Today&apos;s realized P&amp;L</span>
+              <strong style={{ color: status.todayRealizedPnlUsd >= 0 ? "var(--green)" : "var(--red)" }}>
+                {fmtUsd(status.todayRealizedPnlUsd)}
+              </strong>
+            </div>
+            <div className="metric">
+              <span>Risk / trade</span>
+              <strong>{status.riskPercentPerTrade}%</strong>
+            </div>
+            <div className="metric">
+              <span>Max daily loss</span>
+              <strong>{status.maxDailyLossPercent}%</strong>
+            </div>
+            <div className="metric">
+              <span>Margin buffer</span>
+              <strong>{status.minMarginBufferPercent}%</strong>
+            </div>
+            <div className="metric">
+              <span>Leverage</span>
+              <strong>{status.leverage}x</strong>
+            </div>
+          </div>
+          {status.trades.length === 0 ? (
+            <p className="pcr-oi-caption">No {status.mode} trades recorded yet.</p>
+          ) : (
+            <div style={{ overflowX: "auto" }}>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Symbol</th>
+                    <th>Side</th>
+                    <th>Status</th>
+                    <th>Entry time</th>
+                    <th>Entry price</th>
+                    <th>Size</th>
+                    <th>Notional</th>
+                    <th>Exit time</th>
+                    <th>Exit reason</th>
+                    <th>P&amp;L</th>
+                    <th>Note</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {status.trades.map((t) => (
+                    <tr key={t.id}>
+                      <td>{t.symbol}</td>
+                      <td>
+                        <span className={`badge ${t.side === "long" ? "buy" : "sell"}`}>{t.side === "long" ? "LONG" : "SHORT"}</span>
+                      </td>
+                      <td>{t.status === "open" ? <span className="badge buy">OPEN</span> : "Closed"}</td>
+                      <td>{fmtDateTime(t.entryTime)}</td>
+                      <td>{fmtPrice(t.entryPrice)}</td>
+                      <td>{t.sizeContracts}</td>
+                      <td>${t.notionalUsd.toFixed(2)}</td>
+                      <td>{fmtDateTime(t.exitTime)}</td>
+                      <td>{t.exitReason ?? "—"}</td>
+                      <td style={{ color: (t.pnlUsd ?? 0) >= 0 ? "var(--green)" : "var(--red)" }}>{fmtUsd(t.pnlUsd)}</td>
+                      <td style={{ maxWidth: 260, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={t.note ?? ""}>
+                        {t.note ?? "—"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </>
+      ) : null}
+    </div>
+  );
+}
 
 function secondsToMs(value: string | undefined, fallbackSeconds: number): number {
   const seconds = Number(value);
@@ -186,6 +307,10 @@ export default function CryptoSwingPage() {
   const [lastTradesRefreshAt, setLastTradesRefreshAt] = useState(Date.now());
   const [nowTick, setNowTick] = useState(Date.now());
 
+  const [liveStatus, setLiveStatus] = useState<CryptoSwingLiveStatus | null>(null);
+  const [liveStatusLoading, setLiveStatusLoading] = useState(true);
+  const [liveStatusError, setLiveStatusError] = useState<string | null>(null);
+
   useEffect(() => {
     const tick = window.setInterval(() => setNowTick(Date.now()), 1000);
     return () => window.clearInterval(tick);
@@ -227,6 +352,24 @@ export default function CryptoSwingPage() {
     return () => window.clearInterval(timer);
   }, []);
 
+  async function loadLiveStatus() {
+    setLiveStatusLoading(true);
+    try {
+      setLiveStatus(await getCryptoSwingLiveStatus());
+      setLiveStatusError(null);
+    } catch (exc) {
+      setLiveStatusError(exc instanceof Error ? exc.message : "Failed to load live trading status.");
+    } finally {
+      setLiveStatusLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    loadLiveStatus();
+    const timer = window.setInterval(loadLiveStatus, LIVE_STATUS_REFRESH_MS);
+    return () => window.clearInterval(timer);
+  }, []);
+
   const nonZero = wallet?.balances.filter((row) => Number(row.balance ?? 0) !== 0) ?? [];
   const secondsUntilTradesRefresh = Math.max(0, Math.ceil((TRADES_REFRESH_MS - (nowTick - lastTradesRefreshAt)) / 1000));
 
@@ -238,7 +381,11 @@ export default function CryptoSwingPage() {
             <Bitcoin size={20} style={{ verticalAlign: "-3px", marginRight: 8 }} />
             Crypto-Swing
           </h1>
-          <p>Delta Exchange India connectivity and account funds. Strategy execution isn&apos;t wired up yet -- this confirms the connection and shows what capital is available to trade.</p>
+          <p>
+            Delta Exchange India connectivity and account funds. A live/shadow engine (see status below) evaluates the
+            same 3-way confirmation strategy every 30 minutes -- shadow mode logs what it would do without ever
+            placing a real order.
+          </p>
         </div>
         <div className="toolbar" style={{ alignItems: "center", gap: 8 }}>
           <span className="pcr-oi-caption">Manual refresh only</span>
@@ -247,6 +394,8 @@ export default function CryptoSwingPage() {
           </button>
         </div>
       </header>
+
+      <LiveStatusPanel status={liveStatus} loading={liveStatusLoading} error={liveStatusError} />
 
       <PaperTradesPanel
         trades={trades}

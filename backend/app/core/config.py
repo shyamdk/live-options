@@ -78,6 +78,21 @@ class Settings(BaseSettings):
     delta_exchange_api_secret: str | None = None
     delta_exchange_base_url: str = "https://api.india.delta.exchange"
 
+    # Crypto-Swing live trading -- off by default like every new monitor
+    # in this codebase. shadow_mode logs the order that WOULD be placed
+    # (symbol, side, size, guardrail checks) without ever calling Delta's
+    # order endpoint; only flip it off, deliberately, once shadow output
+    # has been watched and trusted. Both must be set for a real order to
+    # ever be sent -- live_enabled alone still only shadows.
+    crypto_swing_live_enabled: bool = False
+    crypto_swing_shadow_mode: bool = True
+    crypto_swing_leverage: str = "10"
+    crypto_swing_risk_percent_per_trade: float = 1.0
+    crypto_swing_max_daily_loss_percent: float = 5.0
+    crypto_swing_max_concurrent_positions: int = 3
+    crypto_swing_min_margin_buffer_percent: float = 20.0
+    crypto_swing_live_poll_interval_seconds: int = 60
+
     journal_insights_monitor_enabled: bool = True
     journal_insights_refresh_time: str = "16:00"
     journal_insights_check_interval_seconds: int = 900
