@@ -40,3 +40,35 @@ export interface NiftySwingTrade {
   unrealizedPnlPercent?: number | null;
   unrealizedPnlAmount?: number | null;
 }
+
+export interface NiftySwingLiveTrade {
+  id: number;
+  side: "long" | "short";
+  mode: "shadow" | "live";
+  status: "open" | "closed";
+  entryTime: number;
+  entryPrice: number;
+  quantity: number;
+  tranches: number;
+  stopLoss: number | null;
+  exitTime: number | null;
+  exitPrice: number | null;
+  exitReason: string | null;
+  pnlInr: number | null;
+  orderId: string | null;
+  note: string | null;
+}
+
+export interface NiftySwingLiveStatus {
+  liveEnabled: boolean;
+  shadowMode: boolean;
+  mode: "shadow" | "live";
+  quantityPerTranche: number;
+  maxCapitalRupees: number;
+  maxDailyLossRupees: number;
+  resolution: NiftySwingResolution;
+  productType: string;
+  openPositions: number;
+  todayRealizedPnlInr: number;
+  trades: NiftySwingLiveTrade[];
+}

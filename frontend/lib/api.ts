@@ -24,7 +24,7 @@ import type { CreditSpreadState } from "@/types/credit-spread";
 import type { ThetaRuntimeConfig, ThetaSession, ThetaSessionDetail, ThetaState } from "@/types/theta";
 import type { CryptoSwingIndicators, CryptoSwingLiveStatus, CryptoSwingSymbol, CryptoSwingTrade, CryptoSwingWallet } from "@/types/crypto-swing";
 import type { EmaSettings, PstrategyData, PstrategyResolution } from "@/types/pstrategy";
-import type { NiftySwingIndicators, NiftySwingResolution, NiftySwingTrade } from "@/types/nifty-swing";
+import type { NiftySwingIndicators, NiftySwingLiveStatus, NiftySwingResolution, NiftySwingTrade } from "@/types/nifty-swing";
 import type { PstrategyNiftyCandlesData, PstrategyNiftyResolution, PstrategyNiftyTrade } from "@/types/pstrategy-nifty";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8001";
@@ -484,6 +484,10 @@ export async function getNiftySwingTrades(
     undefined,
     "Failed to load Nifty-Swing paper trades",
   );
+}
+
+export async function getNiftySwingLiveStatus(): Promise<NiftySwingLiveStatus> {
+  return apiJson<NiftySwingLiveStatus>("/api/nifty-swing/live-status", undefined, "Failed to load live trading status");
 }
 
 export async function getPstrategyNiftyCandles(resolution: PstrategyNiftyResolution): Promise<PstrategyNiftyCandlesData> {

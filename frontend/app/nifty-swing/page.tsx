@@ -17,11 +17,12 @@ import {
 import { LineChart, RefreshCw } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
-import { getNiftySwingCandles, getNiftySwingTrades } from "@/lib/api";
+import { getNiftySwingCandles, getNiftySwingLiveStatus, getNiftySwingTrades } from "@/lib/api";
 import type { CryptoSwingTrailSettings } from "@/lib/api";
-import type { NiftySwingIndicators, NiftySwingResolution, NiftySwingTrade } from "@/types/nifty-swing";
+import type { NiftySwingIndicators, NiftySwingLiveStatus, NiftySwingResolution, NiftySwingTrade } from "@/types/nifty-swing";
 
 const RESOLUTIONS: NiftySwingResolution[] = ["5m", "15m", "30m", "1h"];
+const LIVE_STATUS_REFRESH_MS = secondsToMs(process.env.NEXT_PUBLIC_NIFTY_SWING_LIVE_STATUS_REFRESH_SECONDS, 60);
 
 function secondsToMs(value: string | undefined, fallbackSeconds: number): number {
   const seconds = Number(value);
@@ -94,10 +95,116 @@ function fmtPnl(pct: number | null | undefined, amount: number | null | undefine
   return `${sign}${pct.toFixed(2)}% (${sign}₹${amount.toFixed(2)})`;
 }
 
+function fmtInr(value: number | null | undefined): string {
+  if (value === null || value === undefined) return "—";
+  const sign = value >= 0 ? "+" : "";
+  return `${sign}₹${value.toFixed(2)}`;
+}
+
 const EXIT_REASON_LABEL: Record<string, string> = {
   trap_confirmed_reversal: "Trend reversal confirmed",
   trail_stop: "Trailing stop (ATR)",
 };
+
+function LiveStatusPanel({ status, loading, error }: { status: NiftySwingLiveStatus | null; loading: boolean; error: string | null }) {
+  return (
+    <div className="pcr-oi-section">
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <h3 style={{ margin: 0 }}>Live trading status</h3>
+        {status ? (
+          <span
+            className="badge"
+            style={{
+              background: !status.liveEnabled ? "#8391a3" : status.mode === "shadow" ? "#2368b6" : "#c93535",
+              color: "#fff",
+            }}
+          >
+            {!status.liveEnabled ? "DISABLED" : status.mode === "shadow" ? "SHADOW (no real orders)" : "LIVE -- REAL ORDERS"}
+          </span>
+        ) : null}
+      </div>
+      {error ? <div className="alert error">{error}</div> : null}
+      {loading && !status ? <p className="pcr-oi-caption">Loading…</p> : null}
+      {status ? (
+        <>
+          <p className="pcr-oi-caption" style={{ margin: "4px 0 10px" }}>
+            {!status.liveEnabled
+              ? "Live engine is off entirely -- only the deterministic paper-replay panels below are active."
+              : status.mode === "shadow"
+                ? "Every signal is evaluated and logged (entry/exit, quantity, guardrail checks) exactly as if it were real, but no order is ever sent to Dhan."
+                : "Both nifty_swing_live_enabled and nifty_swing_shadow_mode=false are set -- real CNC orders are being placed with real capital."}
+          </p>
+          <div className="metric-grid" style={{ marginBottom: 10 }}>
+            <div className="metric">
+              <span>Open positions</span>
+              <strong>{status.openPositions}</strong>
+            </div>
+            <div className="metric">
+              <span>Today&apos;s realized P&amp;L</span>
+              <strong style={{ color: status.todayRealizedPnlInr >= 0 ? "var(--green)" : "var(--red)" }}>
+                {fmtInr(status.todayRealizedPnlInr)}
+              </strong>
+            </div>
+            <div className="metric">
+              <span>Quantity per tranche</span>
+              <strong>{status.quantityPerTranche}</strong>
+            </div>
+            <div className="metric">
+              <span>Max capital</span>
+              <strong>₹{status.maxCapitalRupees.toLocaleString("en-IN")}</strong>
+            </div>
+            <div className="metric">
+              <span>Max daily loss</span>
+              <strong>₹{status.maxDailyLossRupees.toLocaleString("en-IN")}</strong>
+            </div>
+            <div className="metric">
+              <span>Product type</span>
+              <strong>{status.productType}</strong>
+            </div>
+          </div>
+          {status.trades.length === 0 ? (
+            <p className="pcr-oi-caption">No {status.mode} trades recorded yet.</p>
+          ) : (
+            <div style={{ overflowX: "auto" }}>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Status</th>
+                    <th>Entry time</th>
+                    <th>Entry price</th>
+                    <th>Quantity</th>
+                    <th>Tranches</th>
+                    <th>Exit time</th>
+                    <th>Exit reason</th>
+                    <th>P&amp;L</th>
+                    <th>Note</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {status.trades.map((t) => (
+                    <tr key={t.id}>
+                      <td>{t.status === "open" ? <span className="badge buy">OPEN</span> : "Closed"}</td>
+                      <td>{fmtDateTime(t.entryTime)}</td>
+                      <td>{fmtPrice(t.entryPrice)}</td>
+                      <td>{t.quantity}</td>
+                      <td>{t.tranches}</td>
+                      <td>{fmtDateTime(t.exitTime)}</td>
+                      <td>{t.exitReason ? EXIT_REASON_LABEL[t.exitReason] ?? t.exitReason : "—"}</td>
+                      <td style={{ color: (t.pnlInr ?? 0) >= 0 ? "var(--green)" : "var(--red)" }}>{fmtInr(t.pnlInr)}</td>
+                      <td style={{ maxWidth: 260, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={t.note ?? ""}>
+                        {t.note ?? "—"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </>
+      ) : null}
+    </div>
+  );
+}
 
 function PaperTradesPanel({
   trades,
@@ -294,6 +401,28 @@ export default function NiftySwingPage() {
     return () => window.clearInterval(timer);
   }, [resolution, trailSettings, quantity]);
 
+  const [liveStatus, setLiveStatus] = useState<NiftySwingLiveStatus | null>(null);
+  const [liveStatusLoading, setLiveStatusLoading] = useState(true);
+  const [liveStatusError, setLiveStatusError] = useState<string | null>(null);
+
+  async function loadLiveStatus() {
+    setLiveStatusLoading(true);
+    try {
+      setLiveStatus(await getNiftySwingLiveStatus());
+      setLiveStatusError(null);
+    } catch (exc) {
+      setLiveStatusError(exc instanceof Error ? exc.message : "Failed to load live trading status.");
+    } finally {
+      setLiveStatusLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    loadLiveStatus();
+    const timer = window.setInterval(loadLiveStatus, LIVE_STATUS_REFRESH_MS);
+    return () => window.clearInterval(timer);
+  }, []);
+
   const secondsUntilTradesRefresh = Math.max(0, Math.ceil((TRADES_REFRESH_MS - (nowTick - lastTradesRefreshAt)) / 1000));
 
   return (
@@ -307,7 +436,8 @@ export default function NiftySwingPage() {
           <p>
             The same 3-way confirmation strategy as Crypto-Swing (Supertrend flip + EMA200 macro filter + MACD
             alignment), applied to NIFTYBEES instead of a crypto perpetual. Long-only, real share quantity instead of
-            leveraged notional. Paper trades only.
+            leveraged notional. A live/shadow engine (see status below) can place real CNC orders once explicitly
+            enabled -- shadow mode logs what it would do without ever sending an order.
           </p>
         </div>
         <div className="toolbar">
@@ -376,6 +506,8 @@ export default function NiftySwingPage() {
           />
         </span>
       </div>
+
+      <LiveStatusPanel status={liveStatus} loading={liveStatusLoading} error={liveStatusError} />
 
       <PaperTradesPanel
         trades={trades}

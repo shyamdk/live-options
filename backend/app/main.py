@@ -34,6 +34,7 @@ from app.services.market_news import (
 )
 from app.services.oi_upgraded import start_oi_upgraded_task, stop_oi_upgraded_task
 from app.services.crypto_swing_live import start_crypto_swing_live_task, stop_crypto_swing_live_task
+from app.services.nifty_swing_live import start_nifty_swing_live_task, stop_nifty_swing_live_task
 from app.services.paper_trading import start_paper_trading_task, stop_paper_trading_task
 from app.services.pcr_oi import start_pcr_oi_task, stop_pcr_oi_task
 from app.services.pstrategy_nifty import start_pstrategy_nifty_task, stop_pstrategy_nifty_task
@@ -63,6 +64,7 @@ paper_trading_task = None
 oi_upgraded_task = None
 crypto_swing_live_task = None
 pstrategy_nifty_task = None
+nifty_swing_live_task = None
 
 app.add_middleware(
     CORSMiddleware,
@@ -75,7 +77,7 @@ app.add_middleware(
 
 @app.on_event("startup")
 async def startup() -> None:
-    global risk_order_monitor_task, spot_distance_monitor_task, gamma_blast_task, journal_insights_task, ema5_task, animesh_task, credit_spread_task, theta_task, market_news_task, market_calendar_task, pcr_oi_task, paper_trading_task, oi_upgraded_task, crypto_swing_live_task, pstrategy_nifty_task
+    global risk_order_monitor_task, spot_distance_monitor_task, gamma_blast_task, journal_insights_task, ema5_task, animesh_task, credit_spread_task, theta_task, market_news_task, market_calendar_task, pcr_oi_task, paper_trading_task, oi_upgraded_task, crypto_swing_live_task, pstrategy_nifty_task, nifty_swing_live_task
     init_db()
     spot_distance_monitor_task = start_spot_distance_monitor_task()
     risk_order_monitor_task = start_risk_order_monitor_task()
@@ -92,6 +94,7 @@ async def startup() -> None:
     oi_upgraded_task = start_oi_upgraded_task()
     crypto_swing_live_task = start_crypto_swing_live_task()
     pstrategy_nifty_task = start_pstrategy_nifty_task()
+    nifty_swing_live_task = start_nifty_swing_live_task()
 
 
 @app.on_event("shutdown")
@@ -111,6 +114,7 @@ async def shutdown() -> None:
     await stop_oi_upgraded_task(oi_upgraded_task)
     await stop_crypto_swing_live_task(crypto_swing_live_task)
     await stop_pstrategy_nifty_task(pstrategy_nifty_task)
+    await stop_nifty_swing_live_task(nifty_swing_live_task)
 
 
 @app.get("/health")

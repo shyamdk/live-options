@@ -93,6 +93,23 @@ class Settings(BaseSettings):
     crypto_swing_min_margin_buffer_percent: float = 20.0
     crypto_swing_live_poll_interval_seconds: int = 60
 
+    # Nifty-Swing live/shadow trading -- same two-flag gating as Crypto-Swing
+    # above (nifty_swing_live_enabled alone still only shadows; both it and
+    # shadow_mode=false are required for a real order). Runs at a fixed
+    # resolution regardless of whatever the paper-trading page currently has
+    # selected. Sizing is a flat share quantity (no leverage here, unlike
+    # crypto), guarded by a rupee capital cap and a rupee daily-loss cap
+    # rather than percent-of-wallet, since there's no Dhan fund-limit lookup
+    # wired into this codebase to take a percentage of.
+    nifty_swing_live_enabled: bool = False
+    nifty_swing_shadow_mode: bool = True
+    nifty_swing_live_resolution: str = "30m"
+    nifty_swing_live_poll_interval_seconds: int = 60
+    nifty_swing_live_quantity_per_tranche: int = 50
+    nifty_swing_live_max_capital_rupees: float = 50_000.0
+    nifty_swing_live_max_daily_loss_rupees: float = 2_000.0
+    nifty_swing_live_product_type: str = "CNC"
+
     journal_insights_monitor_enabled: bool = True
     journal_insights_refresh_time: str = "16:00"
     journal_insights_check_interval_seconds: int = 900

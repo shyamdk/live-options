@@ -175,6 +175,7 @@ function TradesGroup({ resolution }: { resolution: PstrategyNiftyResolution }) {
                 <tr>
                   <th>Side</th>
                   <th>Strike</th>
+                  <th>Expiry</th>
                   <th>Entry time</th>
                   <th>Entry premium</th>
                   <th>Exit time</th>
@@ -191,6 +192,7 @@ function TradesGroup({ resolution }: { resolution: PstrategyNiftyResolution }) {
                       <span className={`badge ${t.side === "CE" ? "buy" : "sell"}`}>{t.side}</span>
                     </td>
                     <td>{fmtPrice(t.strike)}</td>
+                    <td>{t.expiry}</td>
                     <td>{fmtDateTime(t.entryTime)}</td>
                     <td>{fmtPremium(t.entryPremium)}</td>
                     <td>{fmtDateTime(t.exitTime)}</td>
