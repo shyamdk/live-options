@@ -39,6 +39,12 @@ RANGE_ATR_RATIO = 1.0
 # Entry/stop/target stay pure price levels either way; only the P&L%
 # scales.
 LEVERAGE = 50
+# Delta's published taker commission for the XAUTUSD perpetual -- confirmed
+# live via GET /v2/products/XAUTUSD (taker_commission_rate: 0.0001; maker is
+# the same). These paper trades always fill at a stop/target/trail level or
+# an EMA-cross close, i.e. market fills, so both legs are charged at the
+# taker rate -- there's no maker-fill case to model here.
+TAKER_COMMISSION_RATE = 0.0001
 # Chandelier-style trailing stop (see build_paper_trades): armed once a
 # trade is up by this many ATRs, then trails the best close seen since
 # entry by this many ATRs -- standard breakout-trading guidance for
@@ -46,8 +52,32 @@ LEVERAGE = 50
 # trend-line exit.
 TRAIL_ARM_ATR_MULTIPLE = 1.0
 TRAIL_ATR_MULTIPLE = 3.0
+# The EMA side-of-trend filter needs the close to genuinely clear the slow
+# EMA, not just tick a hair past it -- a bare `close > ema_slow` was
+# confirming longs on margins as thin as 0.0072 on XAUT (real case: close
+# 4375.27 vs EMA20 4375.2628), which is noise, not trend confirmation.
+# Scales with ATR rather than a fixed point value so it stays meaningful
+# across volatility regimes.
+EMA_CONFIRM_ATR_BUFFER = 0.1
 
 Side = Literal["long", "short"]
+
+
+def charges_percent_of_margin(entry_price: float, exit_price: float) -> float:
+    """Round-trip taker fee, expressed as a percent of margin (same units as
+    pnlPercent) so it can be subtracted from it directly.
+
+    Fee is levied on notional traded, not on the price move. At entry, the
+    position's notional is LEVERAGE times margin by construction (that's
+    what "LEVERAGE x margin" means). The exit leg trades that same
+    contract count at exit_price, so its notional as a fraction of margin
+    scales by exit_price/entry_price rather than staying at exactly
+    LEVERAGE -- e.g. a short that's up 1% has an exit notional 1% smaller
+    than its entry notional, and pays a hair less fee on that leg.
+    """
+    entry_leg = LEVERAGE
+    exit_leg = LEVERAGE * (exit_price / entry_price)
+    return TAKER_COMMISSION_RATE * 100 * (entry_leg + exit_leg)
 
 
 def detect_patterns(candles: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
@@ -200,6 +230,8 @@ def build_paper_trades(
             "exitPrice": None,
             "exitReason": None,
             "pnlPercent": None,
+            "chargesPercent": None,
+            "netPnlPercent": None,
         }
 
         best_close = entry_price
@@ -253,12 +285,16 @@ def build_paper_trades(
                 reason = "stop" if hit_stop else "target"
                 exit_price = stop_fill_price(stop, open_k) if hit_stop else target
 
+            pnl_percent = (exit_price - entry_price) / entry_price * 100 * direction * LEVERAGE
+            charges_percent = charges_percent_of_margin(entry_price, exit_price)
             trade.update(
                 status="closed",
                 exitTime=candles[k]["time"],
                 exitPrice=exit_price,
                 exitReason=reason,
-                pnlPercent=(exit_price - entry_price) / entry_price * 100 * direction * LEVERAGE,
+                pnlPercent=pnl_percent,
+                chargesPercent=charges_percent,
+                netPnlPercent=pnl_percent - charges_percent,
                 peakPrice=best_close,
                 trailStop=trail_stop,
             )

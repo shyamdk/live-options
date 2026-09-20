@@ -385,7 +385,8 @@ function PaperTradesPanel({
         perpetual), not the raw price move. The rupee figure applies that % to an assumed ₹{paperCapital.toLocaleString("en-IN")}{" "}
         of paper margin capital (adjustable above) -- purely illustrative, not real money. Peak = best price reached
         since entry; Trail stop = the current Chandelier level once armed (1x ATR in profit), showing what's
-        actually protecting the gain.
+        actually protecting the gain. Charges assume Delta's published XAUTUSD taker fee (0.01% per side) on both
+        the entry and exit leg -- not yet netted against P&amp;L above.
       </p>
       {error ? <div className="alert error">{error}</div> : null}
       {filtered.length === 0 ? (
@@ -404,6 +405,7 @@ function PaperTradesPanel({
                   <>
                     <th>Current price</th>
                     <th>Current P&amp;L ({leverage}x)</th>
+                    <th>Charges</th>
                     <th>Box stop</th>
                   </>
                 ) : (
@@ -412,6 +414,7 @@ function PaperTradesPanel({
                     <th>Exit price</th>
                     <th>Exit reason</th>
                     <th>P&amp;L ({leverage}x)</th>
+                    <th>Charges</th>
                   </>
                 )}
               </tr>
@@ -421,6 +424,7 @@ function PaperTradesPanel({
                 const isOpen = variant === "open";
                 const pnl = isOpen ? t.unrealizedPnlPercent : t.pnlPercent;
                 const pnlInr = isOpen ? t.unrealizedPnlAmountInr : t.pnlAmountInr;
+                const chargesInr = isOpen ? t.unrealizedChargesInr : t.chargesInr;
                 return (
                   <tr key={`${t.entryTime}-${i}`}>
                     <td>
@@ -434,6 +438,7 @@ function PaperTradesPanel({
                       <>
                         <td>{fmtPriceValue(t.currentPrice)}</td>
                         <td style={{ color: (pnl ?? 0) >= 0 ? "var(--green)" : "var(--red)" }}>{fmtPnlValue(pnl, pnlInr)}</td>
+                        <td className="pcr-oi-caption">{chargesInr !== null && chargesInr !== undefined ? fmtInr(chargesInr) : "—"}</td>
                         <td>{fmtPriceValue(t.stopLoss)}</td>
                       </>
                     ) : (
@@ -442,6 +447,7 @@ function PaperTradesPanel({
                         <td>{fmtPriceValue(t.exitPrice)}</td>
                         <td>{t.exitReason ? EXIT_REASON_LABEL[t.exitReason] : "—"}</td>
                         <td style={{ color: (pnl ?? 0) >= 0 ? "var(--green)" : "var(--red)" }}>{fmtPnlValue(pnl, pnlInr)}</td>
+                        <td className="pcr-oi-caption">{chargesInr !== null && chargesInr !== undefined ? fmtInr(chargesInr) : "—"}</td>
                       </>
                     )}
                   </tr>

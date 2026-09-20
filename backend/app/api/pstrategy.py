@@ -9,7 +9,14 @@ from app.services.app_auth import require_auth
 from app.services.crypto_indicators import atr as compute_atr
 from app.services.crypto_indicators import ema, rsi
 from app.services.delta_exchange import DeltaExchangeError, DeltaExchangeService
-from app.services.pstrategy import ATR_LOOKBACK, LEVERAGE, build_paper_trades, detect_patterns
+from app.services.pstrategy import (
+    ATR_LOOKBACK,
+    EMA_CONFIRM_ATR_BUFFER,
+    LEVERAGE,
+    build_paper_trades,
+    charges_percent_of_margin,
+    detect_patterns,
+)
 
 router = APIRouter(prefix="/pstrategy", tags=["pstrategy"])
 
@@ -71,10 +78,14 @@ async def candles(
         for b in breakouts:
             idx = b["index"]
             slow_value = ema_slow[idx]
-            if slow_value is None:
+            atr_at_idx = atr_values[idx]
+            if slow_value is None or not atr_at_idx:
                 continue
             close_price = float(ordered[idx]["close"])
-            if (b["side"] == "long" and close_price > slow_value) or (b["side"] == "short" and close_price < slow_value):
+            buffer = EMA_CONFIRM_ATR_BUFFER * atr_at_idx
+            if (b["side"] == "long" and close_price > slow_value + buffer) or (
+                b["side"] == "short" and close_price < slow_value - buffer
+            ):
                 confirmed.append(b)
 
         for k in range(1, len(ordered)):
@@ -95,6 +106,8 @@ async def candles(
     trades = build_paper_trades(ordered, boxes, confirmed, ema_slow, ema_enabled, atr_values)
     for trade in trades:
         trade["pnlAmountInr"] = trade["pnlPercent"] / 100 * paper_capital_inr if trade["pnlPercent"] is not None else None
+        trade["chargesInr"] = trade["chargesPercent"] / 100 * paper_capital_inr if trade["chargesPercent"] is not None else None
+        trade["netPnlAmountInr"] = trade["netPnlPercent"] / 100 * paper_capital_inr if trade["netPnlPercent"] is not None else None
     if trades and trades[-1]["status"] == "open":
         await _with_live_pnl(trades[-1], paper_capital_inr)
 
@@ -128,9 +141,20 @@ async def _with_live_pnl(open_trade: dict[str, Any], paper_capital_inr: float) -
         open_trade["currentPrice"] = None
         open_trade["unrealizedPnlPercent"] = None
         open_trade["unrealizedPnlAmountInr"] = None
+        open_trade["unrealizedChargesInr"] = None
+        open_trade["netUnrealizedPnlPercent"] = None
+        open_trade["netUnrealizedPnlAmountInr"] = None
         return
     direction = 1 if open_trade["side"] == "long" else -1
-    pnl_pct = (current - open_trade["entryPrice"]) / open_trade["entryPrice"] * 100 * direction * LEVERAGE
+    entry_price = open_trade["entryPrice"]
+    pnl_pct = (current - entry_price) / entry_price * 100 * direction * LEVERAGE
+    # Only the entry leg's fee has actually been paid so far -- this is the
+    # round-trip cost *if closed now at current*, same "close it now" basis
+    # unrealizedPnlPercent already uses.
+    charges_pct = charges_percent_of_margin(entry_price, current)
     open_trade["currentPrice"] = current
     open_trade["unrealizedPnlPercent"] = pnl_pct
     open_trade["unrealizedPnlAmountInr"] = pnl_pct / 100 * paper_capital_inr
+    open_trade["unrealizedChargesInr"] = charges_pct / 100 * paper_capital_inr
+    open_trade["netUnrealizedPnlPercent"] = pnl_pct - charges_pct
+    open_trade["netUnrealizedPnlAmountInr"] = (pnl_pct - charges_pct) / 100 * paper_capital_inr

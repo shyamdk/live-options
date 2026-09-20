@@ -35,9 +35,16 @@ export interface PstrategyTrade {
   exitReason: ExitReason | null;
   pnlPercent: number | null;
   pnlAmountInr: number | null;
+  chargesPercent: number | null;
+  chargesInr: number | null;
+  netPnlPercent: number | null;
+  netPnlAmountInr: number | null;
   currentPrice?: number | null;
   unrealizedPnlPercent?: number | null;
   unrealizedPnlAmountInr?: number | null;
+  unrealizedChargesInr?: number | null;
+  netUnrealizedPnlPercent?: number | null;
+  netUnrealizedPnlAmountInr?: number | null;
 }
 
 export interface Crossover {
