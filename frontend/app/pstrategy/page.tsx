@@ -237,7 +237,12 @@ export default function PstrategyPage() {
   );
 }
 
-const EXIT_REASON_LABEL: Record<ExitReason, string> = { target: "Target", stop: "Stop", ema_exit: "Crossed EMA20" };
+const EXIT_REASON_LABEL: Record<ExitReason, string> = {
+  target: "Target",
+  stop: "Stop",
+  ema_exit: "Crossed EMA20",
+  trail_stop: "Trailing stop (ATR)",
+};
 
 function fmtDateTime(epochSeconds: number | null): string {
   if (!epochSeconds) return "—";
@@ -674,9 +679,10 @@ function PstrategyChart({ resolution, emaSettings }: { resolution: PstrategyReso
         <span className="pcr-oi-caption" style={{ alignSelf: "center" }}>
           Blue lines = support/resistance. Orange lines = your own -- drag an end to resize, the middle to shift.
           {emaSettings.enabled ? ` EMA${emaSettings.fast} (teal) / EMA${emaSettings.slow} (violet), crossovers as circles.` : ""}{" "}
-          EN = entry (arrow = confirmed momentum candle). EX = exit -- when EMA cross is on (grey), the trade is
-          held unconditionally as long as it stays on the favorable side of the slow EMA and exits the moment it
-          closes on the wrong side; stop/target (red/green) only apply with EMA cross off.
+          EN = entry (arrow = confirmed momentum candle). EX = exit -- when EMA cross is on, the trade holds while on
+          the favorable side of the slow EMA (grey exit) but an ATR trailing stop (orange, armed once up 1x ATR)
+          takes priority the instant price touches it, so a sharp reversal doesn&apos;t have to wait for the EMA to
+          catch up; stop/target (red/green) only apply with EMA cross off.
         </span>
       </div>
       <div ref={containerRef} style={{ width: "100%" }} />
@@ -694,7 +700,7 @@ function numericSeries(times: UTCTimestamp[], values: (number | null)[]): { time
     .filter((point): point is { time: UTCTimestamp; value: number } => point !== null);
 }
 
-const EXIT_COLOR: Record<ExitReason, string> = { target: "#168448", stop: "#c93535", ema_exit: "#8391a3" };
+const EXIT_COLOR: Record<ExitReason, string> = { target: "#168448", stop: "#c93535", ema_exit: "#8391a3", trail_stop: "#c9772f" };
 
 function buildMarkers(data: PstrategyData): SeriesMarker<Time>[] {
   const markers: SeriesMarker<Time>[] = [];

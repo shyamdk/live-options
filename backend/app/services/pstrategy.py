@@ -39,6 +39,13 @@ RANGE_ATR_RATIO = 1.0
 # Entry/stop/target stay pure price levels either way; only the P&L%
 # scales.
 LEVERAGE = 50
+# Chandelier-style trailing stop (see build_paper_trades): armed once a
+# trade is up by this many ATRs, then trails the best close seen since
+# entry by this many ATRs -- standard breakout-trading guidance for
+# letting profits run without giving most of them back to a lagging
+# trend-line exit.
+TRAIL_ARM_ATR_MULTIPLE = 1.0
+TRAIL_ATR_MULTIPLE = 3.0
 
 Side = Literal["long", "short"]
 
@@ -116,6 +123,7 @@ def build_paper_trades(
     confirmed_momentum: list[dict[str, Any]],
     ema_slow: list[float | None],
     ema_enabled: bool,
+    atr_values: list[float | None],
 ) -> list[dict[str, Any]]:
     """Entry/exit rule synthesized from standard breakout-trading practice,
     with an explicit EMA20-hold override the user asked for on top:
@@ -134,11 +142,18 @@ def build_paper_trades(
       keeps closing below it. Stop and target are deliberately NOT
       checked while that holds -- this is a trend-following exit, not a
       risk-first one, so a trade can give back more than the nominal
-      stop distance before EMA20 catches up. The trade closes exactly on
-      the candle whose close crosses to the wrong side of the slow EMA
-      (reason "ema_exit").
-    - When EMA is off, there's no trend line to hold against, so it
-      falls back to the plain stop/target rule.
+      stop distance before EMA20 catches up.
+    - ATR trailing stop, layered on top: once a trade is up by
+      TRAIL_ARM_ATR_MULTIPLE x ATR from entry, a Chandelier-style stop
+      arms at (best close since entry) -/+ TRAIL_ATR_MULTIPLE x ATR,
+      ratcheting only in the trade's favor. This exists specifically
+      because the EMA-hold rule is a lagging exit -- a sharp reversal
+      candle can round-trip most of an open gain before price finally
+      closes back over/under EMA20. Once armed, a close beyond this
+      trail exits immediately (reason "trail_stop"), even though price
+      is still technically on the right side of EMA20.
+    - When EMA is off, there's no trend line to hold against (or trail
+      against), so it falls back to the plain stop/target rule.
 
     A momentum candle near the end of the fetched history may have no
     exit yet -- that trade stays "open" as far as this history shows.
@@ -172,27 +187,63 @@ def build_paper_trades(
             "pnlPercent": None,
         }
 
+        best_close = entry_price
+        trail_stop: float | None = None
+
+        def stop_fill_price(level: float, open_k: float) -> float:
+            # A stop order fills the instant price touches it intrabar,
+            # not only at the candle's close -- and if the candle gapped
+            # straight past the level, the fill is the open (can't get a
+            # better price than what the market opened at), not the
+            # level itself. Targets, by contrast, are limit orders --
+            # filled at the target price even on a favorable gap through
+            # it, so they don't need this adjustment.
+            if side == "long":
+                return min(open_k, level) if open_k <= level else level
+            return max(open_k, level) if open_k >= level else level
+
         for k in range(idx + 1, n):
             close_k = float(candles[k]["close"])
+            high_k, low_k, open_k = float(candles[k]["high"]), float(candles[k]["low"]), float(candles[k]["open"])
+            best_close = max(best_close, close_k) if side == "long" else min(best_close, close_k)
+            exit_price = close_k
 
             if ema_enabled and ema_slow[k] is not None:
+                atr_k = atr_values[k]
+                if atr_k:
+                    favorable_move = (best_close - entry_price) if side == "long" else (entry_price - best_close)
+                    if trail_stop is not None or favorable_move >= TRAIL_ARM_ATR_MULTIPLE * atr_k:
+                        candidate = best_close - TRAIL_ATR_MULTIPLE * atr_k if side == "long" else best_close + TRAIL_ATR_MULTIPLE * atr_k
+                        trail_stop = candidate if trail_stop is None else (max(trail_stop, candidate) if side == "long" else min(trail_stop, candidate))
+
+                # Checked intrabar (low/high), not just the close -- a
+                # sharp reversal that round-trips within a single candle
+                # (seen live: a 5m candle that opened 4379.77, dipped to
+                # 4378.09, closed 4378.11) would otherwise only be caught
+                # after the fact, at the close, defeating the point of a
+                # trailing stop.
+                hit_trail = trail_stop is not None and ((side == "long" and low_k <= trail_stop) or (side == "short" and high_k >= trail_stop))
+                if hit_trail:
+                    exit_price = stop_fill_price(trail_stop, open_k)
                 held = (side == "long" and close_k > ema_slow[k]) or (side == "short" and close_k < ema_slow[k])
-                if held:
+                if not hit_trail and held:
                     continue
-                reason = "ema_exit"
+                reason = "trail_stop" if hit_trail else "ema_exit"
             else:
-                hit_stop = (side == "long" and close_k <= stop) or (side == "short" and close_k >= stop)
-                hit_target = (side == "long" and close_k >= target) or (side == "short" and close_k <= target)
+                hit_stop = (side == "long" and low_k <= stop) or (side == "short" and high_k >= stop)
+                hit_target = (side == "long" and high_k >= target) or (side == "short" and low_k <= target)
                 if not (hit_stop or hit_target):
                     continue
-                reason = "target" if hit_target else "stop"
+                # Stop takes priority if a single wild candle hits both.
+                reason = "stop" if hit_stop else "target"
+                exit_price = stop_fill_price(stop, open_k) if hit_stop else target
 
             trade.update(
                 status="closed",
                 exitTime=candles[k]["time"],
-                exitPrice=close_k,
+                exitPrice=exit_price,
                 exitReason=reason,
-                pnlPercent=(close_k - entry_price) / entry_price * 100 * direction * LEVERAGE,
+                pnlPercent=(exit_price - entry_price) / entry_price * 100 * direction * LEVERAGE,
             )
             break
 

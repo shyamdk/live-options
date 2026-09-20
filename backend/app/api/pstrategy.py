@@ -6,9 +6,10 @@ from typing import Any
 from fastapi import APIRouter, Depends, Query
 
 from app.services.app_auth import require_auth
+from app.services.crypto_indicators import atr as compute_atr
 from app.services.crypto_indicators import ema, rsi
 from app.services.delta_exchange import DeltaExchangeError, DeltaExchangeService
-from app.services.pstrategy import LEVERAGE, build_paper_trades, detect_patterns
+from app.services.pstrategy import ATR_LOOKBACK, LEVERAGE, build_paper_trades, detect_patterns
 
 router = APIRouter(prefix="/pstrategy", tags=["pstrategy"])
 
@@ -45,6 +46,7 @@ async def candles(
     ordered = sorted(raw, key=lambda c: c["time"])
     closes = [float(c["close"]) for c in ordered]
     rsi_values = rsi(closes)
+    atr_values = compute_atr(ordered, ATR_LOOKBACK)
     boxes, breakouts = detect_patterns(ordered)
 
     # The EMA side-of-trend filter (long momentum must close above the
@@ -84,7 +86,7 @@ async def candles(
         confirmed = breakouts
 
     momentum_candles = [{"time": b["time"], "side": b["side"]} for b in confirmed]
-    trades = build_paper_trades(ordered, boxes, confirmed, ema_slow, ema_enabled)
+    trades = build_paper_trades(ordered, boxes, confirmed, ema_slow, ema_enabled, atr_values)
     if trades and trades[-1]["status"] == "open":
         await _with_live_pnl(trades[-1])
 
