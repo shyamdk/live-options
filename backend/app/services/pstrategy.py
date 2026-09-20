@@ -157,6 +157,12 @@ def build_paper_trades(
 
     A momentum candle near the end of the fetched history may have no
     exit yet -- that trade stays "open" as far as this history shows.
+    Only one position is held at a time: a momentum signal that fires
+    before the current position has exited is skipped entirely, rather
+    than opening a second "trade" in parallel -- that's not a real
+    strategy behavior, it was a bug (seen live: a signal at 16:10 fired
+    while a still-open 15:35 short hadn't exited yet, and both showed up
+    as separate open trades).
 
     Returns one dict per trade: {side, status, entryTime, entryPrice,
     stopLoss, peakPrice, trailStop, exitTime, exitPrice, exitReason,
@@ -168,9 +174,12 @@ def build_paper_trades(
     """
     n = len(candles)
     trades: list[dict[str, Any]] = []
+    next_available_index = 0
 
     for m in confirmed_momentum:
         idx = m["index"]
+        if idx < next_available_index:
+            continue
         side = m["side"]
         box = boxes[m["boxIndex"]]
         entry_price = float(candles[idx]["close"])
@@ -253,14 +262,18 @@ def build_paper_trades(
                 peakPrice=best_close,
                 trailStop=trail_stop,
             )
+            next_available_index = k + 1
             break
         else:
             # Loop ran to the end of history without exiting -- still
             # open, but expose the running peak/trail so it's visible
             # what's currently protecting the position, not just the
-            # original box-boundary stop.
+            # original box-boundary stop. Blocks every later signal too
+            # (next_available_index = n), since we're still in this
+            # position through the end of the fetched history.
             trade["peakPrice"] = best_close
             trade["trailStop"] = trail_stop
+            next_available_index = n
 
         trades.append(trade)
 

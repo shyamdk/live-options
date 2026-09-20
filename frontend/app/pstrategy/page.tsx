@@ -22,7 +22,7 @@ import type { ConsolidationBox, EmaSettings, ExitReason, PstrategyData, Pstrateg
 const TRADES_RESOLUTION: PstrategyResolution = "5m";
 
 const RESOLUTIONS: PstrategyResolution[] = ["1m", "5m", "15m"];
-const REFRESH_MS = secondsToMs(process.env.NEXT_PUBLIC_PSTRATEGY_REFRESH_SECONDS, 30);
+const REFRESH_MS = secondsToMs(process.env.NEXT_PUBLIC_PSTRATEGY_REFRESH_SECONDS, 15);
 const STORAGE_PREFIX = "live-options-pstrategy-lines";
 const EMA_SETTINGS_KEY = "live-options-pstrategy-ema-settings";
 const DEFAULT_EMA_SETTINGS: EmaSettings = { enabled: true, fast: 9, slow: 20 };
@@ -91,6 +91,13 @@ export default function PstrategyPage() {
   const [tradesData, setTradesData] = useState<PstrategyData | null>(null);
   const [tradesLoading, setTradesLoading] = useState(true);
   const [tradesError, setTradesError] = useState<string | null>(null);
+  const [lastTradesRefreshAt, setLastTradesRefreshAt] = useState(Date.now());
+  const [nowTick, setNowTick] = useState(Date.now());
+
+  useEffect(() => {
+    const tick = window.setInterval(() => setNowTick(Date.now()), 1000);
+    return () => window.clearInterval(tick);
+  }, []);
 
   useEffect(() => {
     const loaded = loadEmaSettings();
@@ -120,6 +127,7 @@ export default function PstrategyPage() {
   // tab is selected for chart viewing.
   async function loadTrades() {
     setTradesLoading(true);
+    setLastTradesRefreshAt(Date.now());
     try {
       const payload = await getPstrategyCandles(TRADES_RESOLUTION, emaSettings);
       setTradesData(payload);
@@ -138,6 +146,7 @@ export default function PstrategyPage() {
   }, [emaSettings]);
 
   const trades = tradesData?.trades ?? [];
+  const secondsUntilTradesRefresh = Math.max(0, Math.ceil((REFRESH_MS - (nowTick - lastTradesRefreshAt)) / 1000));
 
   return (
     <section className="page">
@@ -220,6 +229,7 @@ export default function PstrategyPage() {
         title="Live trades"
         variant="open"
         leverage={tradesData?.leverage ?? 50}
+        secondsUntilRefresh={secondsUntilTradesRefresh}
       />
 
       <PstrategyChart resolution={resolution} emaSettings={emaSettings} />
@@ -232,6 +242,7 @@ export default function PstrategyPage() {
         title="Closed trades"
         variant="closed"
         leverage={tradesData?.leverage ?? 50}
+        secondsUntilRefresh={secondsUntilTradesRefresh}
       />
     </section>
   );
@@ -274,6 +285,7 @@ function PaperTradesPanel({
   title,
   variant,
   leverage,
+  secondsUntilRefresh,
 }: {
   trades: PstrategyTrade[];
   loading: boolean;
@@ -282,6 +294,7 @@ function PaperTradesPanel({
   title: string;
   variant: "open" | "closed";
   leverage: number;
+  secondsUntilRefresh: number;
 }) {
   const filtered = trades
     .filter((t) => t.status === variant)
@@ -293,9 +306,12 @@ function PaperTradesPanel({
         <h3 style={{ margin: 0 }}>
           {title} <span className="pcr-oi-caption">(XAUTUSD, 5m)</span>
         </h3>
-        <button type="button" className="button secondary" onClick={onRefresh} disabled={loading}>
-          <RefreshCw size={14} /> {loading ? "Refreshing…" : "Refresh"}
-        </button>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span className="pcr-oi-caption">Auto-refreshes in {secondsUntilRefresh}s</span>
+          <button type="button" className="button secondary" onClick={onRefresh} disabled={loading}>
+            <RefreshCw size={14} /> {loading ? "Refreshing…" : "Refresh"}
+          </button>
+        </div>
       </div>
       <p className="pcr-oi-caption" style={{ margin: "4px 0 10px" }}>
         Simulated only -- replayed deterministically from the proposed entry/exit rule against 5m candle history. No
