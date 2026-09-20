@@ -20,6 +20,7 @@ import { useEffect, useRef, useState } from "react";
 import { getNiftySwingCandles, getNiftySwingLiveStatus, getNiftySwingTrades } from "@/lib/api";
 import type { CryptoSwingTrailSettings } from "@/lib/api";
 import type { NiftySwingIndicators, NiftySwingLiveStatus, NiftySwingResolution, NiftySwingTrade } from "@/types/nifty-swing";
+import { DailyTotalsTable, groupDailyTotals } from "@/components/DailyTotals";
 
 const RESOLUTIONS: NiftySwingResolution[] = ["5m", "15m", "30m", "1h"];
 const LIVE_STATUS_REFRESH_MS = secondsToMs(process.env.NEXT_PUBLIC_NIFTY_SWING_LIVE_STATUS_REFRESH_SECONDS, 60);
@@ -529,6 +530,14 @@ export default function NiftySwingPage() {
         title="Closed trades"
         variant="closed"
         secondsUntilRefresh={secondsUntilTradesRefresh}
+      />
+      <DailyTotalsTable
+        rows={groupDailyTotals(
+          trades.filter((t) => t.status === "closed"),
+          (t) => t.exitTime,
+          (t) => t.pnlAmount,
+          () => null,
+        )}
       />
     </section>
   );

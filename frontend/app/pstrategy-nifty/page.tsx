@@ -23,6 +23,7 @@ import type {
   PstrategyNiftyResolution,
   PstrategyNiftyTrade,
 } from "@/types/pstrategy-nifty";
+import { DailyTotalsTable, groupDailyTotals } from "@/components/DailyTotals";
 
 const RESOLUTIONS: PstrategyNiftyResolution[] = ["1m", "3m"];
 
@@ -208,6 +209,14 @@ function TradesGroup({ resolution }: { resolution: PstrategyNiftyResolution }) {
             </table>
           </div>
         )}
+        <DailyTotalsTable
+          rows={groupDailyTotals(
+            closed,
+            (t) => t.exitTime,
+            (t) => t.realizedPnl,
+            (t) => t.netRealizedPnl ?? null,
+          )}
+        />
       </div>
     </div>
   );

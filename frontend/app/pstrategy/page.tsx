@@ -18,6 +18,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { getPstrategyCandles } from "@/lib/api";
 import type { ConsolidationBox, EmaSettings, ExitReason, PstrategyData, PstrategyResolution, PstrategyTrade } from "@/types/pstrategy";
+import { DailyTotalsTable, groupDailyTotals } from "@/components/DailyTotals";
 
 // Paper trades run at both of these timeframes in parallel, each simulated
 // and shown independently -- 15m is chart-viewing only (see RESOLUTIONS
@@ -331,6 +332,14 @@ export default function PstrategyPage() {
               paperCapital={data?.paperCapitalInr ?? paperCapital}
               secondsUntilRefresh={secondsUntilTradesRefresh}
               resolution={r}
+            />
+            <DailyTotalsTable
+              rows={groupDailyTotals(
+                tradesForRes.filter((t) => t.status === "closed"),
+                (t) => t.exitTime,
+                (t) => t.pnlAmountInr,
+                (t) => t.netPnlAmountInr,
+              )}
             />
           </div>
         );

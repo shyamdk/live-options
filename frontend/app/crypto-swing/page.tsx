@@ -19,6 +19,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { getCryptoSwingCandles, getCryptoSwingLiveStatus, getCryptoSwingTrades, getCryptoSwingWallet } from "@/lib/api";
 import type { CryptoSwingTrailSettings } from "@/lib/api";
+import { DailyTotalsTable, fmtUsdSigned, groupDailyTotals } from "@/components/DailyTotals";
 import type {
   CryptoSwingIndicators,
   CryptoSwingLiveStatus,
@@ -595,6 +596,15 @@ export default function CryptoSwingPage() {
         title="Closed trades"
         variant="closed"
         secondsUntilRefresh={secondsUntilTradesRefresh}
+      />
+      <DailyTotalsTable
+        rows={groupDailyTotals(
+          trades.filter((t) => t.status === "closed"),
+          (t) => t.exitTime,
+          (t) => t.pnlAmount,
+          () => null,
+        )}
+        formatAmount={fmtUsdSigned}
       />
     </section>
   );
