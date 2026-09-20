@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, Query
 from app.services.app_auth import require_auth
 from app.services.crypto_indicators import ema
 from app.services.delta_exchange import DeltaExchangeError, DeltaExchangeService
-from app.services.pstrategy import detect_patterns, propose_entries_and_exits
+from app.services.pstrategy import build_paper_trades, detect_patterns
 
 router = APIRouter(prefix="/pstrategy", tags=["pstrategy"])
 
@@ -83,7 +83,9 @@ async def candles(
         confirmed = breakouts
 
     momentum_candles = [{"time": b["time"], "side": b["side"]} for b in confirmed]
-    entries, exits = propose_entries_and_exits(ordered, boxes, confirmed, ema_fast, ema_slow, ema_enabled)
+    trades = build_paper_trades(ordered, boxes, confirmed, ema_fast, ema_slow, ema_enabled)
+    if trades and trades[-1]["status"] == "open":
+        await _with_live_pnl(trades[-1])
 
     return {
         "symbol": SYMBOL,
@@ -97,9 +99,21 @@ async def candles(
         ],
         "consolidations": boxes,
         "momentumCandles": momentum_candles,
-        "entries": entries,
-        "exits": exits,
+        "trades": trades,
         "emaFastValues": ema_fast,
         "emaSlowValues": ema_slow,
         "crossovers": crossovers,
     }
+
+
+async def _with_live_pnl(open_trade: dict[str, Any]) -> None:
+    try:
+        ticker = await DeltaExchangeService().get_ticker(SYMBOL)
+        current = float(ticker["close"])
+    except Exception:
+        open_trade["currentPrice"] = None
+        open_trade["unrealizedPnlPercent"] = None
+        return
+    direction = 1 if open_trade["side"] == "long" else -1
+    open_trade["currentPrice"] = current
+    open_trade["unrealizedPnlPercent"] = (current - open_trade["entryPrice"]) / open_trade["entryPrice"] * 100 * direction

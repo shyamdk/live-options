@@ -104,18 +104,18 @@ def detect_patterns(candles: list[dict[str, Any]]) -> tuple[list[dict[str, Any]]
     return boxes, breakouts
 
 
-def propose_entries_and_exits(
+def build_paper_trades(
     candles: list[dict[str, Any]],
     boxes: list[dict[str, Any]],
     confirmed_momentum: list[dict[str, Any]],
     ema_fast: list[float | None],
     ema_slow: list[float | None],
     ema_enabled: bool,
-) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+) -> list[dict[str, Any]]:
     """Entry/exit rule synthesized from standard breakout-trading practice
-    (measured-move target off the consolidation's own height, stop at the
-    opposite side of the range, trail-exit on a trend-indicator flip once
-    in profit) rather than invented from scratch:
+    (stop at the opposite side of the range, trail-exit on a
+    trend-indicator flip once in profit) rather than invented from
+    scratch:
 
     - Entry: at the close of the confirmed momentum candle itself -- the
       same candle already required to close beyond the range with a
@@ -133,19 +133,21 @@ def propose_entries_and_exits(
       entry almost every time), since the momentum candle's body and the
       box's own height are both bounded by the same ATR reference. R
       naturally includes that overshoot, so 2R gives the trade real room.
-    - Early exit: if EMA is enabled, an EMA9/20 cross back against the
-      position (the "close below the trailing MA means momentum is
+    - Early exit: if EMA is enabled, an EMA fast/slow cross back against
+      the position (the "close below the trailing MA means momentum is
       fading" rule) exits before either the stop or target is reached.
 
     Whichever of stop/target/trend-flip happens first, checked on each
     candle's close going forward, is the exit. A momentum candle near the
-    end of the fetched history may have no exit yet -- that trade is
-    still "open" as far as this history shows, so it gets an entry
-    marker with no matching exit.
+    end of the fetched history may have no exit yet -- that trade stays
+    "open" as far as this history shows.
+
+    Returns one dict per trade: {side, status, entryTime, entryPrice,
+    stopLoss, exitTime, exitPrice, exitReason, pnlPercent} -- status/exit*
+    fields are None while a trade is still open.
     """
     n = len(candles)
-    entries: list[dict[str, Any]] = []
-    exits: list[dict[str, Any]] = []
+    trades: list[dict[str, Any]] = []
 
     for m in confirmed_momentum:
         idx = m["index"]
@@ -155,8 +157,19 @@ def propose_entries_and_exits(
         stop = box["support"] if side == "long" else box["resistance"]
         risk = abs(entry_price - stop)
         target = entry_price + 2 * risk if side == "long" else entry_price - 2 * risk
+        direction = 1 if side == "long" else -1
 
-        entries.append({"time": candles[idx]["time"], "side": side})
+        trade: dict[str, Any] = {
+            "side": side,
+            "status": "open",
+            "entryTime": candles[idx]["time"],
+            "entryPrice": entry_price,
+            "stopLoss": stop,
+            "exitTime": None,
+            "exitPrice": None,
+            "exitReason": None,
+            "pnlPercent": None,
+        }
 
         for k in range(idx + 1, n):
             close_k = float(candles[k]["close"])
@@ -170,7 +183,15 @@ def propose_entries_and_exits(
 
             if hit_stop or hit_target or trend_flip:
                 reason = "target" if hit_target else "trend_flip" if trend_flip else "stop"
-                exits.append({"time": candles[k]["time"], "side": side, "reason": reason})
+                trade.update(
+                    status="closed",
+                    exitTime=candles[k]["time"],
+                    exitPrice=close_k,
+                    exitReason=reason,
+                    pnlPercent=(close_k - entry_price) / entry_price * 100 * direction,
+                )
                 break
 
-    return entries, exits
+        trades.append(trade)
+
+    return trades

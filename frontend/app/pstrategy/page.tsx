@@ -13,11 +13,13 @@ import {
   Time,
   UTCTimestamp,
 } from "lightweight-charts";
-import { PenTool, Trash2, TrendingUp } from "lucide-react";
+import { PenTool, RefreshCw, Trash2, TrendingUp } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import { getPstrategyCandles } from "@/lib/api";
-import type { ConsolidationBox, EmaSettings, PstrategyData, PstrategyResolution, TradeExit } from "@/types/pstrategy";
+import type { ConsolidationBox, EmaSettings, ExitReason, PstrategyData, PstrategyResolution, PstrategyTrade } from "@/types/pstrategy";
+
+const TRADES_RESOLUTION: PstrategyResolution = "5m";
 
 const RESOLUTIONS: PstrategyResolution[] = ["1m", "5m", "15m"];
 const REFRESH_MS = secondsToMs(process.env.NEXT_PUBLIC_PSTRATEGY_REFRESH_SECONDS, 30);
@@ -82,63 +84,13 @@ function saveEmaSettings(settings: EmaSettings): void {
 
 export default function PstrategyPage() {
   const [resolution, setResolution] = useState<PstrategyResolution>("5m");
-
-  return (
-    <section className="page">
-      <header className="page-header">
-        <div>
-          <h1>
-            <PenTool size={20} style={{ verticalAlign: "-3px", marginRight: 8 }} />
-            pStrategy
-          </h1>
-          <p>
-            XAUTUSD (gold) consolidation detection -- a variable-length run of narrow candles gets a
-            support/resistance box, and the candle that breaks out of it is marked as a momentum candle (when EMA
-            cross is on, it must also close on the correct side of the slow EMA). EMA periods and the crossover
-            markers are configurable and can be turned off entirely. Draw your own lines and drag to reposition them.
-            Markings only for now -- no paper trades yet.
-          </p>
-        </div>
-        <div className="toolbar">
-          {RESOLUTIONS.map((r) => (
-            <button
-              key={r}
-              type="button"
-              className="button secondary"
-              style={r === resolution ? { background: "var(--accent, #2368b6)", color: "#fff" } : undefined}
-              onClick={() => setResolution(r)}
-            >
-              {r}
-            </button>
-          ))}
-        </div>
-      </header>
-      <PstrategyChart resolution={resolution} />
-    </section>
-  );
-}
-
-function PstrategyChart({ resolution }: { resolution: PstrategyResolution }) {
-  const containerRef = useRef<HTMLDivElement | null>(null);
-  const chartRef = useRef<IChartApi | null>(null);
-  const candleSeriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
-  const ema9SeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
-  const ema20SeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
-  const markersRef = useRef<ISeriesMarkersPluginApi<Time> | null>(null);
-  const boxSeriesRef = useRef<ISeriesApi<"Line">[]>([]);
-  const manualSeriesRef = useRef<Map<string, ISeriesApi<"Line">>>(new Map());
-  const drawModeRef = useRef(false);
-  const pendingPointRef = useRef<LinePoint | null>(null);
-  const draggingRef = useRef<{ id: string; endpoint: "a" | "b" | "whole"; lastPrice: number } | null>(null);
-  const manualLinesRef = useRef<ManualLine[]>([]);
-
-  const [data, setData] = useState<PstrategyData | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [manualLines, setManualLines] = useState<ManualLine[]>([]);
-  const [drawMode, setDrawMode] = useState(false);
   const [emaSettings, setEmaSettings] = useState<EmaSettings>(DEFAULT_EMA_SETTINGS);
   const [emaFastInput, setEmaFastInput] = useState(String(DEFAULT_EMA_SETTINGS.fast));
   const [emaSlowInput, setEmaSlowInput] = useState(String(DEFAULT_EMA_SETTINGS.slow));
+
+  const [tradesData, setTradesData] = useState<PstrategyData | null>(null);
+  const [tradesLoading, setTradesLoading] = useState(true);
+  const [tradesError, setTradesError] = useState<string | null>(null);
 
   useEffect(() => {
     const loaded = loadEmaSettings();
@@ -163,6 +115,255 @@ function PstrategyChart({ resolution }: { resolution: PstrategyResolution }) {
     setEmaSlowInput(String(slow));
     setEmaSettings((current) => ({ ...current, fast, slow }));
   }
+
+  // Paper trades always run at 5m, independent of whichever resolution
+  // tab is selected for chart viewing.
+  async function loadTrades() {
+    setTradesLoading(true);
+    try {
+      const payload = await getPstrategyCandles(TRADES_RESOLUTION, emaSettings);
+      setTradesData(payload);
+      setTradesError(payload.error ?? null);
+    } catch (exc) {
+      setTradesError(exc instanceof Error ? exc.message : "Failed to load paper trades.");
+    } finally {
+      setTradesLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    loadTrades();
+    const timer = window.setInterval(loadTrades, REFRESH_MS);
+    return () => window.clearInterval(timer);
+  }, [emaSettings]);
+
+  const trades = tradesData?.trades ?? [];
+
+  return (
+    <section className="page">
+      <header className="page-header">
+        <div>
+          <h1>
+            <PenTool size={20} style={{ verticalAlign: "-3px", marginRight: 8 }} />
+            pStrategy
+          </h1>
+          <p>
+            XAUTUSD (gold) consolidation detection -- a variable-length run of narrow candles gets a
+            support/resistance box, and the candle that breaks out of it is marked as a momentum candle (when EMA
+            cross is on, it must also close on the correct side of the slow EMA). Paper trades run at the 5m
+            timeframe using the proposed entry/exit rule. Draw your own lines on any timeframe and drag to
+            reposition them.
+          </p>
+        </div>
+        <div className="toolbar">
+          {RESOLUTIONS.map((r) => (
+            <button
+              key={r}
+              type="button"
+              className="button secondary"
+              style={r === resolution ? { background: "var(--accent, #2368b6)", color: "#fff" } : undefined}
+              onClick={() => setResolution(r)}
+            >
+              {r}
+            </button>
+          ))}
+        </div>
+      </header>
+
+      <div className="toolbar" style={{ margin: "0 0 8px" }}>
+        <button
+          type="button"
+          className="button secondary"
+          style={emaSettings.enabled ? { background: "var(--accent, #2368b6)", color: "#fff" } : undefined}
+          onClick={() => setEmaSettings((current) => ({ ...current, enabled: !current.enabled }))}
+        >
+          <TrendingUp size={14} /> EMA cross: {emaSettings.enabled ? "ON" : "OFF"}
+        </button>
+        {emaSettings.enabled ? (
+          <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
+            <input
+              type="number"
+              value={emaFastInput}
+              onChange={(e) => setEmaFastInput(e.target.value)}
+              onBlur={commitEmaPeriods}
+              onKeyDown={(e) => e.key === "Enter" && commitEmaPeriods()}
+              style={{ width: 52 }}
+              min={2}
+              max={200}
+              aria-label="Fast EMA period"
+            />
+            <span>/</span>
+            <input
+              type="number"
+              value={emaSlowInput}
+              onChange={(e) => setEmaSlowInput(e.target.value)}
+              onBlur={commitEmaPeriods}
+              onKeyDown={(e) => e.key === "Enter" && commitEmaPeriods()}
+              style={{ width: 52 }}
+              min={2}
+              max={200}
+              aria-label="Slow EMA period"
+            />
+          </span>
+        ) : null}
+        <span className="pcr-oi-caption" style={{ alignSelf: "center" }}>
+          Applies to all charts and to the paper trades below.
+          {emaSettings.enabled ? ` EMA${emaSettings.fast} (teal) / EMA${emaSettings.slow} (violet).` : ""}
+        </span>
+      </div>
+
+      <PaperTradesPanel trades={trades} loading={tradesLoading} error={tradesError} onRefresh={loadTrades} title="Live trades" variant="open" />
+
+      <PstrategyChart resolution={resolution} emaSettings={emaSettings} />
+
+      <PaperTradesPanel
+        trades={trades}
+        loading={tradesLoading}
+        error={tradesError}
+        onRefresh={loadTrades}
+        title="Closed trades"
+        variant="closed"
+      />
+    </section>
+  );
+}
+
+const EXIT_REASON_LABEL: Record<ExitReason, string> = { target: "Target", stop: "Stop", trend_flip: "Trend flip" };
+
+function fmtDateTime(epochSeconds: number | null): string {
+  if (!epochSeconds) return "—";
+  return new Date(epochSeconds * 1000).toLocaleString("en-IN", {
+    timeZone: "Asia/Kolkata",
+    day: "2-digit",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+}
+
+function fmtPriceValue(value: number | null | undefined): string {
+  if (value === null || value === undefined) return "—";
+  return value.toLocaleString("en-IN", { maximumFractionDigits: 2, minimumFractionDigits: 2 });
+}
+
+function fmtPnlValue(pct: number | null | undefined): string {
+  if (pct === null || pct === undefined) return "—";
+  return `${pct >= 0 ? "+" : ""}${pct.toFixed(3)}%`;
+}
+
+function PaperTradesPanel({
+  trades,
+  loading,
+  error,
+  onRefresh,
+  title,
+  variant,
+}: {
+  trades: PstrategyTrade[];
+  loading: boolean;
+  error: string | null;
+  onRefresh: () => void;
+  title: string;
+  variant: "open" | "closed";
+}) {
+  const filtered = trades.filter((t) => t.status === variant);
+
+  return (
+    <div className="pcr-oi-section">
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <h3 style={{ margin: 0 }}>
+          {title} <span className="pcr-oi-caption">(XAUTUSD, 5m)</span>
+        </h3>
+        <button type="button" className="button secondary" onClick={onRefresh} disabled={loading}>
+          <RefreshCw size={14} /> {loading ? "Refreshing…" : "Refresh"}
+        </button>
+      </div>
+      <p className="pcr-oi-caption" style={{ margin: "4px 0 10px" }}>
+        Simulated only -- replayed deterministically from the proposed entry/exit rule against 5m candle history. No
+        real orders are placed.
+      </p>
+      {error ? <div className="alert error">{error}</div> : null}
+      {filtered.length === 0 ? (
+        <p className="pcr-oi-caption">{variant === "open" ? "No open positions right now." : "No closed trades yet."}</p>
+      ) : (
+        <div style={{ overflowX: "auto" }}>
+          <table>
+            <thead>
+              <tr>
+                <th>Side</th>
+                <th>Entry time</th>
+                <th>Entry price</th>
+                {variant === "open" ? (
+                  <>
+                    <th>Current price</th>
+                    <th>Current P&amp;L</th>
+                    <th>Stop</th>
+                  </>
+                ) : (
+                  <>
+                    <th>Exit time</th>
+                    <th>Exit price</th>
+                    <th>Exit reason</th>
+                    <th>P&amp;L</th>
+                  </>
+                )}
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map((t, i) => {
+                const isOpen = variant === "open";
+                const pnl = isOpen ? t.unrealizedPnlPercent : t.pnlPercent;
+                return (
+                  <tr key={`${t.entryTime}-${i}`}>
+                    <td>
+                      <span className={`badge ${t.side === "long" ? "buy" : "sell"}`}>{t.side === "long" ? "LONG" : "SHORT"}</span>
+                    </td>
+                    <td>{fmtDateTime(t.entryTime)}</td>
+                    <td>{fmtPriceValue(t.entryPrice)}</td>
+                    {isOpen ? (
+                      <>
+                        <td>{fmtPriceValue(t.currentPrice)}</td>
+                        <td style={{ color: (pnl ?? 0) >= 0 ? "var(--green)" : "var(--red)" }}>{fmtPnlValue(pnl)}</td>
+                        <td>{fmtPriceValue(t.stopLoss)}</td>
+                      </>
+                    ) : (
+                      <>
+                        <td>{fmtDateTime(t.exitTime)}</td>
+                        <td>{fmtPriceValue(t.exitPrice)}</td>
+                        <td>{t.exitReason ? EXIT_REASON_LABEL[t.exitReason] : "—"}</td>
+                        <td style={{ color: (pnl ?? 0) >= 0 ? "var(--green)" : "var(--red)" }}>{fmtPnlValue(pnl)}</td>
+                      </>
+                    )}
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PstrategyChart({ resolution, emaSettings }: { resolution: PstrategyResolution; emaSettings: EmaSettings }) {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const chartRef = useRef<IChartApi | null>(null);
+  const candleSeriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
+  const ema9SeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
+  const ema20SeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
+  const markersRef = useRef<ISeriesMarkersPluginApi<Time> | null>(null);
+  const boxSeriesRef = useRef<ISeriesApi<"Line">[]>([]);
+  const manualSeriesRef = useRef<Map<string, ISeriesApi<"Line">>>(new Map());
+  const drawModeRef = useRef(false);
+  const pendingPointRef = useRef<LinePoint | null>(null);
+  const draggingRef = useRef<{ id: string; endpoint: "a" | "b" | "whole"; lastPrice: number } | null>(null);
+  const manualLinesRef = useRef<ManualLine[]>([]);
+
+  const [data, setData] = useState<PstrategyData | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [manualLines, setManualLines] = useState<ManualLine[]>([]);
+  const [drawMode, setDrawMode] = useState(false);
 
   useEffect(() => {
     drawModeRef.current = drawMode;
@@ -402,47 +603,11 @@ function PstrategyChart({ resolution }: { resolution: PstrategyResolution }) {
         <button type="button" className="button secondary" onClick={() => setManualLines([])} disabled={manualLines.length === 0}>
           <Trash2 size={14} /> Clear drawn lines
         </button>
-        <button
-          type="button"
-          className="button secondary"
-          style={emaSettings.enabled ? { background: "var(--accent, #2368b6)", color: "#fff" } : undefined}
-          onClick={() => setEmaSettings((current) => ({ ...current, enabled: !current.enabled }))}
-        >
-          <TrendingUp size={14} /> EMA cross: {emaSettings.enabled ? "ON" : "OFF"}
-        </button>
-        {emaSettings.enabled ? (
-          <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
-            <input
-              type="number"
-              value={emaFastInput}
-              onChange={(e) => setEmaFastInput(e.target.value)}
-              onBlur={commitEmaPeriods}
-              onKeyDown={(e) => e.key === "Enter" && commitEmaPeriods()}
-              style={{ width: 52 }}
-              min={2}
-              max={200}
-              aria-label="Fast EMA period"
-            />
-            <span>/</span>
-            <input
-              type="number"
-              value={emaSlowInput}
-              onChange={(e) => setEmaSlowInput(e.target.value)}
-              onBlur={commitEmaPeriods}
-              onKeyDown={(e) => e.key === "Enter" && commitEmaPeriods()}
-              style={{ width: 52 }}
-              min={2}
-              max={200}
-              aria-label="Slow EMA period"
-            />
-          </span>
-        ) : null}
         <span className="pcr-oi-caption" style={{ alignSelf: "center" }}>
           Blue lines = support/resistance. Orange lines = your own -- drag an end to resize, the middle to shift.
           {emaSettings.enabled ? ` EMA${emaSettings.fast} (teal) / EMA${emaSettings.slow} (violet), crossovers as circles.` : ""}{" "}
           M = momentum candle. EN = proposed entry. EX = proposed exit (green=target, red=stop, grey=trend flip) --
-          a 1:2 risk-reward rule using the box boundary as the stop, per standard breakout-trading practice. Markings
-          only, not real trades.
+          a 1:2 risk-reward rule using the box boundary as the stop, per standard breakout-trading practice.
         </span>
       </div>
       <div ref={containerRef} style={{ width: "100%" }} />
@@ -456,7 +621,7 @@ function numericSeries(times: UTCTimestamp[], values: (number | null)[]): { time
     .filter((point): point is { time: UTCTimestamp; value: number } => point !== null);
 }
 
-const EXIT_COLOR: Record<TradeExit["reason"], string> = { target: "#168448", stop: "#c93535", trend_flip: "#8391a3" };
+const EXIT_COLOR: Record<ExitReason, string> = { target: "#168448", stop: "#c93535", trend_flip: "#8391a3" };
 
 function buildMarkers(data: PstrategyData): SeriesMarker<Time>[] {
   const markers: SeriesMarker<Time>[] = [];
@@ -470,23 +635,23 @@ function buildMarkers(data: PstrategyData): SeriesMarker<Time>[] {
       text: "M",
     });
   }
-  for (const e of data.entries) {
+  for (const t of data.trades) {
     markers.push({
-      time: e.time as UTCTimestamp,
+      time: t.entryTime as UTCTimestamp,
       position: "inBar",
-      color: e.side === "long" ? "#168448" : "#c93535",
+      color: t.side === "long" ? "#168448" : "#c93535",
       shape: "square",
       text: "EN",
     });
-  }
-  for (const x of data.exits) {
-    markers.push({
-      time: x.time as UTCTimestamp,
-      position: "inBar",
-      color: EXIT_COLOR[x.reason],
-      shape: "square",
-      text: "EX",
-    });
+    if (t.status === "closed" && t.exitTime !== null && t.exitReason) {
+      markers.push({
+        time: t.exitTime as UTCTimestamp,
+        position: "inBar",
+        color: EXIT_COLOR[t.exitReason],
+        shape: "square",
+        text: "EX",
+      });
+    }
   }
   for (const c of data.crossovers) {
     const bullish = c.direction === "bullish";
