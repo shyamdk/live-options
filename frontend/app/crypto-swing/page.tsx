@@ -68,15 +68,17 @@ function PaperTradesPanel({
   loading,
   error,
   onRefresh,
-  title = "Paper trades",
+  title,
+  variant,
 }: {
   trades: CryptoSwingTrade[];
   loading: boolean;
   error: string | null;
   onRefresh: () => void;
-  title?: string;
+  title: string;
+  variant: "open" | "closed";
 }) {
-  const usable = trades.filter((t) => t.status !== "error");
+  const usable = trades.filter((t) => t.status === variant);
   const errors = trades.filter((t) => t.status === "error");
 
   return (
@@ -98,7 +100,11 @@ function PaperTradesPanel({
         </div>
       ))}
       {usable.length === 0 ? (
-        <p className="pcr-oi-caption">No trades yet -- the strategy hasn&apos;t fired an entry signal in the fetched history.</p>
+        <p className="pcr-oi-caption">
+          {variant === "open"
+            ? "No open positions right now."
+            : "No closed trades yet -- the strategy hasn't fired an entry signal in the fetched history."}
+        </p>
       ) : (
         <div style={{ overflowX: "auto" }}>
           <table>
@@ -106,21 +112,28 @@ function PaperTradesPanel({
               <tr>
                 <th>Symbol</th>
                 <th>Side</th>
-                <th>Status</th>
                 <th>Entry time</th>
                 <th>Entry price</th>
                 <th>Tranches</th>
-                <th>Current price</th>
-                <th>Current P&amp;L</th>
-                <th>Stop</th>
-                <th>Exit time</th>
-                <th>Exit price</th>
-                <th>Exit reason</th>
+                {variant === "open" ? (
+                  <>
+                    <th>Current price</th>
+                    <th>Current P&amp;L</th>
+                    <th>Stop</th>
+                  </>
+                ) : (
+                  <>
+                    <th>Exit time</th>
+                    <th>Exit price</th>
+                    <th>Exit reason</th>
+                    <th>P&amp;L</th>
+                  </>
+                )}
               </tr>
             </thead>
             <tbody>
               {usable.map((t, i) => {
-                const isOpen = t.status === "open";
+                const isOpen = variant === "open";
                 const pnlPct = isOpen ? t.unrealizedPnlPercent : t.pnlPercent;
                 const pnlAmount = isOpen ? t.unrealizedPnlAmount : t.pnlAmount;
                 return (
@@ -129,16 +142,23 @@ function PaperTradesPanel({
                     <td>
                       <span className={`badge ${t.side === "long" ? "buy" : "sell"}`}>{t.side === "long" ? "LONG" : "SHORT"}</span>
                     </td>
-                    <td>{isOpen ? <span className="badge buy">OPEN</span> : "Closed"}</td>
                     <td>{fmtDateTime(t.entryTime)}</td>
                     <td>{fmtPrice(t.entryPrice)}</td>
                     <td>{t.tranches}</td>
-                    <td>{isOpen ? fmtPrice(t.currentPrice) : "—"}</td>
-                    <td style={{ color: (pnlPct ?? 0) >= 0 ? "var(--green)" : "var(--red)" }}>{fmtPnl(pnlPct, pnlAmount)}</td>
-                    <td>{fmtPrice(t.stopLoss)}</td>
-                    <td>{fmtDateTime(t.exitTime)}</td>
-                    <td>{fmtPrice(t.exitPrice)}</td>
-                    <td>{t.exitReason ? EXIT_REASON_LABEL[t.exitReason] ?? t.exitReason : "—"}</td>
+                    {isOpen ? (
+                      <>
+                        <td>{fmtPrice(t.currentPrice)}</td>
+                        <td style={{ color: (pnlPct ?? 0) >= 0 ? "var(--green)" : "var(--red)" }}>{fmtPnl(pnlPct, pnlAmount)}</td>
+                        <td>{fmtPrice(t.stopLoss)}</td>
+                      </>
+                    ) : (
+                      <>
+                        <td>{fmtDateTime(t.exitTime)}</td>
+                        <td>{fmtPrice(t.exitPrice)}</td>
+                        <td>{t.exitReason ? EXIT_REASON_LABEL[t.exitReason] ?? t.exitReason : "—"}</td>
+                        <td style={{ color: (pnlPct ?? 0) >= 0 ? "var(--green)" : "var(--red)" }}>{fmtPnl(pnlPct, pnlAmount)}</td>
+                      </>
+                    )}
                   </tr>
                 );
               })}
@@ -213,7 +233,7 @@ export default function CryptoSwingPage() {
         </div>
       </header>
 
-      <PaperTradesPanel trades={trades} loading={tradesLoading} error={tradesError} onRefresh={loadTrades} />
+      <PaperTradesPanel trades={trades} loading={tradesLoading} error={tradesError} onRefresh={loadTrades} title="Current trades" variant="open" />
 
       {error ? <div className="alert error">{error}</div> : null}
 
@@ -264,12 +284,18 @@ export default function CryptoSwingPage() {
         <CryptoChart symbol="ETHUSD" trades={trades.filter((t) => t.symbol === "ETHUSD")} />
       </div>
 
+      <div className="pcr-oi-section">
+        <h3>Gold/USD</h3>
+        <CryptoChart symbol="XAUTUSD" trades={trades.filter((t) => t.symbol === "XAUTUSD")} />
+      </div>
+
       <PaperTradesPanel
         trades={trades}
         loading={tradesLoading}
         error={tradesError}
         onRefresh={loadTrades}
-        title="All paper trades so far"
+        title="Closed trades"
+        variant="closed"
       />
     </section>
   );

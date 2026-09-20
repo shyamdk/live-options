@@ -19,7 +19,7 @@ export interface CryptoCandle {
   close: number;
 }
 
-export type CryptoSwingSymbol = "BTCUSD" | "ETHUSD";
+export type CryptoSwingSymbol = "BTCUSD" | "ETHUSD" | "XAUTUSD";
 
 export interface CryptoSwingTrade {
   symbol: CryptoSwingSymbol;

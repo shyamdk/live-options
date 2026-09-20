@@ -12,7 +12,7 @@ from app.services.delta_exchange import DeltaExchangeError, DeltaExchangeService
 
 router = APIRouter(prefix="/crypto-swing", tags=["crypto-swing"])
 
-SYMBOLS = ("BTCUSD", "ETHUSD")
+SYMBOLS = ("BTCUSD", "ETHUSD", "XAUTUSD")
 RESOLUTION_SECONDS = {"5m": 300, "15m": 900, "30m": 1800, "1h": 3600}
 
 
