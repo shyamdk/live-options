@@ -19,7 +19,10 @@ import { useEffect, useRef, useState } from "react";
 import { getPstrategyCandles } from "@/lib/api";
 import type { ConsolidationBox, EmaSettings, ExitReason, PstrategyData, PstrategyResolution, PstrategyTrade } from "@/types/pstrategy";
 
-const TRADES_RESOLUTION: PstrategyResolution = "5m";
+// Paper trades run at both of these timeframes in parallel, each simulated
+// and shown independently -- 15m is chart-viewing only (see RESOLUTIONS
+// below), not a third trades feed.
+const TRADE_RESOLUTIONS: PstrategyResolution[] = ["1m", "5m"];
 
 const RESOLUTIONS: PstrategyResolution[] = ["1m", "5m", "15m"];
 const REFRESH_MS = secondsToMs(process.env.NEXT_PUBLIC_PSTRATEGY_REFRESH_SECONDS, 15);
@@ -114,9 +117,11 @@ export default function PstrategyPage() {
   const [emaFastInput, setEmaFastInput] = useState(String(DEFAULT_EMA_SETTINGS.fast));
   const [emaSlowInput, setEmaSlowInput] = useState(String(DEFAULT_EMA_SETTINGS.slow));
 
-  const [tradesData, setTradesData] = useState<PstrategyData | null>(null);
-  const [tradesLoading, setTradesLoading] = useState(true);
-  const [tradesError, setTradesError] = useState<string | null>(null);
+  const [tradesDataByRes, setTradesDataByRes] = useState<Partial<Record<PstrategyResolution, PstrategyData>>>({});
+  const [tradesLoadingByRes, setTradesLoadingByRes] = useState<Partial<Record<PstrategyResolution, boolean>>>(
+    Object.fromEntries(TRADE_RESOLUTIONS.map((r) => [r, true])),
+  );
+  const [tradesErrorByRes, setTradesErrorByRes] = useState<Partial<Record<PstrategyResolution, string | null>>>({});
   const [lastTradesRefreshAt, setLastTradesRefreshAt] = useState(Date.now());
   const [nowTick, setNowTick] = useState(Date.now());
 
@@ -168,20 +173,29 @@ export default function PstrategyPage() {
     setPaperCapital(value);
   }
 
-  // Paper trades always run at 5m, independent of whichever resolution
-  // tab is selected for chart viewing.
+  // Paper trades run independently at each of TRADE_RESOLUTIONS (currently
+  // 1m and 5m), regardless of whichever resolution tab is selected for
+  // chart viewing -- each fetch/failure is tracked per-resolution so one
+  // timeframe's error doesn't blank out the other's data.
   async function loadTrades() {
-    setTradesLoading(true);
+    setTradesLoadingByRes(Object.fromEntries(TRADE_RESOLUTIONS.map((r) => [r, true])));
     setLastTradesRefreshAt(Date.now());
-    try {
-      const payload = await getPstrategyCandles(TRADES_RESOLUTION, emaSettings, paperCapital);
-      setTradesData(payload);
-      setTradesError(payload.error ?? null);
-    } catch (exc) {
-      setTradesError(exc instanceof Error ? exc.message : "Failed to load paper trades.");
-    } finally {
-      setTradesLoading(false);
-    }
+    await Promise.all(
+      TRADE_RESOLUTIONS.map(async (r) => {
+        try {
+          const payload = await getPstrategyCandles(r, emaSettings, paperCapital);
+          setTradesDataByRes((current) => ({ ...current, [r]: payload }));
+          setTradesErrorByRes((current) => ({ ...current, [r]: payload.error ?? null }));
+        } catch (exc) {
+          setTradesErrorByRes((current) => ({
+            ...current,
+            [r]: exc instanceof Error ? exc.message : "Failed to load paper trades.",
+          }));
+        } finally {
+          setTradesLoadingByRes((current) => ({ ...current, [r]: false }));
+        }
+      }),
+    );
   }
 
   useEffect(() => {
@@ -190,7 +204,6 @@ export default function PstrategyPage() {
     return () => window.clearInterval(timer);
   }, [emaSettings, paperCapital]);
 
-  const trades = tradesData?.trades ?? [];
   const secondsUntilTradesRefresh = Math.max(0, Math.ceil((REFRESH_MS - (nowTick - lastTradesRefreshAt)) / 1000));
 
   return (
@@ -204,9 +217,9 @@ export default function PstrategyPage() {
           <p>
             XAUTUSD (gold) consolidation detection -- a variable-length run of narrow candles gets a
             support/resistance box, and the candle that breaks out of it is marked as a momentum candle (when EMA
-            cross is on, it must also close on the correct side of the slow EMA). Paper trades run at the 5m
-            timeframe using the proposed entry/exit rule. Draw your own lines on any timeframe and drag to
-            reposition them.
+            cross is on, it must also close on the correct side of the slow EMA). Paper trades run independently at
+            both the 1m and 5m timeframes using the same proposed entry/exit rule, shown as separate tables below.
+            Draw your own lines on any timeframe and drag to reposition them.
           </p>
         </div>
         <div className="toolbar">
@@ -282,31 +295,46 @@ export default function PstrategyPage() {
         </span>
       </div>
 
-      <PaperTradesPanel
-        trades={trades}
-        loading={tradesLoading}
-        error={tradesError}
-        onRefresh={loadTrades}
-        title="Live trades"
-        variant="open"
-        leverage={tradesData?.leverage ?? 50}
-        paperCapital={tradesData?.paperCapitalInr ?? paperCapital}
-        secondsUntilRefresh={secondsUntilTradesRefresh}
-      />
-
       <PstrategyChart resolution={resolution} emaSettings={emaSettings} />
 
-      <PaperTradesPanel
-        trades={trades}
-        loading={tradesLoading}
-        error={tradesError}
-        onRefresh={loadTrades}
-        title="Closed trades"
-        variant="closed"
-        leverage={tradesData?.leverage ?? 50}
-        paperCapital={tradesData?.paperCapitalInr ?? paperCapital}
-        secondsUntilRefresh={secondsUntilTradesRefresh}
-      />
+      {TRADE_RESOLUTIONS.map((r) => {
+        const data = tradesDataByRes[r];
+        const tradesForRes = data?.trades ?? [];
+        return (
+          <div key={r} className="pstrategy-timeframe-group" style={{ margin: "20px 0" }}>
+            <h2 style={{ fontSize: 16, margin: "0 0 8px", display: "flex", alignItems: "center", gap: 8 }}>
+              {r} strategy trades
+              <span className="pcr-oi-caption" style={{ fontWeight: 400 }}>
+                (independent of the chart timeframe above)
+              </span>
+            </h2>
+            <PaperTradesPanel
+              trades={tradesForRes}
+              loading={tradesLoadingByRes[r] ?? false}
+              error={tradesErrorByRes[r] ?? null}
+              onRefresh={loadTrades}
+              title="Live trades"
+              variant="open"
+              leverage={data?.leverage ?? 50}
+              paperCapital={data?.paperCapitalInr ?? paperCapital}
+              secondsUntilRefresh={secondsUntilTradesRefresh}
+              resolution={r}
+            />
+            <PaperTradesPanel
+              trades={tradesForRes}
+              loading={tradesLoadingByRes[r] ?? false}
+              error={tradesErrorByRes[r] ?? null}
+              onRefresh={loadTrades}
+              title="Closed trades"
+              variant="closed"
+              leverage={data?.leverage ?? 50}
+              paperCapital={data?.paperCapitalInr ?? paperCapital}
+              secondsUntilRefresh={secondsUntilTradesRefresh}
+              resolution={r}
+            />
+          </div>
+        );
+      })}
     </section>
   );
 }
@@ -351,6 +379,7 @@ function PaperTradesPanel({
   leverage,
   paperCapital,
   secondsUntilRefresh,
+  resolution,
 }: {
   trades: PstrategyTrade[];
   loading: boolean;
@@ -361,6 +390,7 @@ function PaperTradesPanel({
   leverage: number;
   paperCapital: number;
   secondsUntilRefresh: number;
+  resolution: PstrategyResolution;
 }) {
   const filtered = trades
     .filter((t) => t.status === variant)
@@ -370,7 +400,7 @@ function PaperTradesPanel({
     <div className="pcr-oi-section">
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <h3 style={{ margin: 0 }}>
-          {title} <span className="pcr-oi-caption">(XAUTUSD, 5m)</span>
+          {title} <span className="pcr-oi-caption">(XAUTUSD, {resolution})</span>
         </h3>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <span className="pcr-oi-caption">Auto-refreshes in {secondsUntilRefresh}s</span>
@@ -380,8 +410,8 @@ function PaperTradesPanel({
         </div>
       </div>
       <p className="pcr-oi-caption" style={{ margin: "4px 0 10px" }}>
-        Simulated only -- replayed deterministically from the proposed entry/exit rule against 5m candle history. No
-        real orders are placed. P&amp;L is the return on margin at {leverage}x leverage (matching Delta's XAUTUSD
+        Simulated only -- replayed deterministically from the proposed entry/exit rule against {resolution} candle
+        history. No real orders are placed. P&amp;L is the return on margin at {leverage}x leverage (matching Delta's XAUTUSD
         perpetual), not the raw price move. The rupee figure applies that % to an assumed ₹{paperCapital.toLocaleString("en-IN")}{" "}
         of paper margin capital (adjustable above) -- purely illustrative, not real money. Peak = best price reached
         since entry; Trail stop = the current Chandelier level once armed (1x ATR in profit), showing what's
