@@ -1,7 +1,19 @@
 "use client";
 
-import { CandlestickSeries, ColorType, createChart, IChartApi, ISeriesApi, LineSeries, Time, UTCTimestamp } from "lightweight-charts";
-import { PenTool, RefreshCw, Trash2 } from "lucide-react";
+import {
+  CandlestickSeries,
+  ColorType,
+  createChart,
+  createSeriesMarkers,
+  IChartApi,
+  ISeriesApi,
+  ISeriesMarkersPluginApi,
+  LineSeries,
+  SeriesMarker,
+  Time,
+  UTCTimestamp,
+} from "lightweight-charts";
+import { PenTool, Trash2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import { getPstrategyCandles } from "@/lib/api";
@@ -60,9 +72,10 @@ export default function PstrategyPage() {
             pStrategy
           </h1>
           <p>
-            XAUTUSD (gold) consolidation detection -- the last 4 candles are auto-marked with support/resistance
-            when none of them is a momentum candle relative to recent volatility. Draw your own lines too, and drag
-            to reposition them. Stage 1.
+            XAUTUSD (gold) consolidation detection -- a variable-length run of narrow candles gets a
+            support/resistance box, and the candle that breaks out of it (on the correct side of EMA20) is marked as
+            a momentum candle. EMA9/EMA20 crossovers are marked too. Draw your own lines and drag to reposition them.
+            Markings only for now -- no paper trades yet.
           </p>
         </div>
         <div className="toolbar">
@@ -88,6 +101,9 @@ function PstrategyChart({ resolution }: { resolution: PstrategyResolution }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const candleSeriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
+  const ema9SeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
+  const ema20SeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
+  const markersRef = useRef<ISeriesMarkersPluginApi<Time> | null>(null);
   const boxSeriesRef = useRef<ISeriesApi<"Line">[]>([]);
   const manualSeriesRef = useRef<Map<string, ISeriesApi<"Line">>>(new Map());
   const drawModeRef = useRef(false);
@@ -160,8 +176,14 @@ function PstrategyChart({ resolution }: { resolution: PstrategyResolution }) {
       wickUpColor: "#168448",
       wickDownColor: "#c93535",
     });
+    const ema9Series = chart.addSeries(LineSeries, { color: "#14b8a6", lineWidth: 1, title: "EMA9" });
+    const ema20Series = chart.addSeries(LineSeries, { color: "#8b5cf6", lineWidth: 1, title: "EMA20" });
+
     chartRef.current = chart;
     candleSeriesRef.current = candleSeries;
+    ema9SeriesRef.current = ema9Series;
+    ema20SeriesRef.current = ema20Series;
+    markersRef.current = createSeriesMarkers(candleSeries, []);
 
     chart.subscribeClick((param) => {
       if (!drawModeRef.current || !param.point || param.time === undefined) return;
@@ -258,18 +280,25 @@ function PstrategyChart({ resolution }: { resolution: PstrategyResolution }) {
       container.removeEventListener("mousedown", handleMouseDown);
       window.removeEventListener("mousemove", handleMouseMove);
       window.removeEventListener("mouseup", handleMouseUp);
+      markersRef.current?.detach();
       chart.remove();
       chartRef.current = null;
       candleSeriesRef.current = null;
+      ema9SeriesRef.current = null;
+      ema20SeriesRef.current = null;
+      markersRef.current = null;
     };
   }, []);
 
-  // Candle data + auto-detected consolidation boxes.
+  // Candle data + auto-detected consolidation boxes + EMA9/20 + markers.
   useEffect(() => {
     if (!data || !candleSeriesRef.current || !chartRef.current) return;
+    const times = data.candles.map((c) => c.time as UTCTimestamp);
     candleSeriesRef.current.setData(
       data.candles.map((c) => ({ time: c.time as UTCTimestamp, open: c.open, high: c.high, low: c.low, close: c.close })),
     );
+    ema9SeriesRef.current?.setData(numericSeries(times, data.ema9));
+    ema20SeriesRef.current?.setData(numericSeries(times, data.ema20));
 
     for (const series of boxSeriesRef.current) chartRef.current.removeSeries(series);
     boxSeriesRef.current = [];
@@ -277,6 +306,8 @@ function PstrategyChart({ resolution }: { resolution: PstrategyResolution }) {
       boxSeriesRef.current.push(addBoxLine(chartRef.current, box, "resistance"));
       boxSeriesRef.current.push(addBoxLine(chartRef.current, box, "support"));
     }
+
+    markersRef.current?.setMarkers(buildMarkers(data));
   }, [data]);
 
   // Manual lines -- diffed against the current series map so dragging
@@ -324,13 +355,46 @@ function PstrategyChart({ resolution }: { resolution: PstrategyResolution }) {
           <Trash2 size={14} /> Clear drawn lines
         </button>
         <span className="pcr-oi-caption" style={{ alignSelf: "center" }}>
-          Blue = auto-detected support/resistance. Orange = your own lines -- drag an end to resize, drag the middle to
-          shift the whole line.
+          Blue lines = auto-detected support/resistance. Orange lines = your own -- drag an end to resize, the middle
+          to shift. EMA9 (teal) / EMA20 (violet). Green/red arrows = momentum candle (long/short). Circles = EMA9/20
+          crossover.
         </span>
       </div>
       <div ref={containerRef} style={{ width: "100%" }} />
     </div>
   );
+}
+
+function numericSeries(times: UTCTimestamp[], values: (number | null)[]): { time: UTCTimestamp; value: number }[] {
+  return values
+    .map((value, i) => (value === null ? null : { time: times[i], value }))
+    .filter((point): point is { time: UTCTimestamp; value: number } => point !== null);
+}
+
+function buildMarkers(data: PstrategyData): SeriesMarker<Time>[] {
+  const markers: SeriesMarker<Time>[] = [];
+  for (const m of data.momentumCandles) {
+    const isLong = m.side === "long";
+    markers.push({
+      time: m.time as UTCTimestamp,
+      position: isLong ? "belowBar" : "aboveBar",
+      color: isLong ? "#168448" : "#c93535",
+      shape: isLong ? "arrowUp" : "arrowDown",
+      text: isLong ? "Momentum ↑" : "Momentum ↓",
+    });
+  }
+  for (const c of data.crossovers) {
+    const bullish = c.direction === "bullish";
+    markers.push({
+      time: c.time as UTCTimestamp,
+      position: "inBar",
+      color: bullish ? "#168448" : "#c93535",
+      shape: "circle",
+      text: bullish ? "9×20↑" : "9×20↓",
+    });
+  }
+  markers.sort((a, b) => (a.time as number) - (b.time as number));
+  return markers;
 }
 
 function addBoxLine(chart: IChartApi, box: ConsolidationBox, kind: "support" | "resistance"): ISeriesApi<"Line"> {

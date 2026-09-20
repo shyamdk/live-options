@@ -15,10 +15,24 @@ export interface ConsolidationBox {
   resistance: number;
 }
 
+export interface MomentumCandle {
+  time: number;
+  side: "long" | "short";
+}
+
+export interface Crossover {
+  time: number;
+  direction: "bullish" | "bearish";
+}
+
 export interface PstrategyData {
   symbol?: string;
   resolution?: PstrategyResolution;
   error?: string;
   candles: PstrategyCandle[];
   consolidations: ConsolidationBox[];
+  momentumCandles: MomentumCandle[];
+  ema9: (number | null)[];
+  ema20: (number | null)[];
+  crossovers: Crossover[];
 }

@@ -1,70 +1,103 @@
-"""XAUTUSD (gold) consolidation + support/resistance detection for the
-pStrategy page. Scans a candle history for 4-candle windows where price
-was genuinely range-bound -- as a trader would judge it by eye -- and
-marks the window's high/low as a support/resistance segment spanning
-just those 4 candles (not an infinite ray), per the reviewed strategy
-notes (pStrategies.docx).
+"""XAUTUSD (gold) consolidation + momentum-breakout detection for the
+pStrategy page.
 
-"Range-bound" is defined as: no candle in the window has a body that's
-large relative to recent volatility. A single big-bodied candle inside
-an otherwise tight window is a momentum/trend candle, not consolidation,
-even if the overall high/low happens to be narrow -- exactly the
-distinction the strategy notes called out.
+Stage 1 marked a fixed 4-candle window as "consolidation" whenever no
+candle in it had an oversized body. This generalizes that to a
+variable-length run: starting from any candle, keep extending the range
+while each new candle stays within a tight band (relative to recent
+ATR) and doesn't itself have an oversized body. The first candle that
+breaks out of that band with a genuinely large body is a momentum
+candle -- tagged "long" if it closes above the run's resistance, "short"
+if it closes below the run's support.
+
+The EMA20 side-of-trend filter ("long momentum must close above EMA20,
+short below") is applied by the caller, which owns the EMA series --
+this module only owns the consolidation/breakout geometry.
 """
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from app.services.crypto_indicators import atr
 
-WINDOW = 4
+MIN_RUN = 3
+MAX_RUN = 30
 ATR_LOOKBACK = 14
-# A candle's body above this fraction of the pre-window ATR disqualifies
-# the whole window as containing a momentum candle rather than a
-# consolidation candle.
+# A candle's body above this fraction of the run's reference ATR
+# disqualifies it from extending (or seeding) a consolidation run -- and,
+# for the candle right after a run ends, is what makes it a candidate
+# momentum/breakout candle rather than just a slightly bigger candle.
 BODY_ATR_RATIO = 0.6
-# Small bodies alone aren't enough -- a choppy run of small-bodied candles
-# can still wander across a wide band via wicks/gaps between them, which
-# isn't a "flat" consolidation by eye. The window's overall high-low range
-# must also stay tight relative to recent volatility.
+# The run's own high-low range must also stay tight relative to ATR --
+# small bodies alone don't rule out a choppy run wandering across a wide
+# band via wicks/gaps between candles.
 RANGE_ATR_RATIO = 1.0
 
+Side = Literal["long", "short"]
 
-def detect_consolidations(candles: list[dict[str, Any]]) -> list[dict[str, Any]]:
+
+def detect_patterns(candles: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Returns (boxes, breakouts). `breakouts` entries are
+    {time, index, side} -- `index` lets the caller look up that candle's
+    EMA20 value to apply the side-of-trend filter before treating it as a
+    confirmed momentum candle.
+    """
     n = len(candles)
     atr_values = atr(candles, ATR_LOOKBACK)
     boxes: list[dict[str, Any]] = []
+    breakouts: list[dict[str, Any]] = []
 
     i = ATR_LOOKBACK
-    while i + WINDOW <= n:
-        window = candles[i : i + WINDOW]
-        # ATR as of just before the window, so the window's own candles
-        # can't inflate the threshold that's judging them.
+    while i < n:
         ref_atr = atr_values[i - 1]
         if ref_atr is None or ref_atr <= 0:
             i += 1
             continue
 
-        has_momentum_candle = any(abs(float(c["close"]) - float(c["open"])) > BODY_ATR_RATIO * ref_atr for c in window)
-        support = min(float(c["low"]) for c in window)
-        resistance = max(float(c["high"]) for c in window)
-        too_wide = (resistance - support) > RANGE_ATR_RATIO * ref_atr
-        if has_momentum_candle or too_wide:
+        seed_body = abs(float(candles[i]["close"]) - float(candles[i]["open"]))
+        if seed_body > BODY_ATR_RATIO * ref_atr:
+            i += 1
+            continue
+
+        start = i
+        support = float(candles[i]["low"])
+        resistance = float(candles[i]["high"])
+        j = i
+        while j + 1 < n and (j - start + 1) < MAX_RUN:
+            nxt = candles[j + 1]
+            nxt_body = abs(float(nxt["close"]) - float(nxt["open"]))
+            new_support = min(support, float(nxt["low"]))
+            new_resistance = max(resistance, float(nxt["high"]))
+            still_narrow = (new_resistance - new_support) <= RANGE_ATR_RATIO * ref_atr
+            if still_narrow and nxt_body <= BODY_ATR_RATIO * ref_atr:
+                support, resistance, j = new_support, new_resistance, j + 1
+            else:
+                break
+
+        run_length = j - start + 1
+        if run_length < MIN_RUN:
             i += 1
             continue
 
         boxes.append(
             {
-                "startTime": window[0]["time"],
-                "endTime": window[-1]["time"],
+                "startTime": candles[start]["time"],
+                "endTime": candles[j]["time"],
                 "support": support,
                 "resistance": resistance,
             }
         )
-        # Skip past this box entirely rather than re-scanning overlapping
-        # windows inside it -- one box per consolidation, not a cluster of
-        # near-duplicates one candle apart.
-        i += WINDOW
 
-    return boxes
+        if j + 1 < n:
+            breakout = candles[j + 1]
+            b_close = float(breakout["close"])
+            b_body = abs(b_close - float(breakout["open"]))
+            if b_body > BODY_ATR_RATIO * ref_atr:
+                side: Side | None = "long" if b_close > resistance else "short" if b_close < support else None
+                if side:
+                    breakouts.append({"time": breakout["time"], "index": j + 1, "side": side})
+
+        i = j + 2  # resume past the breakout candle -- if there wasn't one, j+2 still safely exceeds n and ends the loop
+
+    return boxes, breakouts
