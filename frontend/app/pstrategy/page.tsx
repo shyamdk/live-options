@@ -416,7 +416,8 @@ function PaperTradesPanel({
         of paper margin capital (adjustable above) -- purely illustrative, not real money. Peak = best price reached
         since entry; Trail stop = the current Chandelier level once armed (1x ATR in profit), showing what's
         actually protecting the gain. Charges assume Delta's published XAUTUSD taker fee (0.01% per side) on both
-        the entry and exit leg -- not yet netted against P&amp;L above.
+        the entry and exit leg; Net P&amp;L is P&amp;L after those charges -- at {leverage}x leverage, a small price
+        move can look fine gross while charges dominate the real outcome, so treat Net P&amp;L as the honest number.
       </p>
       {error ? <div className="alert error">{error}</div> : null}
       {filtered.length === 0 ? (
@@ -436,6 +437,7 @@ function PaperTradesPanel({
                     <th>Current price</th>
                     <th>Current P&amp;L ({leverage}x)</th>
                     <th>Charges</th>
+                    <th>Net P&amp;L</th>
                     <th>Box stop</th>
                   </>
                 ) : (
@@ -445,6 +447,7 @@ function PaperTradesPanel({
                     <th>Exit reason</th>
                     <th>P&amp;L ({leverage}x)</th>
                     <th>Charges</th>
+                    <th>Net P&amp;L</th>
                   </>
                 )}
               </tr>
@@ -455,6 +458,8 @@ function PaperTradesPanel({
                 const pnl = isOpen ? t.unrealizedPnlPercent : t.pnlPercent;
                 const pnlInr = isOpen ? t.unrealizedPnlAmountInr : t.pnlAmountInr;
                 const chargesInr = isOpen ? t.unrealizedChargesInr : t.chargesInr;
+                const netPnl = isOpen ? t.netUnrealizedPnlPercent : t.netPnlPercent;
+                const netPnlInr = isOpen ? t.netUnrealizedPnlAmountInr : t.netPnlAmountInr;
                 return (
                   <tr key={`${t.entryTime}-${i}`}>
                     <td>
@@ -469,6 +474,7 @@ function PaperTradesPanel({
                         <td>{fmtPriceValue(t.currentPrice)}</td>
                         <td style={{ color: (pnl ?? 0) >= 0 ? "var(--green)" : "var(--red)" }}>{fmtPnlValue(pnl, pnlInr)}</td>
                         <td className="pcr-oi-caption">{chargesInr !== null && chargesInr !== undefined ? fmtInr(chargesInr) : "—"}</td>
+                        <td style={{ color: (netPnl ?? 0) >= 0 ? "var(--green)" : "var(--red)" }}>{fmtPnlValue(netPnl, netPnlInr)}</td>
                         <td>{fmtPriceValue(t.stopLoss)}</td>
                       </>
                     ) : (
@@ -478,6 +484,7 @@ function PaperTradesPanel({
                         <td>{t.exitReason ? EXIT_REASON_LABEL[t.exitReason] : "—"}</td>
                         <td style={{ color: (pnl ?? 0) >= 0 ? "var(--green)" : "var(--red)" }}>{fmtPnlValue(pnl, pnlInr)}</td>
                         <td className="pcr-oi-caption">{chargesInr !== null && chargesInr !== undefined ? fmtInr(chargesInr) : "—"}</td>
+                        <td style={{ color: (netPnl ?? 0) >= 0 ? "var(--green)" : "var(--red)" }}>{fmtPnlValue(netPnl, netPnlInr)}</td>
                       </>
                     )}
                   </tr>
