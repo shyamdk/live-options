@@ -452,10 +452,16 @@ export async function getCryptoSwingTrades(
   );
 }
 
+export interface RsiExitSettings {
+  longExit: number;
+  shortExit: number;
+}
+
 export async function getPstrategyCandles(
   resolution: PstrategyResolution,
   ema: EmaSettings,
   paperCapitalInr?: number,
+  rsiExit?: RsiExitSettings,
 ): Promise<PstrategyData> {
   const query = new URLSearchParams({
     resolution,
@@ -464,6 +470,10 @@ export async function getPstrategyCandles(
     emaSlow: String(ema.slow),
   });
   if (paperCapitalInr) query.set("paperCapital", String(paperCapitalInr));
+  if (rsiExit) {
+    query.set("rsiLongExit", String(rsiExit.longExit));
+    query.set("rsiShortExit", String(rsiExit.shortExit));
+  }
   return apiJson<PstrategyData>(`/api/pstrategy/candles?${query.toString()}`, undefined, "Failed to load XAUTUSD candles");
 }
 

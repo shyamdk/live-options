@@ -65,6 +65,7 @@ function fmtInr(value: number | null | undefined): string {
 const EXIT_REASON_LABEL: Record<string, string> = {
   underlying_trail_stop: "Trailing stop (underlying ATR)",
   underlying_ema_exit: "Crossed EMA20 (underlying)",
+  underlying_rsi_target: "RSI profit-booking (underlying)",
   premium_stop_loss: "Premium stop-loss",
   eod: "End of day",
 };
@@ -377,6 +378,13 @@ function NiftyMomentumChart({ resolution }: { resolution: PstrategyNiftyResoluti
       <h3>
         NIFTY spot <span className="pcr-oi-caption">({resolution})</span>
       </h3>
+      {data ? (
+        <p className="pcr-oi-caption" style={{ margin: "0 0 8px" }}>
+          RSI profit-booking: long exit at RSI ≥ {data.rsiLongExit}, short exit at RSI ≤ {data.rsiShortExit} -- set via
+          the backend&apos;s pstrategy_nifty_rsi_long_exit / pstrategy_nifty_rsi_short_exit settings (no page control
+          yet, matching the other engine-side settings like the stop-loss percent).
+        </p>
+      ) : null}
       {error ? <div className="alert error">{error}</div> : null}
       <div ref={containerRef} style={{ width: "100%" }} />
     </div>

@@ -59,6 +59,14 @@ TRAIL_ATR_MULTIPLE = 3.0
 # Scales with ATR rather than a fixed point value so it stays meaningful
 # across volatility regimes.
 EMA_CONFIRM_ATR_BUFFER = 0.1
+# Book profits outright once RSI reaches a genuinely overbought/oversold
+# extreme, regardless of what the trailing stop/EMA-hold would otherwise
+# allow -- this is a deliberate profit-taking rule, not a risk stop, so it's
+# checked ahead of (can fire before) the trailing stop below. Same RSI(14)
+# series already computed for the chart, not a separate calculation.
+RSI_PERIOD = 14
+RSI_LONG_EXIT = 90.0
+RSI_SHORT_EXIT = 20.0
 
 Side = Literal["long", "short"]
 
@@ -85,6 +93,9 @@ def check_ema_trail_exit(
     ema_slow_value: float | None,
     atr_value: float | None,
     trail_stop: float | None,
+    rsi_value: float | None = None,
+    rsi_long_exit: float = RSI_LONG_EXIT,
+    rsi_short_exit: float = RSI_SHORT_EXIT,
 ) -> dict[str, Any]:
     """One tick of pStrategy's EMA-hold + ATR-Chandelier-trail exit rule for
     an already-open position -- shared verbatim between the batch replay
@@ -92,11 +103,18 @@ def check_ema_trail_exit(
     pstrategy_nifty.py) so both apply exactly the same rule rather than two
     hand-maintained copies that could drift apart.
 
-    Held as long as `close` stays on the favorable side of `ema_slow_value`.
-    Layered on top: once up TRAIL_ARM_ATR_MULTIPLE x ATR from entry, a
-    Chandelier stop arms at `best_close` -/+ TRAIL_ATR_MULTIPLE x ATR,
-    ratcheting only in the position's favor, checked intrabar (low/high) --
-    this can exit even while `close` is still technically held.
+    Checked first, ahead of everything else: an RSI extreme (>= rsi_long_exit
+    on a long, <= rsi_short_exit on a short) books profit immediately at the
+    current close, regardless of where the trailing stop or EMA currently
+    sit -- this is a deliberate take-profit rule, not a risk stop, so it
+    doesn't wait for either of those to catch up.
+
+    Otherwise, held as long as `close` stays on the favorable side of
+    `ema_slow_value`. Layered on top: once up TRAIL_ARM_ATR_MULTIPLE x ATR
+    from entry, a Chandelier stop arms at `best_close` -/+
+    TRAIL_ATR_MULTIPLE x ATR, ratcheting only in the position's favor,
+    checked intrabar (low/high) -- this can exit even while `close` is
+    still technically held.
 
     Returns {"exit", "bestClose", "trailStop", "exitPrice", "reason"} --
     `bestClose`/`trailStop` are always returned (updated even when not
@@ -105,6 +123,11 @@ def check_ema_trail_exit(
     """
     new_best_close = max(best_close, close) if side == "long" else min(best_close, close)
     new_trail_stop = trail_stop
+
+    if rsi_value is not None and (
+        (side == "long" and rsi_value >= rsi_long_exit) or (side == "short" and rsi_value <= rsi_short_exit)
+    ):
+        return {"exit": True, "bestClose": new_best_close, "trailStop": new_trail_stop, "exitPrice": close, "reason": "rsi_target"}
 
     if ema_slow_value is None:
         return {"exit": False, "bestClose": new_best_close, "trailStop": new_trail_stop, "exitPrice": None, "reason": None}
@@ -261,6 +284,9 @@ def build_paper_trades(
     ema_slow: list[float | None],
     ema_enabled: bool,
     atr_values: list[float | None],
+    rsi_values: list[float | None] | None = None,
+    rsi_long_exit: float = RSI_LONG_EXIT,
+    rsi_short_exit: float = RSI_SHORT_EXIT,
 ) -> list[dict[str, Any]]:
     """Entry/exit rule synthesized from standard breakout-trading practice,
     with an explicit EMA20-hold override the user asked for on top:
@@ -291,6 +317,11 @@ def build_paper_trades(
       is still technically on the right side of EMA20.
     - When EMA is off, there's no trend line to hold against (or trail
       against), so it falls back to the plain stop/target rule.
+    - RSI profit-booking, checked ahead of everything else in both modes:
+      once RSI(14) reaches rsi_long_exit (long) or rsi_short_exit (short),
+      the trade closes immediately at that candle's close (reason
+      "rsi_target"), regardless of where the trailing stop/EMA-hold or
+      stop/target would otherwise allow it to run.
 
     A momentum candle near the end of the fetched history may have no
     exit yet -- that trade stays "open" as far as this history shows.
@@ -349,6 +380,8 @@ def build_paper_trades(
             high_k, low_k, open_k = float(candles[k]["high"]), float(candles[k]["low"]), float(candles[k]["open"])
             exit_price = close_k
 
+            rsi_k = rsi_values[k] if rsi_values else None
+
             if ema_enabled and ema_slow[k] is not None:
                 result = check_ema_trail_exit(
                     side=side,
@@ -361,6 +394,9 @@ def build_paper_trades(
                     ema_slow_value=ema_slow[k],
                     atr_value=atr_values[k],
                     trail_stop=trail_stop,
+                    rsi_value=rsi_k,
+                    rsi_long_exit=rsi_long_exit,
+                    rsi_short_exit=rsi_short_exit,
                 )
                 best_close = result["bestClose"]
                 trail_stop = result["trailStop"]
@@ -370,13 +406,18 @@ def build_paper_trades(
                 reason = result["reason"]
             else:
                 best_close = max(best_close, close_k) if side == "long" else min(best_close, close_k)
+                rsi_hit = rsi_k is not None and (
+                    (side == "long" and rsi_k >= rsi_long_exit) or (side == "short" and rsi_k <= rsi_short_exit)
+                )
                 hit_stop = (side == "long" and low_k <= stop) or (side == "short" and high_k >= stop)
                 hit_target = (side == "long" and high_k >= target) or (side == "short" and low_k <= target)
-                if not (hit_stop or hit_target):
+                if not (rsi_hit or hit_stop or hit_target):
                     continue
-                # Stop takes priority if a single wild candle hits both.
-                reason = "stop" if hit_stop else "target"
-                exit_price = stop_fill_price(side, stop, open_k) if hit_stop else target
+                # RSI profit-booking takes priority (it's the reason to exit
+                # at all here, not a risk stop), then stop over target if a
+                # single wild candle hits both of those.
+                reason = "rsi_target" if rsi_hit else ("stop" if hit_stop else "target")
+                exit_price = close_k if rsi_hit else (stop_fill_price(side, stop, open_k) if hit_stop else target)
 
             pnl_percent = (exit_price - entry_price) / entry_price * 100 * direction * LEVERAGE
             charges_percent = charges_percent_of_margin(entry_price, exit_price)

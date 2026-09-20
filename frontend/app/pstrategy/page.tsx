@@ -17,6 +17,7 @@ import { PenTool, RefreshCw, Trash2, TrendingUp } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import { getPstrategyCandles } from "@/lib/api";
+import type { RsiExitSettings } from "@/lib/api";
 import type { ConsolidationBox, EmaSettings, ExitReason, PstrategyData, PstrategyResolution, PstrategyTrade } from "@/types/pstrategy";
 import { DailyTotalsTable, groupDailyTotals } from "@/components/DailyTotals";
 
@@ -112,6 +113,27 @@ function saveEmaSettings(settings: EmaSettings): void {
   }
 }
 
+const RSI_EXIT_SETTINGS_KEY = "live-options-pstrategy-rsi-exit-settings";
+const DEFAULT_RSI_EXIT_SETTINGS: RsiExitSettings = { longExit: 90, shortExit: 20 };
+
+function loadRsiExitSettings(): RsiExitSettings {
+  try {
+    const raw = window.localStorage.getItem(RSI_EXIT_SETTINGS_KEY);
+    if (raw) return { ...DEFAULT_RSI_EXIT_SETTINGS, ...(JSON.parse(raw) as Partial<RsiExitSettings>) };
+  } catch {
+    // fall through to defaults
+  }
+  return DEFAULT_RSI_EXIT_SETTINGS;
+}
+
+function saveRsiExitSettings(settings: RsiExitSettings): void {
+  try {
+    window.localStorage.setItem(RSI_EXIT_SETTINGS_KEY, JSON.stringify(settings));
+  } catch {
+    // Best-effort only.
+  }
+}
+
 export default function PstrategyPage() {
   const [resolution, setResolution] = useState<PstrategyResolution>("5m");
   const [emaSettings, setEmaSettings] = useState<EmaSettings>(DEFAULT_EMA_SETTINGS);
@@ -174,6 +196,29 @@ export default function PstrategyPage() {
     setPaperCapital(value);
   }
 
+  const [rsiExitSettings, setRsiExitSettings] = useState<RsiExitSettings>(DEFAULT_RSI_EXIT_SETTINGS);
+  const [rsiLongExitInput, setRsiLongExitInput] = useState(String(DEFAULT_RSI_EXIT_SETTINGS.longExit));
+  const [rsiShortExitInput, setRsiShortExitInput] = useState(String(DEFAULT_RSI_EXIT_SETTINGS.shortExit));
+
+  useEffect(() => {
+    const loaded = loadRsiExitSettings();
+    setRsiExitSettings(loaded);
+    setRsiLongExitInput(String(loaded.longExit));
+    setRsiShortExitInput(String(loaded.shortExit));
+  }, []);
+
+  useEffect(() => {
+    saveRsiExitSettings(rsiExitSettings);
+  }, [rsiExitSettings]);
+
+  function commitRsiExitSettings() {
+    const longExit = Math.max(50, Math.min(100, Number(rsiLongExitInput) || DEFAULT_RSI_EXIT_SETTINGS.longExit));
+    const shortExit = Math.max(0, Math.min(50, Number(rsiShortExitInput) || DEFAULT_RSI_EXIT_SETTINGS.shortExit));
+    setRsiLongExitInput(String(longExit));
+    setRsiShortExitInput(String(shortExit));
+    setRsiExitSettings({ longExit, shortExit });
+  }
+
   // Paper trades run independently at each of TRADE_RESOLUTIONS (currently
   // 1m and 5m), regardless of whichever resolution tab is selected for
   // chart viewing -- each fetch/failure is tracked per-resolution so one
@@ -184,7 +229,7 @@ export default function PstrategyPage() {
     await Promise.all(
       TRADE_RESOLUTIONS.map(async (r) => {
         try {
-          const payload = await getPstrategyCandles(r, emaSettings, paperCapital);
+          const payload = await getPstrategyCandles(r, emaSettings, paperCapital, rsiExitSettings);
           setTradesDataByRes((current) => ({ ...current, [r]: payload }));
           setTradesErrorByRes((current) => ({ ...current, [r]: payload.error ?? null }));
         } catch (exc) {
@@ -203,7 +248,7 @@ export default function PstrategyPage() {
     loadTrades();
     const timer = window.setInterval(loadTrades, REFRESH_MS);
     return () => window.clearInterval(timer);
-  }, [emaSettings, paperCapital]);
+  }, [emaSettings, paperCapital, rsiExitSettings]);
 
   const secondsUntilTradesRefresh = Math.max(0, Math.ceil((REFRESH_MS - (nowTick - lastTradesRefreshAt)) / 1000));
 
@@ -296,6 +341,43 @@ export default function PstrategyPage() {
         </span>
       </div>
 
+      <div className="toolbar" style={{ margin: "0 0 8px" }}>
+        <span className="pcr-oi-caption" style={{ fontWeight: 600, alignSelf: "center" }}>
+          RSI profit-booking:
+        </span>
+        <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
+          <span className="pcr-oi-caption">Long exit at RSI ≥</span>
+          <input
+            type="number"
+            value={rsiLongExitInput}
+            onChange={(e) => setRsiLongExitInput(e.target.value)}
+            onBlur={commitRsiExitSettings}
+            onKeyDown={(e) => e.key === "Enter" && commitRsiExitSettings()}
+            style={{ width: 52 }}
+            min={50}
+            max={100}
+            aria-label="RSI long exit threshold"
+          />
+        </span>
+        <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
+          <span className="pcr-oi-caption">Short exit at RSI ≤</span>
+          <input
+            type="number"
+            value={rsiShortExitInput}
+            onChange={(e) => setRsiShortExitInput(e.target.value)}
+            onBlur={commitRsiExitSettings}
+            onKeyDown={(e) => e.key === "Enter" && commitRsiExitSettings()}
+            style={{ width: 52 }}
+            min={0}
+            max={50}
+            aria-label="RSI short exit threshold"
+          />
+        </span>
+        <span className="pcr-oi-caption">
+          Books profit immediately at either extreme, ahead of the trailing stop/EMA-hold rule.
+        </span>
+      </div>
+
       <PstrategyChart resolution={resolution} emaSettings={emaSettings} />
 
       {TRADE_RESOLUTIONS.map((r) => {
@@ -353,6 +435,7 @@ const EXIT_REASON_LABEL: Record<ExitReason, string> = {
   stop: "Stop",
   ema_exit: "Crossed EMA20",
   trail_stop: "Trailing stop (ATR)",
+  rsi_target: "RSI profit-booking",
 };
 
 function fmtDateTime(epochSeconds: number | null): string {
@@ -842,7 +925,13 @@ function numericSeries(times: UTCTimestamp[], values: (number | null)[]): { time
     .filter((point): point is { time: UTCTimestamp; value: number } => point !== null);
 }
 
-const EXIT_COLOR: Record<ExitReason, string> = { target: "#168448", stop: "#c93535", ema_exit: "#8391a3", trail_stop: "#c9772f" };
+const EXIT_COLOR: Record<ExitReason, string> = {
+  target: "#168448",
+  stop: "#c93535",
+  ema_exit: "#8391a3",
+  trail_stop: "#c9772f",
+  rsi_target: "#2368b6",
+};
 
 function buildMarkers(data: PstrategyData): SeriesMarker<Time>[] {
   const markers: SeriesMarker<Time>[] = [];

@@ -10,9 +10,9 @@ from app.db import sqlite as db
 from app.services.app_auth import require_auth
 from app.services.charges import option_order_charges
 from app.services.crypto_indicators import atr as compute_atr
-from app.services.crypto_indicators import ema, resample_ohlc
+from app.services.crypto_indicators import ema, resample_ohlc, rsi
 from app.services.dhan import DhanService
-from app.services.pstrategy import ATR_LOOKBACK, confirm_momentum, detect_patterns
+from app.services.pstrategy import ATR_LOOKBACK, RSI_PERIOD, confirm_momentum, detect_patterns
 from app.services.pstrategy_nifty import INDEX_INSTRUMENT, INDEX_SEGMENT
 
 router = APIRouter(prefix="/pstrategy-nifty", tags=["pstrategy-nifty"])
@@ -41,9 +41,11 @@ async def candles(resolution: str = Query(default="1m")) -> dict[str, Any]:
     closes = [float(c["close"]) for c in ordered]
     ema_slow = ema(closes, EMA_SLOW_PERIOD)
     atr_values = compute_atr(ordered, ATR_LOOKBACK)
+    rsi_values = rsi(closes, RSI_PERIOD)
     boxes, breakouts = detect_patterns(ordered)
     confirmed = confirm_momentum(breakouts, ordered, ema_slow, atr_values)
     momentum_candles = [{"time": ordered[b["index"]]["time"], "side": b["side"]} for b in confirmed]
+    settings = get_settings()
 
     return {
         "resolution": resolution,
@@ -54,6 +56,9 @@ async def candles(resolution: str = Query(default="1m")) -> dict[str, Any]:
         "consolidations": boxes,
         "momentumCandles": momentum_candles,
         "emaSlowValues": ema_slow,
+        "rsiValues": rsi_values,
+        "rsiLongExit": settings.pstrategy_nifty_rsi_long_exit,
+        "rsiShortExit": settings.pstrategy_nifty_rsi_short_exit,
     }
 
 

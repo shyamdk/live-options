@@ -40,10 +40,10 @@ from app.core.config import Settings, get_settings
 from app.core.timeutil import add_minutes, in_time_window, now_ist, now_ist_epoch
 from app.db import sqlite as db
 from app.services.crypto_indicators import atr as compute_atr
-from app.services.crypto_indicators import ema, resample_ohlc
+from app.services.crypto_indicators import ema, resample_ohlc, rsi
 from app.services.dhan import DhanService
 from app.services.ema5_instruments import resolve_atm_option, resolve_next_expiry
-from app.services.pstrategy import ATR_LOOKBACK, check_ema_trail_exit, confirm_momentum, detect_patterns
+from app.services.pstrategy import ATR_LOOKBACK, RSI_PERIOD, check_ema_trail_exit, confirm_momentum, detect_patterns
 
 INDEX_SEGMENT = "IDX_I"
 INDEX_INSTRUMENT = "INDEX"
@@ -136,7 +136,7 @@ async def _evaluate_resolution(
 
     open_trade = db.get_open_pstrategy_nifty_trade(resolution)
     if open_trade:
-        await _manage_open_trade(dhan, open_trade, candles, now_epoch, is_eod)
+        await _manage_open_trade(dhan, settings, open_trade, candles, now_epoch, is_eod)
         return
 
     if is_eod:
@@ -199,7 +199,12 @@ async def _open_trade(
 
 
 async def _manage_open_trade(
-    dhan: DhanService, trade: dict[str, Any], candles: list[dict[str, Any]], now_epoch: int, is_eod: bool
+    dhan: DhanService,
+    settings: Settings,
+    trade: dict[str, Any],
+    candles: list[dict[str, Any]],
+    now_epoch: int,
+    is_eod: bool,
 ) -> None:
     try:
         quotes = await dhan.market_quotes_by_segment({trade["exchangeSegment"]: [int(trade["securityId"])]})
@@ -225,8 +230,10 @@ async def _manage_open_trade(
 
     side = "long" if trade["side"] == "CE" else "short"
     latest = candles[-1]
-    ema_slow_series = ema([float(c["close"]) for c in candles], EMA_SLOW_PERIOD)
+    closes = [float(c["close"]) for c in candles]
+    ema_slow_series = ema(closes, EMA_SLOW_PERIOD)
     atr_series = compute_atr(candles, ATR_LOOKBACK)
+    rsi_series = rsi(closes, RSI_PERIOD)
     result = check_ema_trail_exit(
         side=side,
         entry_price=trade["entryUnderlyingPrice"],
@@ -238,6 +245,9 @@ async def _manage_open_trade(
         ema_slow_value=ema_slow_series[-1],
         atr_value=atr_series[-1],
         trail_stop=trade["trailStopUnderlying"],
+        rsi_value=rsi_series[-1],
+        rsi_long_exit=settings.pstrategy_nifty_rsi_long_exit,
+        rsi_short_exit=settings.pstrategy_nifty_rsi_short_exit,
     )
     db.update_pstrategy_nifty_trade_progress(
         trade["id"],

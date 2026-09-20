@@ -165,6 +165,12 @@ class Settings(BaseSettings):
     pstrategy_nifty_stop_loss_percent: float = 35.0
     pstrategy_nifty_lots: int = 1
     pstrategy_nifty_lot_size: int = 65
+    # Book profit outright once NIFTY's own RSI(14) reaches a genuinely
+    # overbought/oversold extreme -- same rule as pStrategy's, checked
+    # ahead of the underlying EMA-hold/ATR-trail exit (see
+    # check_ema_trail_exit in pstrategy.py).
+    pstrategy_nifty_rsi_long_exit: float = 90.0
+    pstrategy_nifty_rsi_short_exit: float = 20.0
 
     # Logs each new oi_signal_engine poll to oi_upgraded_signal_log (phase 5
     # signal history) -- read-only, no order placement, off by default.

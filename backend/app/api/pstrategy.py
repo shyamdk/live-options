@@ -12,6 +12,8 @@ from app.services.delta_exchange import DeltaExchangeError, DeltaExchangeService
 from app.services.pstrategy import (
     ATR_LOOKBACK,
     LEVERAGE,
+    RSI_LONG_EXIT,
+    RSI_SHORT_EXIT,
     build_paper_trades,
     charges_percent_of_margin,
     confirm_momentum,
@@ -38,6 +40,8 @@ async def candles(
     ema_fast_period: int = Query(default=DEFAULT_EMA_FAST, alias="emaFast", ge=2, le=200),
     ema_slow_period: int = Query(default=DEFAULT_EMA_SLOW, alias="emaSlow", ge=2, le=200),
     paper_capital_inr: float = Query(default=DEFAULT_PAPER_CAPITAL_INR, alias="paperCapital", ge=1000, le=100_000_000),
+    rsi_long_exit: float = Query(default=RSI_LONG_EXIT, alias="rsiLongExit", ge=50, le=100),
+    rsi_short_exit: float = Query(default=RSI_SHORT_EXIT, alias="rsiShortExit", ge=0, le=50),
 ) -> dict[str, Any]:
     if resolution not in RESOLUTION_SECONDS:
         return {"error": f"Unsupported resolution {resolution!r}", "candles": []}
@@ -91,7 +95,9 @@ async def candles(
         confirmed = breakouts
 
     momentum_candles = [{"time": b["time"], "side": b["side"]} for b in confirmed]
-    trades = build_paper_trades(ordered, boxes, confirmed, ema_slow, ema_enabled, atr_values)
+    trades = build_paper_trades(
+        ordered, boxes, confirmed, ema_slow, ema_enabled, atr_values, rsi_values, rsi_long_exit, rsi_short_exit
+    )
     for trade in trades:
         trade["pnlAmountInr"] = trade["pnlPercent"] / 100 * paper_capital_inr if trade["pnlPercent"] is not None else None
         trade["chargesInr"] = trade["chargesPercent"] / 100 * paper_capital_inr if trade["chargesPercent"] is not None else None
@@ -118,6 +124,8 @@ async def candles(
         "emaFastValues": ema_fast,
         "emaSlowValues": ema_slow,
         "crossovers": crossovers,
+        "rsiLongExit": rsi_long_exit,
+        "rsiShortExit": rsi_short_exit,
     }
 
 

@@ -27,6 +27,9 @@ export interface PstrategyNiftyCandlesData {
   consolidations: PstrategyNiftyConsolidationBox[];
   momentumCandles: PstrategyNiftyMomentumCandle[];
   emaSlowValues: (number | null)[];
+  rsiValues: (number | null)[];
+  rsiLongExit: number;
+  rsiShortExit: number;
 }
 
 export interface PstrategyNiftyTrade {

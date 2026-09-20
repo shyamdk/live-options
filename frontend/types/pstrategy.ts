@@ -20,7 +20,7 @@ export interface MomentumCandle {
   side: "long" | "short";
 }
 
-export type ExitReason = "target" | "stop" | "ema_exit" | "trail_stop";
+export type ExitReason = "target" | "stop" | "ema_exit" | "trail_stop" | "rsi_target";
 
 export interface PstrategyTrade {
   side: "long" | "short";
@@ -75,4 +75,6 @@ export interface PstrategyData {
   emaFastValues: (number | null)[];
   emaSlowValues: (number | null)[];
   crossovers: Crossover[];
+  rsiLongExit: number;
+  rsiShortExit: number;
 }
