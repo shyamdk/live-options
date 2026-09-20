@@ -20,7 +20,7 @@ export interface MomentumCandle {
   side: "long" | "short";
 }
 
-export type ExitReason = "target" | "stop" | "trend_flip";
+export type ExitReason = "target" | "stop" | "ema_exit";
 
 export interface PstrategyTrade {
   side: "long" | "short";

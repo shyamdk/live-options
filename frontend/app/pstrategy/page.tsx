@@ -237,7 +237,7 @@ export default function PstrategyPage() {
   );
 }
 
-const EXIT_REASON_LABEL: Record<ExitReason, string> = { target: "Target", stop: "Stop", trend_flip: "Trend flip" };
+const EXIT_REASON_LABEL: Record<ExitReason, string> = { target: "Target", stop: "Stop", ema_exit: "Crossed EMA20" };
 
 function fmtDateTime(epochSeconds: number | null): string {
   if (!epochSeconds) return "—";
@@ -674,8 +674,9 @@ function PstrategyChart({ resolution, emaSettings }: { resolution: PstrategyReso
         <span className="pcr-oi-caption" style={{ alignSelf: "center" }}>
           Blue lines = support/resistance. Orange lines = your own -- drag an end to resize, the middle to shift.
           {emaSettings.enabled ? ` EMA${emaSettings.fast} (teal) / EMA${emaSettings.slow} (violet), crossovers as circles.` : ""}{" "}
-          EN = entry (arrow = confirmed momentum candle). EX = exit (green=target, red=stop, grey=trend flip) -- a
-          1:2 risk-reward rule using the box boundary as the stop, per standard breakout-trading practice.
+          EN = entry (arrow = confirmed momentum candle). EX = exit -- when EMA cross is on (grey), the trade is
+          held unconditionally as long as it stays on the favorable side of the slow EMA and exits the moment it
+          closes on the wrong side; stop/target (red/green) only apply with EMA cross off.
         </span>
       </div>
       <div ref={containerRef} style={{ width: "100%" }} />
@@ -693,7 +694,7 @@ function numericSeries(times: UTCTimestamp[], values: (number | null)[]): { time
     .filter((point): point is { time: UTCTimestamp; value: number } => point !== null);
 }
 
-const EXIT_COLOR: Record<ExitReason, string> = { target: "#168448", stop: "#c93535", trend_flip: "#8391a3" };
+const EXIT_COLOR: Record<ExitReason, string> = { target: "#168448", stop: "#c93535", ema_exit: "#8391a3" };
 
 function buildMarkers(data: PstrategyData): SeriesMarker<Time>[] {
   const markers: SeriesMarker<Time>[] = [];

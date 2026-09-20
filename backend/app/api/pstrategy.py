@@ -84,7 +84,7 @@ async def candles(
         confirmed = breakouts
 
     momentum_candles = [{"time": b["time"], "side": b["side"]} for b in confirmed]
-    trades = build_paper_trades(ordered, boxes, confirmed, ema_fast, ema_slow, ema_enabled)
+    trades = build_paper_trades(ordered, boxes, confirmed, ema_slow, ema_enabled)
     if trades and trades[-1]["status"] == "open":
         await _with_live_pnl(trades[-1])
 
