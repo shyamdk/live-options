@@ -7,7 +7,14 @@ from fastapi import APIRouter, Depends, Query
 from app.core.config import get_settings
 from app.db import sqlite as db
 from app.services.app_auth import require_auth
-from app.services.crypto_swing import NOTIONAL_PER_TRANCHE, SYMBOLS, load_indicators, simulate_trades
+from app.services.crypto_swing import (
+    NOTIONAL_PER_TRANCHE,
+    SYMBOLS,
+    TRAIL_ARM_ATR_MULTIPLE,
+    TRAIL_ATR_MULTIPLE,
+    load_indicators,
+    simulate_trades,
+)
 from app.services.crypto_swing_live import start_of_today_ist_epoch
 from app.services.delta_exchange import DeltaExchangeError, DeltaExchangeService
 
@@ -53,7 +60,11 @@ async def candles(
 
 
 @router.get("/trades", dependencies=[Depends(require_auth)])
-async def trades(resolution: str = Query(default="30m")) -> dict[str, Any]:
+async def trades(
+    resolution: str = Query(default="30m"),
+    trail_arm: float = Query(default=TRAIL_ARM_ATR_MULTIPLE, alias="trailArm", ge=0.1, le=10),
+    trail_multiple: float = Query(default=TRAIL_ATR_MULTIPLE, alias="trailMultiple", ge=0.1, le=10),
+) -> dict[str, Any]:
     all_trades: list[dict[str, Any]] = []
     for symbol in SYMBOLS:
         try:
@@ -71,6 +82,8 @@ async def trades(resolution: str = Query(default="30m")) -> dict[str, Any]:
             bundle.st_values,
             bundle.st_directions,
             bundle.atr_values,
+            trail_arm,
+            trail_multiple,
         )
         for trade in symbol_trades:
             trade["symbol"] = symbol
@@ -79,7 +92,7 @@ async def trades(resolution: str = Query(default="30m")) -> dict[str, Any]:
         all_trades.extend(symbol_trades)
 
     all_trades.sort(key=lambda t: t.get("entryTime") or 0, reverse=True)
-    return {"trades": all_trades}
+    return {"trades": all_trades, "trailArm": trail_arm, "trailMultiple": trail_multiple}
 
 
 @router.get("/live-status", dependencies=[Depends(require_auth)])

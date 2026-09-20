@@ -18,6 +18,7 @@ import { Bitcoin, RefreshCw } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import { getCryptoSwingCandles, getCryptoSwingLiveStatus, getCryptoSwingTrades, getCryptoSwingWallet } from "@/lib/api";
+import type { CryptoSwingTrailSettings } from "@/lib/api";
 import type {
   CryptoSwingIndicators,
   CryptoSwingLiveStatus,
@@ -38,6 +39,26 @@ function fmtAmount(value: string | number | undefined): string {
 
 const CANDLES_REFRESH_MS = secondsToMs(process.env.NEXT_PUBLIC_CRYPTO_SWING_CANDLES_REFRESH_SECONDS, 60);
 const TRADES_REFRESH_MS = secondsToMs(process.env.NEXT_PUBLIC_CRYPTO_SWING_TRADES_REFRESH_SECONDS, 30);
+const TRAIL_SETTINGS_KEY = "live-options-crypto-swing-trail-settings";
+const DEFAULT_TRAIL_SETTINGS: CryptoSwingTrailSettings = { arm: 2.0, multiple: 1.5 };
+
+function loadTrailSettings(): CryptoSwingTrailSettings {
+  try {
+    const raw = window.localStorage.getItem(TRAIL_SETTINGS_KEY);
+    if (raw) return { ...DEFAULT_TRAIL_SETTINGS, ...(JSON.parse(raw) as Partial<CryptoSwingTrailSettings>) };
+  } catch {
+    // fall through to defaults
+  }
+  return DEFAULT_TRAIL_SETTINGS;
+}
+
+function saveTrailSettings(settings: CryptoSwingTrailSettings): void {
+  try {
+    window.localStorage.setItem(TRAIL_SETTINGS_KEY, JSON.stringify(settings));
+  } catch {
+    // Best-effort only.
+  }
+}
 const LIVE_STATUS_REFRESH_MS = secondsToMs(process.env.NEXT_PUBLIC_CRYPTO_SWING_LIVE_STATUS_REFRESH_SECONDS, 60);
 
 function fmtUsd(value: number | null | undefined): string {
@@ -322,6 +343,29 @@ export default function CryptoSwingPage() {
   const [lastTradesRefreshAt, setLastTradesRefreshAt] = useState(Date.now());
   const [nowTick, setNowTick] = useState(Date.now());
 
+  const [trailSettings, setTrailSettings] = useState<CryptoSwingTrailSettings>(DEFAULT_TRAIL_SETTINGS);
+  const [trailArmInput, setTrailArmInput] = useState(String(DEFAULT_TRAIL_SETTINGS.arm));
+  const [trailMultipleInput, setTrailMultipleInput] = useState(String(DEFAULT_TRAIL_SETTINGS.multiple));
+
+  useEffect(() => {
+    const loaded = loadTrailSettings();
+    setTrailSettings(loaded);
+    setTrailArmInput(String(loaded.arm));
+    setTrailMultipleInput(String(loaded.multiple));
+  }, []);
+
+  useEffect(() => {
+    saveTrailSettings(trailSettings);
+  }, [trailSettings]);
+
+  function commitTrailSettings() {
+    const arm = Math.max(0.1, Math.min(10, Number(trailArmInput) || DEFAULT_TRAIL_SETTINGS.arm));
+    const multiple = Math.max(0.1, Math.min(10, Number(trailMultipleInput) || DEFAULT_TRAIL_SETTINGS.multiple));
+    setTrailArmInput(String(arm));
+    setTrailMultipleInput(String(multiple));
+    setTrailSettings({ arm, multiple });
+  }
+
   const [liveStatus, setLiveStatus] = useState<CryptoSwingLiveStatus | null>(null);
   const [liveStatusLoading, setLiveStatusLoading] = useState(true);
   const [liveStatusError, setLiveStatusError] = useState<string | null>(null);
@@ -347,7 +391,7 @@ export default function CryptoSwingPage() {
     setTradesLoading(true);
     setLastTradesRefreshAt(Date.now());
     try {
-      const payload = await getCryptoSwingTrades();
+      const payload = await getCryptoSwingTrades(trailSettings);
       setTrades(payload.trades);
       setTradesError(null);
     } catch (exc) {
@@ -365,7 +409,7 @@ export default function CryptoSwingPage() {
     loadTrades();
     const timer = window.setInterval(loadTrades, TRADES_REFRESH_MS);
     return () => window.clearInterval(timer);
-  }, []);
+  }, [trailSettings]);
 
   async function loadLiveStatus() {
     setLiveStatusLoading(true);
@@ -409,6 +453,48 @@ export default function CryptoSwingPage() {
           </button>
         </div>
       </header>
+
+      <div className="toolbar" style={{ margin: "0 0 8px", alignItems: "center", gap: 8 }}>
+        <span className="pcr-oi-caption" style={{ fontWeight: 600 }}>
+          ATR trailing stop:
+        </span>
+        <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
+          <span className="pcr-oi-caption">Arm</span>
+          <input
+            type="number"
+            value={trailArmInput}
+            onChange={(e) => setTrailArmInput(e.target.value)}
+            onBlur={commitTrailSettings}
+            onKeyDown={(e) => e.key === "Enter" && commitTrailSettings()}
+            style={{ width: 52 }}
+            min={0.1}
+            max={10}
+            step={0.1}
+            aria-label="Trail arm ATR multiple"
+          />
+          <span className="pcr-oi-caption">x ATR</span>
+        </span>
+        <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
+          <span className="pcr-oi-caption">Trail</span>
+          <input
+            type="number"
+            value={trailMultipleInput}
+            onChange={(e) => setTrailMultipleInput(e.target.value)}
+            onBlur={commitTrailSettings}
+            onKeyDown={(e) => e.key === "Enter" && commitTrailSettings()}
+            style={{ width: 52 }}
+            min={0.1}
+            max={10}
+            step={0.1}
+            aria-label="Trail distance ATR multiple"
+          />
+          <span className="pcr-oi-caption">x ATR</span>
+        </span>
+        <span className="pcr-oi-caption">
+          Defaults (2.0 / 1.5) were tuned for this 30m/multi-day context, not pStrategy&apos;s 5m default (1.0 / 3.0)
+          -- adjust and compare against the trade history below.
+        </span>
+      </div>
 
       <LiveStatusPanel status={liveStatus} loading={liveStatusLoading} error={liveStatusError} />
 

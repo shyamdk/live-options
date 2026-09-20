@@ -427,8 +427,20 @@ export async function getCryptoSwingCandles(symbol: CryptoSwingSymbol, resolutio
   );
 }
 
-export async function getCryptoSwingTrades(): Promise<{ trades: CryptoSwingTrade[] }> {
-  return apiJson<{ trades: CryptoSwingTrade[] }>("/api/crypto-swing/trades", undefined, "Failed to load crypto-swing paper trades");
+export interface CryptoSwingTrailSettings {
+  arm: number;
+  multiple: number;
+}
+
+export async function getCryptoSwingTrades(
+  trail?: CryptoSwingTrailSettings,
+): Promise<{ trades: CryptoSwingTrade[]; trailArm: number; trailMultiple: number }> {
+  const query = trail ? `?trailArm=${trail.arm}&trailMultiple=${trail.multiple}` : "";
+  return apiJson<{ trades: CryptoSwingTrade[]; trailArm: number; trailMultiple: number }>(
+    `/api/crypto-swing/trades${query}`,
+    undefined,
+    "Failed to load crypto-swing paper trades",
+  );
 }
 
 export async function getPstrategyCandles(resolution: PstrategyResolution, ema: EmaSettings): Promise<PstrategyData> {

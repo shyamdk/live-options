@@ -47,8 +47,21 @@ ATR_LOOKBACK = 14
 # since entry by this many ATRs -- same mechanism as pStrategy's, added
 # for the same reason: the trap-detection hold is a lagging exit, so a
 # sharp reversal can round-trip most of an open gain before it fires.
-TRAIL_ARM_ATR_MULTIPLE = 1.0
-TRAIL_ATR_MULTIPLE = 3.0
+#
+# These are NOT pStrategy's 1.0/3.0 -- that pairing was tuned for 5m
+# gold candles and, tested against this 30m/multi-day context, actively
+# hurt: it gave back 62% of a real BTCUSD move, and for XAUTUSD the trail
+# distance (3x ATR) exceeded the entire favorable excursion, so the
+# "trailing stop" never protected any profit at all and let a winning
+# trade round-trip into a loss. Widening the arm threshold (so it only
+# engages once there's a real cushion) and tightening the trail once
+# armed fixed both cases when tested against the same live data --
+# though with only one closed trade per symbol in the fetched history,
+# that's a single data point per symbol, not a real backtest. Both are
+# configurable (see the /trades endpoint's query params) precisely
+# because this needs more data to validate properly.
+TRAIL_ARM_ATR_MULTIPLE = 2.0
+TRAIL_ATR_MULTIPLE = 1.5
 
 SYMBOLS = ("BTCUSD", "ETHUSD", "XAUTUSD")
 RESOLUTION_SECONDS = {"5m": 300, "15m": 900, "30m": 1800, "1h": 3600}
@@ -109,6 +122,8 @@ def simulate_trades(
     st_values: list[float | None],
     st_directions: list[str | None],
     atr_values: list[float | None],
+    trail_arm_atr_multiple: float = TRAIL_ARM_ATR_MULTIPLE,
+    trail_atr_multiple: float = TRAIL_ATR_MULTIPLE,
 ) -> list[dict[str, Any]]:
     trades: list[dict[str, Any]] = []
     n = len(candles)
@@ -201,8 +216,8 @@ def simulate_trades(
         if atr_i:
             avg_entry = avg_entry_price()
             favorable_move = (best_close - avg_entry) if position == "long" else (avg_entry - best_close)
-            if trail_stop is not None or favorable_move >= TRAIL_ARM_ATR_MULTIPLE * atr_i:
-                candidate = best_close - TRAIL_ATR_MULTIPLE * atr_i if position == "long" else best_close + TRAIL_ATR_MULTIPLE * atr_i
+            if trail_stop is not None or favorable_move >= trail_arm_atr_multiple * atr_i:
+                candidate = best_close - trail_atr_multiple * atr_i if position == "long" else best_close + trail_atr_multiple * atr_i
                 trail_stop = candidate if trail_stop is None else (max(trail_stop, candidate) if position == "long" else min(trail_stop, candidate))
         if trail_stop is not None:
             hit_trail = (position == "long" and low <= trail_stop) or (position == "short" and high >= trail_stop)
