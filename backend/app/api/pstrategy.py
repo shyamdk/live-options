@@ -6,7 +6,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, Query
 
 from app.services.app_auth import require_auth
-from app.services.crypto_indicators import ema
+from app.services.crypto_indicators import ema, rsi
 from app.services.delta_exchange import DeltaExchangeError, DeltaExchangeService
 from app.services.pstrategy import LEVERAGE, build_paper_trades, detect_patterns
 
@@ -43,6 +43,8 @@ async def candles(
         return {"error": str(exc), "candles": []}
 
     ordered = sorted(raw, key=lambda c: c["time"])
+    closes = [float(c["close"]) for c in ordered]
+    rsi_values = rsi(closes)
     boxes, breakouts = detect_patterns(ordered)
 
     # The EMA side-of-trend filter (long momentum must close above the
@@ -54,7 +56,6 @@ async def candles(
     crossovers: list[dict[str, Any]] = []
 
     if ema_enabled:
-        closes = [float(c["close"]) for c in ordered]
         ema_fast = ema(closes, ema_fast_period)
         ema_slow = ema(closes, ema_slow_period)
 
@@ -101,6 +102,7 @@ async def candles(
         "momentumCandles": momentum_candles,
         "trades": trades,
         "leverage": LEVERAGE,
+        "rsi": rsi_values,
         "emaFastValues": ema_fast,
         "emaSlowValues": ema_slow,
         "crossovers": crossovers,

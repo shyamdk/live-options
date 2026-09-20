@@ -59,6 +59,7 @@ export interface PstrategyData {
   consolidations: ConsolidationBox[];
   momentumCandles: MomentumCandle[];
   trades: PstrategyTrade[];
+  rsi: (number | null)[];
   emaFastValues: (number | null)[];
   emaSlowValues: (number | null)[];
   crossovers: Crossover[];

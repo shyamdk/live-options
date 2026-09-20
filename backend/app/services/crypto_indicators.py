@@ -34,6 +34,38 @@ def ema(values: list[float | None], period: int) -> list[float | None]:
     return result
 
 
+def rsi(closes: list[float], period: int = 14) -> list[float | None]:
+    """Wilder's RSI -- same smoothing style as atr()/supertrend()'s ATR:
+    a simple average to seed, then a running Wilder average of gains and
+    losses from there.
+    """
+    n = len(closes)
+    result: list[float | None] = [None] * n
+    if n <= period:
+        return result
+
+    gains = [max(closes[i] - closes[i - 1], 0.0) for i in range(1, n)]
+    losses = [max(closes[i - 1] - closes[i], 0.0) for i in range(1, n)]
+
+    avg_gain = sum(gains[:period]) / period
+    avg_loss = sum(losses[:period]) / period
+    result[period] = _rsi_from_averages(avg_gain, avg_loss)
+
+    for i in range(period, len(gains)):
+        avg_gain = (avg_gain * (period - 1) + gains[i]) / period
+        avg_loss = (avg_loss * (period - 1) + losses[i]) / period
+        result[i + 1] = _rsi_from_averages(avg_gain, avg_loss)
+
+    return result
+
+
+def _rsi_from_averages(avg_gain: float, avg_loss: float) -> float:
+    if avg_loss == 0:
+        return 100.0
+    rs = avg_gain / avg_loss
+    return 100 - 100 / (1 + rs)
+
+
 def macd(
     closes: list[float], fast: int = 12, slow: int = 26, signal: int = 9
 ) -> tuple[list[float | None], list[float | None], list[float | None]]:

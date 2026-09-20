@@ -278,7 +278,9 @@ function PaperTradesPanel({
   variant: "open" | "closed";
   leverage: number;
 }) {
-  const filtered = trades.filter((t) => t.status === variant);
+  const filtered = trades
+    .filter((t) => t.status === variant)
+    .sort((a, b) => (b.exitTime ?? b.entryTime) - (a.exitTime ?? a.entryTime));
 
   return (
     <div className="pcr-oi-section">
@@ -360,6 +362,7 @@ function PaperTradesPanel({
 
 function PstrategyChart({ resolution, emaSettings }: { resolution: PstrategyResolution; emaSettings: EmaSettings }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const rsiContainerRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const candleSeriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
   const ema9SeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
@@ -367,6 +370,10 @@ function PstrategyChart({ resolution, emaSettings }: { resolution: PstrategyReso
   const markersRef = useRef<ISeriesMarkersPluginApi<Time> | null>(null);
   const boxSeriesRef = useRef<ISeriesApi<"Line">[]>([]);
   const manualSeriesRef = useRef<Map<string, ISeriesApi<"Line">>>(new Map());
+  const rsiChartRef = useRef<IChartApi | null>(null);
+  const rsiSeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
+  const closeByTimeRef = useRef<Map<UTCTimestamp, number>>(new Map());
+  const rsiByTimeRef = useRef<Map<UTCTimestamp, number>>(new Map());
   const drawModeRef = useRef(false);
   const pendingPointRef = useRef<LinePoint | null>(null);
   const draggingRef = useRef<{ id: string; endpoint: "a" | "b" | "whole"; lastPrice: number } | null>(null);
@@ -440,10 +447,49 @@ function PstrategyChart({ resolution, emaSettings }: { resolution: PstrategyReso
     const ema9Series = chart.addSeries(LineSeries, { color: "#14b8a6", lineWidth: 2, title: "EMA fast" });
     const ema20Series = chart.addSeries(LineSeries, { color: "#8b5cf6", lineWidth: 2, title: "EMA slow" });
 
+    const rsiChart = createChart(rsiContainerRef.current!, {
+      layout: { background: { type: ColorType.Solid, color: "#ffffff" }, textColor: "#252a32" },
+      grid: { vertLines: { color: "#edf0f4" }, horzLines: { color: "#edf0f4" } },
+      width: rsiContainerRef.current!.clientWidth,
+      height: 140,
+      timeScale: { timeVisible: true, secondsVisible: false, tickMarkFormatter: (time: Time) => formatIstDateTime(time) },
+      localization: { timeFormatter: (time: Time) => formatIstDateTime(time) },
+    });
+    const rsiSeries = rsiChart.addSeries(LineSeries, { color: "#c9772f", lineWidth: 2, title: "RSI 14" });
+    rsiSeries.createPriceLine({ price: 70, color: "#c93535", lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: "70" });
+    rsiSeries.createPriceLine({ price: 30, color: "#168448", lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: "30" });
+    rsiChart.priceScale("right").applyOptions({ autoScale: false });
+    rsiSeries.priceScale().setVisibleRange({ from: 0, to: 100 });
+
+    chart.timeScale().subscribeVisibleLogicalRangeChange((range) => {
+      if (range) rsiChart.timeScale().setVisibleLogicalRange(range);
+    });
+    rsiChart.timeScale().subscribeVisibleLogicalRangeChange((range) => {
+      if (range) chart.timeScale().setVisibleLogicalRange(range);
+    });
+    chart.subscribeCrosshairMove((param) => {
+      if (!param.point || param.time === undefined) {
+        rsiChart.clearCrosshairPosition();
+        return;
+      }
+      const t = param.time as UTCTimestamp;
+      rsiChart.setCrosshairPosition(rsiByTimeRef.current.get(t) ?? 50, t, rsiSeries);
+    });
+    rsiChart.subscribeCrosshairMove((param) => {
+      if (!param.point || param.time === undefined) {
+        chart.clearCrosshairPosition();
+        return;
+      }
+      const t = param.time as UTCTimestamp;
+      chart.setCrosshairPosition(closeByTimeRef.current.get(t) ?? 0, t, candleSeries);
+    });
+
     chartRef.current = chart;
     candleSeriesRef.current = candleSeries;
     ema9SeriesRef.current = ema9Series;
     ema20SeriesRef.current = ema20Series;
+    rsiChartRef.current = rsiChart;
+    rsiSeriesRef.current = rsiSeries;
     markersRef.current = createSeriesMarkers(candleSeries, []);
 
     chart.subscribeClick((param) => {
@@ -533,6 +579,7 @@ function PstrategyChart({ resolution, emaSettings }: { resolution: PstrategyReso
 
     const resizeObserver = new ResizeObserver(() => {
       if (containerRef.current) chart.applyOptions({ width: containerRef.current.clientWidth });
+      if (rsiContainerRef.current) rsiChart.applyOptions({ width: rsiContainerRef.current.clientWidth });
     });
     resizeObserver.observe(container);
 
@@ -543,10 +590,13 @@ function PstrategyChart({ resolution, emaSettings }: { resolution: PstrategyReso
       window.removeEventListener("mouseup", handleMouseUp);
       markersRef.current?.detach();
       chart.remove();
+      rsiChart.remove();
       chartRef.current = null;
       candleSeriesRef.current = null;
       ema9SeriesRef.current = null;
       ema20SeriesRef.current = null;
+      rsiChartRef.current = null;
+      rsiSeriesRef.current = null;
       markersRef.current = null;
     };
   }, []);
@@ -560,6 +610,12 @@ function PstrategyChart({ resolution, emaSettings }: { resolution: PstrategyReso
     );
     ema9SeriesRef.current?.setData(data.emaEnabled ? numericSeries(times, data.emaFastValues) : []);
     ema20SeriesRef.current?.setData(data.emaEnabled ? numericSeries(times, data.emaSlowValues) : []);
+    rsiSeriesRef.current?.setData(numericSeries(times, data.rsi));
+
+    closeByTimeRef.current = new Map(times.map((t, i) => [t, data.candles[i].close]));
+    rsiByTimeRef.current = new Map(
+      times.map((t, i) => [t, data.rsi[i]]).filter((entry): entry is [UTCTimestamp, number] => entry[1] !== null),
+    );
 
     for (const series of boxSeriesRef.current) chartRef.current.removeSeries(series);
     boxSeriesRef.current = [];
@@ -623,6 +679,10 @@ function PstrategyChart({ resolution, emaSettings }: { resolution: PstrategyReso
         </span>
       </div>
       <div ref={containerRef} style={{ width: "100%" }} />
+      <div className="subtext" style={{ margin: "8px 0 4px" }}>
+        RSI (14)
+      </div>
+      <div ref={rsiContainerRef} style={{ width: "100%" }} />
     </div>
   );
 }
