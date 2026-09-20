@@ -443,13 +443,18 @@ export async function getCryptoSwingTrades(
   );
 }
 
-export async function getPstrategyCandles(resolution: PstrategyResolution, ema: EmaSettings): Promise<PstrategyData> {
+export async function getPstrategyCandles(
+  resolution: PstrategyResolution,
+  ema: EmaSettings,
+  paperCapitalInr?: number,
+): Promise<PstrategyData> {
   const query = new URLSearchParams({
     resolution,
     emaEnabled: String(ema.enabled),
     emaFast: String(ema.fast),
     emaSlow: String(ema.slow),
   });
+  if (paperCapitalInr) query.set("paperCapital", String(paperCapitalInr));
   return apiJson<PstrategyData>(`/api/pstrategy/candles?${query.toString()}`, undefined, "Failed to load XAUTUSD candles");
 }
 

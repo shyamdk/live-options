@@ -34,8 +34,10 @@ export interface PstrategyTrade {
   exitPrice: number | null;
   exitReason: ExitReason | null;
   pnlPercent: number | null;
+  pnlAmountInr: number | null;
   currentPrice?: number | null;
   unrealizedPnlPercent?: number | null;
+  unrealizedPnlAmountInr?: number | null;
 }
 
 export interface Crossover {
@@ -57,6 +59,7 @@ export interface PstrategyData {
   emaFast: number;
   emaSlow: number;
   leverage: number;
+  paperCapitalInr: number;
   candles: PstrategyCandle[];
   consolidations: ConsolidationBox[];
   momentumCandles: MomentumCandle[];

@@ -17,6 +17,11 @@ SYMBOL = "XAUTUSD"
 RESOLUTION_SECONDS = {"1m": 60, "5m": 300, "15m": 900}
 DEFAULT_EMA_FAST = 9
 DEFAULT_EMA_SLOW = 20
+# Illustrative paper margin capital in INR -- pnlPercent is already the
+# return on margin at LEVERAGE, so a rupee figure is just that % applied
+# to however much margin capital you're assuming was actually deployed.
+# No real capital is involved (see build_paper_trades docstring).
+DEFAULT_PAPER_CAPITAL_INR = 50_000.0
 
 
 @router.get("/candles", dependencies=[Depends(require_auth)])
@@ -25,6 +30,7 @@ async def candles(
     ema_enabled: bool = Query(default=True, alias="emaEnabled"),
     ema_fast_period: int = Query(default=DEFAULT_EMA_FAST, alias="emaFast", ge=2, le=200),
     ema_slow_period: int = Query(default=DEFAULT_EMA_SLOW, alias="emaSlow", ge=2, le=200),
+    paper_capital_inr: float = Query(default=DEFAULT_PAPER_CAPITAL_INR, alias="paperCapital", ge=1000, le=100_000_000),
 ) -> dict[str, Any]:
     if resolution not in RESOLUTION_SECONDS:
         return {"error": f"Unsupported resolution {resolution!r}", "candles": []}
@@ -87,8 +93,10 @@ async def candles(
 
     momentum_candles = [{"time": b["time"], "side": b["side"]} for b in confirmed]
     trades = build_paper_trades(ordered, boxes, confirmed, ema_slow, ema_enabled, atr_values)
+    for trade in trades:
+        trade["pnlAmountInr"] = trade["pnlPercent"] / 100 * paper_capital_inr if trade["pnlPercent"] is not None else None
     if trades and trades[-1]["status"] == "open":
-        await _with_live_pnl(trades[-1])
+        await _with_live_pnl(trades[-1], paper_capital_inr)
 
     return {
         "symbol": SYMBOL,
@@ -96,6 +104,7 @@ async def candles(
         "emaEnabled": ema_enabled,
         "emaFast": ema_fast_period,
         "emaSlow": ema_slow_period,
+        "paperCapitalInr": paper_capital_inr,
         "candles": [
             {"time": c["time"], "open": c["open"], "high": c["high"], "low": c["low"], "close": c["close"]}
             for c in ordered
@@ -111,14 +120,17 @@ async def candles(
     }
 
 
-async def _with_live_pnl(open_trade: dict[str, Any]) -> None:
+async def _with_live_pnl(open_trade: dict[str, Any], paper_capital_inr: float) -> None:
     try:
         ticker = await DeltaExchangeService().get_ticker(SYMBOL)
         current = float(ticker["close"])
     except Exception:
         open_trade["currentPrice"] = None
         open_trade["unrealizedPnlPercent"] = None
+        open_trade["unrealizedPnlAmountInr"] = None
         return
     direction = 1 if open_trade["side"] == "long" else -1
+    pnl_pct = (current - open_trade["entryPrice"]) / open_trade["entryPrice"] * 100 * direction * LEVERAGE
     open_trade["currentPrice"] = current
-    open_trade["unrealizedPnlPercent"] = (current - open_trade["entryPrice"]) / open_trade["entryPrice"] * 100 * direction * LEVERAGE
+    open_trade["unrealizedPnlPercent"] = pnl_pct
+    open_trade["unrealizedPnlAmountInr"] = pnl_pct / 100 * paper_capital_inr

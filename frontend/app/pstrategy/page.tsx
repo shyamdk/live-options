@@ -26,6 +26,32 @@ const REFRESH_MS = secondsToMs(process.env.NEXT_PUBLIC_PSTRATEGY_REFRESH_SECONDS
 const STORAGE_PREFIX = "live-options-pstrategy-lines";
 const EMA_SETTINGS_KEY = "live-options-pstrategy-ema-settings";
 const DEFAULT_EMA_SETTINGS: EmaSettings = { enabled: true, fast: 9, slow: 20 };
+const PAPER_CAPITAL_KEY = "live-options-pstrategy-paper-capital";
+const DEFAULT_PAPER_CAPITAL_INR = 50_000;
+
+function loadPaperCapital(): number {
+  try {
+    const raw = window.localStorage.getItem(PAPER_CAPITAL_KEY);
+    const value = raw ? Number(raw) : NaN;
+    return Number.isFinite(value) && value > 0 ? value : DEFAULT_PAPER_CAPITAL_INR;
+  } catch {
+    return DEFAULT_PAPER_CAPITAL_INR;
+  }
+}
+
+function savePaperCapital(value: number): void {
+  try {
+    window.localStorage.setItem(PAPER_CAPITAL_KEY, String(value));
+  } catch {
+    // Best-effort only.
+  }
+}
+
+function fmtInr(value: number | null | undefined): string {
+  if (value === null || value === undefined) return "—";
+  const sign = value >= 0 ? "+" : "-";
+  return `${sign}₹${Math.abs(value).toLocaleString("en-IN", { maximumFractionDigits: 0 })}`;
+}
 // Pixel tolerance for "close enough to grab" when hit-testing the mouse
 // against a drawn line's endpoints or body.
 const HIT_PX = 8;
@@ -123,13 +149,32 @@ export default function PstrategyPage() {
     setEmaSettings((current) => ({ ...current, fast, slow }));
   }
 
+  const [paperCapital, setPaperCapital] = useState(DEFAULT_PAPER_CAPITAL_INR);
+  const [paperCapitalInput, setPaperCapitalInput] = useState(String(DEFAULT_PAPER_CAPITAL_INR));
+
+  useEffect(() => {
+    const loaded = loadPaperCapital();
+    setPaperCapital(loaded);
+    setPaperCapitalInput(String(loaded));
+  }, []);
+
+  useEffect(() => {
+    savePaperCapital(paperCapital);
+  }, [paperCapital]);
+
+  function commitPaperCapital() {
+    const value = Math.max(1000, Math.min(100_000_000, Math.round(Number(paperCapitalInput)) || DEFAULT_PAPER_CAPITAL_INR));
+    setPaperCapitalInput(String(value));
+    setPaperCapital(value);
+  }
+
   // Paper trades always run at 5m, independent of whichever resolution
   // tab is selected for chart viewing.
   async function loadTrades() {
     setTradesLoading(true);
     setLastTradesRefreshAt(Date.now());
     try {
-      const payload = await getPstrategyCandles(TRADES_RESOLUTION, emaSettings);
+      const payload = await getPstrategyCandles(TRADES_RESOLUTION, emaSettings, paperCapital);
       setTradesData(payload);
       setTradesError(payload.error ?? null);
     } catch (exc) {
@@ -143,7 +188,7 @@ export default function PstrategyPage() {
     loadTrades();
     const timer = window.setInterval(loadTrades, REFRESH_MS);
     return () => window.clearInterval(timer);
-  }, [emaSettings]);
+  }, [emaSettings, paperCapital]);
 
   const trades = tradesData?.trades ?? [];
   const secondsUntilTradesRefresh = Math.max(0, Math.ceil((REFRESH_MS - (nowTick - lastTradesRefreshAt)) / 1000));
@@ -219,6 +264,22 @@ export default function PstrategyPage() {
           Applies to all charts and to the paper trades below.
           {emaSettings.enabled ? ` EMA${emaSettings.fast} (teal) / EMA${emaSettings.slow} (violet).` : ""}
         </span>
+        <span style={{ display: "flex", alignItems: "center", gap: 4, marginLeft: "auto" }}>
+          <span className="pcr-oi-caption">Paper capital</span>
+          <span className="pcr-oi-caption">₹</span>
+          <input
+            type="number"
+            value={paperCapitalInput}
+            onChange={(e) => setPaperCapitalInput(e.target.value)}
+            onBlur={commitPaperCapital}
+            onKeyDown={(e) => e.key === "Enter" && commitPaperCapital()}
+            style={{ width: 90 }}
+            min={1000}
+            max={100_000_000}
+            step={1000}
+            aria-label="Paper capital in rupees"
+          />
+        </span>
       </div>
 
       <PaperTradesPanel
@@ -229,6 +290,7 @@ export default function PstrategyPage() {
         title="Live trades"
         variant="open"
         leverage={tradesData?.leverage ?? 50}
+        paperCapital={tradesData?.paperCapitalInr ?? paperCapital}
         secondsUntilRefresh={secondsUntilTradesRefresh}
       />
 
@@ -242,6 +304,7 @@ export default function PstrategyPage() {
         title="Closed trades"
         variant="closed"
         leverage={tradesData?.leverage ?? 50}
+        paperCapital={tradesData?.paperCapitalInr ?? paperCapital}
         secondsUntilRefresh={secondsUntilTradesRefresh}
       />
     </section>
@@ -272,9 +335,10 @@ function fmtPriceValue(value: number | null | undefined): string {
   return value.toLocaleString("en-IN", { maximumFractionDigits: 2, minimumFractionDigits: 2 });
 }
 
-function fmtPnlValue(pct: number | null | undefined): string {
+function fmtPnlValue(pct: number | null | undefined, amountInr?: number | null): string {
   if (pct === null || pct === undefined) return "—";
-  return `${pct >= 0 ? "+" : ""}${pct.toFixed(3)}%`;
+  const pctStr = `${pct >= 0 ? "+" : ""}${pct.toFixed(3)}%`;
+  return amountInr !== undefined && amountInr !== null ? `${pctStr} (${fmtInr(amountInr)})` : pctStr;
 }
 
 function PaperTradesPanel({
@@ -285,6 +349,7 @@ function PaperTradesPanel({
   title,
   variant,
   leverage,
+  paperCapital,
   secondsUntilRefresh,
 }: {
   trades: PstrategyTrade[];
@@ -294,6 +359,7 @@ function PaperTradesPanel({
   title: string;
   variant: "open" | "closed";
   leverage: number;
+  paperCapital: number;
   secondsUntilRefresh: number;
 }) {
   const filtered = trades
@@ -316,8 +382,10 @@ function PaperTradesPanel({
       <p className="pcr-oi-caption" style={{ margin: "4px 0 10px" }}>
         Simulated only -- replayed deterministically from the proposed entry/exit rule against 5m candle history. No
         real orders are placed. P&amp;L is the return on margin at {leverage}x leverage (matching Delta's XAUTUSD
-        perpetual), not the raw price move. Peak = best price reached since entry; Trail stop = the current
-        Chandelier level once armed (1x ATR in profit), showing what's actually protecting the gain.
+        perpetual), not the raw price move. The rupee figure applies that % to an assumed ₹{paperCapital.toLocaleString("en-IN")}{" "}
+        of paper margin capital (adjustable above) -- purely illustrative, not real money. Peak = best price reached
+        since entry; Trail stop = the current Chandelier level once armed (1x ATR in profit), showing what's
+        actually protecting the gain.
       </p>
       {error ? <div className="alert error">{error}</div> : null}
       {filtered.length === 0 ? (
@@ -352,6 +420,7 @@ function PaperTradesPanel({
               {filtered.map((t, i) => {
                 const isOpen = variant === "open";
                 const pnl = isOpen ? t.unrealizedPnlPercent : t.pnlPercent;
+                const pnlInr = isOpen ? t.unrealizedPnlAmountInr : t.pnlAmountInr;
                 return (
                   <tr key={`${t.entryTime}-${i}`}>
                     <td>
@@ -364,7 +433,7 @@ function PaperTradesPanel({
                     {isOpen ? (
                       <>
                         <td>{fmtPriceValue(t.currentPrice)}</td>
-                        <td style={{ color: (pnl ?? 0) >= 0 ? "var(--green)" : "var(--red)" }}>{fmtPnlValue(pnl)}</td>
+                        <td style={{ color: (pnl ?? 0) >= 0 ? "var(--green)" : "var(--red)" }}>{fmtPnlValue(pnl, pnlInr)}</td>
                         <td>{fmtPriceValue(t.stopLoss)}</td>
                       </>
                     ) : (
@@ -372,7 +441,7 @@ function PaperTradesPanel({
                         <td>{fmtDateTime(t.exitTime)}</td>
                         <td>{fmtPriceValue(t.exitPrice)}</td>
                         <td>{t.exitReason ? EXIT_REASON_LABEL[t.exitReason] : "—"}</td>
-                        <td style={{ color: (pnl ?? 0) >= 0 ? "var(--green)" : "var(--red)" }}>{fmtPnlValue(pnl)}</td>
+                        <td style={{ color: (pnl ?? 0) >= 0 ? "var(--green)" : "var(--red)" }}>{fmtPnlValue(pnl, pnlInr)}</td>
                       </>
                     )}
                   </tr>
