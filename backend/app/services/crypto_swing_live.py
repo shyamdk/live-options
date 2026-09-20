@@ -109,7 +109,14 @@ async def evaluate_symbol(symbol: str, settings: Settings) -> None:
         return
 
     sim_trades = simulate_trades(
-        bundle.ordered, bundle.ema200, bundle.macd_line, bundle.signal_line, bundle.histogram, bundle.st_values, bundle.st_directions
+        bundle.ordered,
+        bundle.ema200,
+        bundle.macd_line,
+        bundle.signal_line,
+        bundle.histogram,
+        bundle.st_values,
+        bundle.st_directions,
+        bundle.atr_values,
     )
     latest = sim_trades[-1] if sim_trades else None
     db_open = db.get_open_crypto_swing_live_trade(symbol, mode)

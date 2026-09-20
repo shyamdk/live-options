@@ -70,6 +70,7 @@ async def trades(resolution: str = Query(default="30m")) -> dict[str, Any]:
             bundle.histogram,
             bundle.st_values,
             bundle.st_directions,
+            bundle.atr_values,
         )
         for trade in symbol_trades:
             trade["symbol"] = symbol

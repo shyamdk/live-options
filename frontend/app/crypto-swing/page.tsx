@@ -182,7 +182,10 @@ function fmtPnl(pct: number | null | undefined, amount: number | null | undefine
   return `${sign}${pct.toFixed(2)}% (${sign}$${amount.toFixed(2)})`;
 }
 
-const EXIT_REASON_LABEL: Record<string, string> = { trap_confirmed_reversal: "Trend reversal confirmed" };
+const EXIT_REASON_LABEL: Record<string, string> = {
+  trap_confirmed_reversal: "Trend reversal confirmed",
+  trail_stop: "Trailing stop (ATR)",
+};
 
 function PaperTradesPanel({
   trades,
@@ -217,7 +220,9 @@ function PaperTradesPanel({
       </div>
       <p className="pcr-oi-caption" style={{ margin: "4px 0 10px" }}>
         Simulated only -- replayed deterministically from the 3-way confirmation strategy against 30m candle history.
-        No real orders are placed. Entries/exits are also marked on the charts below.
+        No real orders are placed. Entries/exits are also marked on the charts below. Peak = best price reached since
+        entry; Trail stop = the current ATR Chandelier level once armed (1x ATR in profit) -- it can exit a position
+        even while a counter-move is still being held as a suspected trap.
       </p>
       {error ? <div className="alert error">{error}</div> : null}
       {errors.map((t) => (
@@ -241,11 +246,13 @@ function PaperTradesPanel({
                 <th>Entry time</th>
                 <th>Entry price</th>
                 <th>Tranches</th>
+                <th>Peak</th>
+                <th>Trail stop</th>
                 {variant === "open" ? (
                   <>
                     <th>Current price</th>
                     <th>Current P&amp;L</th>
-                    <th>Stop</th>
+                    <th>Box stop</th>
                   </>
                 ) : (
                   <>
@@ -271,6 +278,14 @@ function PaperTradesPanel({
                     <td>{fmtDateTime(t.entryTime)}</td>
                     <td>{fmtPrice(t.entryPrice)}</td>
                     <td>{t.tranches}</td>
+                    <td>{fmtPrice(t.peakPrice)}</td>
+                    <td>
+                      {t.trailStop !== null && t.trailStop !== undefined ? (
+                        fmtPrice(t.trailStop)
+                      ) : (
+                        <span className="pcr-oi-caption">not armed</span>
+                      )}
+                    </td>
                     {isOpen ? (
                       <>
                         <td>{fmtPrice(t.currentPrice)}</td>

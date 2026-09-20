@@ -31,6 +31,8 @@ export interface CryptoSwingTrade {
   tranches: number;
   quantity: number;
   stopLoss?: number;
+  peakPrice?: number;
+  trailStop?: number | null;
   exitTime: number | null;
   exitPrice: number | null;
   exitReason: string | null;

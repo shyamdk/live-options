@@ -18,6 +18,14 @@ Resolved ambiguities from the strategy doc (confirmed with the user):
   adds would be unbounded. Capped at max_tranches regardless.
 - Position sizing is illustrative paper notional per tranche (not real
   capital), since no live orders are placed yet.
+- An ATR trailing stop (same mechanism as pStrategy's, added for the
+  same reason) runs alongside the trap-detection hold: since holding
+  through a suspected trap is itself a lagging exit, once a position is
+  up TRAIL_ARM_ATR_MULTIPLE x ATR it arms a Chandelier-style stop that
+  trails the best close by TRAIL_ATR_MULTIPLE x ATR and can exit even
+  while a counter-move is still being held as a trap. Checked intrabar
+  (low/high), with the fill capped at the candle's open on a gap
+  through the level, matching how a real stop order actually fills.
 """
 
 from __future__ import annotations
@@ -25,6 +33,7 @@ from __future__ import annotations
 import time
 from typing import Any, Literal
 
+from app.services.crypto_indicators import atr as compute_atr
 from app.services.crypto_indicators import ema, macd, supertrend
 from app.services.delta_exchange import DeltaExchangeService
 
@@ -32,6 +41,14 @@ Side = Literal["long", "short"]
 
 MAX_TRANCHES = 3
 NOTIONAL_PER_TRANCHE = 500.0
+ATR_LOOKBACK = 14
+# Chandelier-style trailing stop (see simulate_trades): armed once a
+# position is up by this many ATRs, then trails the best close seen
+# since entry by this many ATRs -- same mechanism as pStrategy's, added
+# for the same reason: the trap-detection hold is a lagging exit, so a
+# sharp reversal can round-trip most of an open gain before it fires.
+TRAIL_ARM_ATR_MULTIPLE = 1.0
+TRAIL_ATR_MULTIPLE = 3.0
 
 SYMBOLS = ("BTCUSD", "ETHUSD", "XAUTUSD")
 RESOLUTION_SECONDS = {"5m": 300, "15m": 900, "30m": 1800, "1h": 3600}
@@ -47,6 +64,7 @@ class IndicatorBundle:
         histogram: list[float | None],
         st_values: list[float | None],
         st_directions: list[str | None],
+        atr_values: list[float | None],
     ) -> None:
         self.ordered = ordered
         self.ema200 = ema200
@@ -55,6 +73,7 @@ class IndicatorBundle:
         self.histogram = histogram
         self.st_values = st_values
         self.st_directions = st_directions
+        self.atr_values = atr_values
 
 
 async def load_indicators(symbol: str, resolution: str) -> IndicatorBundle:
@@ -77,7 +96,8 @@ async def load_indicators(symbol: str, resolution: str) -> IndicatorBundle:
     ema200 = ema(closes, 200)
     macd_line, signal_line, histogram = macd(closes)
     st_values, st_directions = supertrend(ordered, period=13, multiplier=4.0)
-    return IndicatorBundle(ordered, ema200, macd_line, signal_line, histogram, st_values, st_directions)
+    atr_values = compute_atr(ordered, ATR_LOOKBACK)
+    return IndicatorBundle(ordered, ema200, macd_line, signal_line, histogram, st_values, st_directions, atr_values)
 
 
 def simulate_trades(
@@ -88,6 +108,7 @@ def simulate_trades(
     histogram: list[float | None],
     st_values: list[float | None],
     st_directions: list[str | None],
+    atr_values: list[float | None],
 ) -> list[dict[str, Any]]:
     trades: list[dict[str, Any]] = []
     n = len(candles)
@@ -99,18 +120,27 @@ def simulate_trades(
     trap_active = False
     pivot_level = 0.0
     pivot_volume = -1.0
+    best_close = 0.0
+    trail_stop: float | None = None
 
-    def flat_pnl_percent(exit_price: float) -> float:
-        avg_entry = sum(p * q for p, q in fills) / sum(q for _, q in fills)
-        direction = 1 if position == "long" else -1
-        return (exit_price - avg_entry) / avg_entry * 100 * direction
+    def avg_entry_price() -> float:
+        return sum(p * q for p, q in fills) / sum(q for _, q in fills)
 
-    def close_position(i: int, reason: str) -> None:
-        nonlocal position, entry_time, fills, trap_active, pivot_level, pivot_volume
-        exit_price = float(candles[i]["close"])
+    def stop_fill_price(level: float, open_i: float) -> float:
+        # A stop fills the instant price touches it intrabar, not only at
+        # the candle's close -- and if the candle gapped straight past
+        # the level, the fill is the open (can't get a better price than
+        # what the market opened at), not the level itself.
+        if position == "long":
+            return min(open_i, level) if open_i <= level else level
+        return max(open_i, level) if open_i >= level else level
+
+    def close_position(i: int, reason: str, exit_price: float) -> None:
+        nonlocal position, entry_time, fills, trap_active, pivot_level, pivot_volume, best_close, trail_stop
         total_qty = sum(q for _, q in fills)
-        avg_entry = sum(p * q for p, q in fills) / total_qty
-        pnl_pct = flat_pnl_percent(exit_price)
+        avg_entry = avg_entry_price()
+        direction = 1 if position == "long" else -1
+        pnl_pct = (exit_price - avg_entry) / avg_entry * 100 * direction
         trades.append(
             {
                 "side": position,
@@ -124,19 +154,24 @@ def simulate_trades(
                 "exitReason": reason,
                 "pnlPercent": pnl_pct,
                 "pnlAmount": pnl_pct / 100 * NOTIONAL_PER_TRANCHE * len(fills),
+                "peakPrice": best_close,
+                "trailStop": trail_stop,
             }
         )
         position, entry_time, fills = None, None, []
         trap_active, pivot_level, pivot_volume = False, 0.0, -1.0
+        best_close, trail_stop = 0.0, None
 
     for i in range(n):
         close = float(candles[i]["close"])
+        open_i = float(candles[i]["open"])
         low, high = float(candles[i]["low"]), float(candles[i]["high"])
         volume = float(candles[i].get("volume") or 0.0)
         ema = ema200[i]
         macd_v, signal_v, hist_v = macd_line[i], signal_line[i], histogram[i]
         direction = st_directions[i]
         prev_direction = st_directions[i - 1] if i > 0 else None
+        atr_i = atr_values[i]
 
         if ema is None or macd_v is None or signal_v is None or hist_v is None or direction is None:
             continue
@@ -147,10 +182,33 @@ def simulate_trades(
             if flipped_up and close > ema and macd_v > 0 and signal_v > 0 and hist_v > 0:
                 position, entry_time, fills = "long", candles[i]["time"], [(close, 1.0)]
                 stop = st_values[i] or close
+                best_close, trail_stop = close, None
             elif flipped_down and close < ema and macd_v < 0 and signal_v < 0 and hist_v < 0:
                 position, entry_time, fills = "short", candles[i]["time"], [(close, 1.0)]
                 stop = st_values[i] or close
+                best_close, trail_stop = close, None
             continue
+
+        best_close = max(best_close, close) if position == "long" else min(best_close, close)
+
+        # ATR trailing stop -- checked every candle, ahead of the trap
+        # logic below, so it can exit even while a counter-move is still
+        # being held as a suspected trap. Armed once up TRAIL_ARM_ATR_MULTIPLE
+        # x ATR from the (blended) entry; from there, trails best_close by
+        # TRAIL_ATR_MULTIPLE x ATR, ratcheting only in the position's favor.
+        # Checked against intrabar low/high, not just the close, since a
+        # sharp reversal can happen within a single candle.
+        if atr_i:
+            avg_entry = avg_entry_price()
+            favorable_move = (best_close - avg_entry) if position == "long" else (avg_entry - best_close)
+            if trail_stop is not None or favorable_move >= TRAIL_ARM_ATR_MULTIPLE * atr_i:
+                candidate = best_close - TRAIL_ATR_MULTIPLE * atr_i if position == "long" else best_close + TRAIL_ATR_MULTIPLE * atr_i
+                trail_stop = candidate if trail_stop is None else (max(trail_stop, candidate) if position == "long" else min(trail_stop, candidate))
+        if trail_stop is not None:
+            hit_trail = (position == "long" and low <= trail_stop) or (position == "short" and high >= trail_stop)
+            if hit_trail:
+                close_position(i, "trail_stop", stop_fill_price(trail_stop, open_i))
+                continue
 
         stop = st_values[i] or stop
         against_position = (position == "long" and direction == "down") or (position == "short" and direction == "up")
@@ -178,11 +236,11 @@ def simulate_trades(
         broke_pivot = close < pivot_level if position == "long" else close > pivot_level
         broke_ema = close < ema if position == "long" else close > ema
         if broke_pivot and broke_ema:
-            close_position(i, "trap_confirmed_reversal")
+            close_position(i, "trap_confirmed_reversal", close)
 
     if position is not None:
         total_qty = sum(q for _, q in fills)
-        avg_entry = sum(p * q for p, q in fills) / total_qty
+        avg_entry = avg_entry_price()
         trades.append(
             {
                 "side": position,
@@ -195,6 +253,8 @@ def simulate_trades(
                 "exitPrice": None,
                 "exitReason": None,
                 "stopLoss": stop,
+                "peakPrice": best_close,
+                "trailStop": trail_stop,
                 "pnlPercent": None,
                 "pnlAmount": None,
             }
