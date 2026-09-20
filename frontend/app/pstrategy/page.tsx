@@ -212,7 +212,15 @@ export default function PstrategyPage() {
         </span>
       </div>
 
-      <PaperTradesPanel trades={trades} loading={tradesLoading} error={tradesError} onRefresh={loadTrades} title="Live trades" variant="open" />
+      <PaperTradesPanel
+        trades={trades}
+        loading={tradesLoading}
+        error={tradesError}
+        onRefresh={loadTrades}
+        title="Live trades"
+        variant="open"
+        leverage={tradesData?.leverage ?? 50}
+      />
 
       <PstrategyChart resolution={resolution} emaSettings={emaSettings} />
 
@@ -223,6 +231,7 @@ export default function PstrategyPage() {
         onRefresh={loadTrades}
         title="Closed trades"
         variant="closed"
+        leverage={tradesData?.leverage ?? 50}
       />
     </section>
   );
@@ -259,6 +268,7 @@ function PaperTradesPanel({
   onRefresh,
   title,
   variant,
+  leverage,
 }: {
   trades: PstrategyTrade[];
   loading: boolean;
@@ -266,6 +276,7 @@ function PaperTradesPanel({
   onRefresh: () => void;
   title: string;
   variant: "open" | "closed";
+  leverage: number;
 }) {
   const filtered = trades.filter((t) => t.status === variant);
 
@@ -281,7 +292,8 @@ function PaperTradesPanel({
       </div>
       <p className="pcr-oi-caption" style={{ margin: "4px 0 10px" }}>
         Simulated only -- replayed deterministically from the proposed entry/exit rule against 5m candle history. No
-        real orders are placed.
+        real orders are placed. P&amp;L is the return on margin at {leverage}x leverage (matching Delta's XAUTUSD
+        perpetual), not the raw price move.
       </p>
       {error ? <div className="alert error">{error}</div> : null}
       {filtered.length === 0 ? (
@@ -297,7 +309,7 @@ function PaperTradesPanel({
                 {variant === "open" ? (
                   <>
                     <th>Current price</th>
-                    <th>Current P&amp;L</th>
+                    <th>Current P&amp;L ({leverage}x)</th>
                     <th>Stop</th>
                   </>
                 ) : (
@@ -305,7 +317,7 @@ function PaperTradesPanel({
                     <th>Exit time</th>
                     <th>Exit price</th>
                     <th>Exit reason</th>
-                    <th>P&amp;L</th>
+                    <th>P&amp;L ({leverage}x)</th>
                   </>
                 )}
               </tr>

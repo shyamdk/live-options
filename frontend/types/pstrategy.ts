@@ -54,6 +54,7 @@ export interface PstrategyData {
   emaEnabled: boolean;
   emaFast: number;
   emaSlow: number;
+  leverage: number;
   candles: PstrategyCandle[];
   consolidations: ConsolidationBox[];
   momentumCandles: MomentumCandle[];

@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, Query
 from app.services.app_auth import require_auth
 from app.services.crypto_indicators import ema
 from app.services.delta_exchange import DeltaExchangeError, DeltaExchangeService
-from app.services.pstrategy import build_paper_trades, detect_patterns
+from app.services.pstrategy import LEVERAGE, build_paper_trades, detect_patterns
 
 router = APIRouter(prefix="/pstrategy", tags=["pstrategy"])
 
@@ -100,6 +100,7 @@ async def candles(
         "consolidations": boxes,
         "momentumCandles": momentum_candles,
         "trades": trades,
+        "leverage": LEVERAGE,
         "emaFastValues": ema_fast,
         "emaSlowValues": ema_slow,
         "crossovers": crossovers,
@@ -116,4 +117,4 @@ async def _with_live_pnl(open_trade: dict[str, Any]) -> None:
         return
     direction = 1 if open_trade["side"] == "long" else -1
     open_trade["currentPrice"] = current
-    open_trade["unrealizedPnlPercent"] = (current - open_trade["entryPrice"]) / open_trade["entryPrice"] * 100 * direction
+    open_trade["unrealizedPnlPercent"] = (current - open_trade["entryPrice"]) / open_trade["entryPrice"] * 100 * direction * LEVERAGE

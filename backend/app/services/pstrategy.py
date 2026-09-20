@@ -33,6 +33,12 @@ BODY_ATR_RATIO = 0.6
 # small bodies alone don't rule out a choppy run wandering across a wide
 # band via wicks/gaps between candles.
 RANGE_ATR_RATIO = 1.0
+# Delta Exchange lets XAUTUSD perpetuals go up to 50x -- P&L is reported
+# as the return on margin at that leverage, not the raw price move,
+# matching how the position would actually be sized on the exchange.
+# Entry/stop/target stay pure price levels either way; only the P&L%
+# scales.
+LEVERAGE = 50
 
 Side = Literal["long", "short"]
 
@@ -188,7 +194,7 @@ def build_paper_trades(
                     exitTime=candles[k]["time"],
                     exitPrice=close_k,
                     exitReason=reason,
-                    pnlPercent=(close_k - entry_price) / entry_price * 100 * direction,
+                    pnlPercent=(close_k - entry_price) / entry_price * 100 * direction * LEVERAGE,
                 )
                 break
 
