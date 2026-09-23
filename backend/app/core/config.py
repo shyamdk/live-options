@@ -172,6 +172,44 @@ class Settings(BaseSettings):
     pstrategy_nifty_rsi_long_exit: float = 90.0
     pstrategy_nifty_rsi_short_exit: float = 20.0
 
+    # PE-CE Crossover: paper-only, buys ATM CE/PE when EMA8 crosses EMA21 on
+    # the OPTION'S OWN premium candles -- not the underlying, unlike every
+    # other options strategy in this codebase (pStrategy-Nifty, ema5,
+    # gamma_blast). CE and PE are independent signal streams; see
+    # pe_ce_crossover.py. Off by default like every new monitor here.
+    pe_ce_crossover_monitor_enabled: bool = False
+    pe_ce_crossover_poll_interval_seconds: int = 30
+    pe_ce_crossover_session_start_time: str = "09:15"
+    pe_ce_crossover_session_end_time: str = "15:30"
+    # Comma-separated; NIFTY only by default, BANKNIFTY/SENSEX selectable.
+    pe_ce_crossover_underlyings: str = "NIFTY"
+    pe_ce_crossover_lots: int = 1
+    # Spec asks to "select one stop-loss mode explicitly" -- percentage of
+    # entry premium is the mode implemented first; ATR-on-option-candles is
+    # a later configurable mode, not built yet.
+    pe_ce_crossover_stop_loss_percent: float = 30.0
+    pe_ce_crossover_target_percent: float = 50.0
+    pe_ce_crossover_trail_arm_percent: float = 20.0
+    pe_ce_crossover_trail_percent: float = 10.0
+    pe_ce_crossover_max_capital_rupees: float = 50_000.0
+    pe_ce_crossover_max_daily_loss_rupees: float = 5_000.0
+    pe_ce_crossover_max_trades_per_day: int = 6
+    pe_ce_crossover_cooldown_minutes: int = 15
+    # "total": at most one open position across both CE and PE combined.
+    # "per_side": one CE and one PE can be open at the same time.
+    pe_ce_crossover_position_mode: str = "total"
+    # Premium expansion filter (spec Section 6): the closing premium must
+    # have moved at least this percent over the lookback below before a
+    # crossover is actionable -- rules out a crossover on a dead/flat premium.
+    pe_ce_crossover_min_premium_expansion_percent: float = 5.0
+    pe_ce_crossover_premium_expansion_lookback_bars: int = 3
+    pe_ce_crossover_max_spread_percent: float = 3.0
+    pe_ce_crossover_max_quote_age_seconds: int = 90
+    # DTE 0/1 avoidance (spec Section 3): None means the automatic DTE-0/1
+    # -> next-expiry policy in pe_ce_expiry.py; set to an explicit expiry
+    # string to override it (logged when set).
+    pe_ce_crossover_expiry_policy_override: str | None = None
+
     # Logs each new oi_signal_engine poll to oi_upgraded_signal_log (phase 5
     # signal history) -- read-only, no order placement, off by default.
     oi_upgraded_monitor_enabled: bool = False

@@ -144,6 +144,13 @@ def init_db() -> None:
         _add_column_if_missing(conn, "pcr_oi_snapshots", "pe_delta", "REAL")
         _add_column_if_missing(conn, "pcr_oi_snapshots", "pe_vega", "REAL")
         _add_column_if_missing(conn, "pcr_oi_snapshots", "india_vix", "REAL")
+        # Bid/ask for the ATM strike -- needed by PE-CE Crossover's spread
+        # gate (pe_ce_filters.py); Dhan's option chain already returns these
+        # per-strike (top_bid_price/top_ask_price), just wasn't captured here.
+        _add_column_if_missing(conn, "pcr_oi_snapshots", "ce_bid", "REAL")
+        _add_column_if_missing(conn, "pcr_oi_snapshots", "ce_ask", "REAL")
+        _add_column_if_missing(conn, "pcr_oi_snapshots", "pe_bid", "REAL")
+        _add_column_if_missing(conn, "pcr_oi_snapshots", "pe_ask", "REAL")
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS alert_events (
@@ -707,6 +714,56 @@ def init_db() -> None:
         )
         conn.execute(
             """
+            CREATE TABLE IF NOT EXISTS pe_ce_crossover_trades (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                underlying TEXT NOT NULL,
+                side TEXT NOT NULL,
+                strike REAL NOT NULL,
+                expiry TEXT NOT NULL,
+                dte INTEGER,
+                security_id TEXT NOT NULL,
+                exchange_segment TEXT NOT NULL,
+                lots INTEGER NOT NULL,
+                lot_size INTEGER NOT NULL,
+                entry_time INTEGER NOT NULL,
+                entry_premium REAL NOT NULL,
+                stop_loss_percent REAL NOT NULL,
+                target_percent REAL NOT NULL,
+                peak_premium REAL,
+                trail_stop_premium REAL,
+                status TEXT NOT NULL DEFAULT 'open',
+                exit_time INTEGER,
+                exit_premium REAL,
+                exit_reason TEXT,
+                realized_pnl REAL,
+                charges REAL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS pe_ce_crossover_signal_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_date TEXT NOT NULL,
+                epoch INTEGER NOT NULL,
+                underlying TEXT NOT NULL,
+                side TEXT NOT NULL,
+                state TEXT NOT NULL,
+                blocked_reason TEXT,
+                ema_fast REAL,
+                ema_slow REAL,
+                premium REAL,
+                premium_expansion_percent REAL,
+                spread_percent REAL,
+                created_at TEXT NOT NULL,
+                UNIQUE(session_date, epoch, underlying, side)
+            )
+            """
+        )
+        conn.execute(
+            """
             CREATE TABLE IF NOT EXISTS crypto_swing_live_trades (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 symbol TEXT NOT NULL,
@@ -1117,6 +1174,10 @@ def record_pcr_oi_snapshot(
     pe_delta: float | None = None,
     pe_vega: float | None = None,
     india_vix: float | None = None,
+    ce_bid: float | None = None,
+    ce_ask: float | None = None,
+    pe_bid: float | None = None,
+    pe_ask: float | None = None,
 ) -> None:
     now = datetime.now().isoformat(timespec="seconds")
     with _DB_LOCK, _connect() as conn:
@@ -1124,12 +1185,14 @@ def record_pcr_oi_snapshot(
             """
             INSERT INTO pcr_oi_snapshots (
                 session_date, underlying, epoch, captured_at, spot, pcr, ce_oi, pe_oi, ce_oi_change, pe_oi_change,
-                atm_strike, ce_premium, ce_iv, ce_delta, ce_vega, pe_premium, pe_iv, pe_delta, pe_vega, india_vix
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                atm_strike, ce_premium, ce_iv, ce_delta, ce_vega, pe_premium, pe_iv, pe_delta, pe_vega, india_vix,
+                ce_bid, ce_ask, pe_bid, pe_ask
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 session_date, underlying, epoch, now, spot, pcr, ce_oi, pe_oi, ce_oi_change, pe_oi_change,
                 atm_strike, ce_premium, ce_iv, ce_delta, ce_vega, pe_premium, pe_iv, pe_delta, pe_vega, india_vix,
+                ce_bid, ce_ask, pe_bid, pe_ask,
             ),
         )
         conn.commit()
@@ -1169,6 +1232,10 @@ def get_pcr_oi_snapshots(session_date: str) -> dict[str, list[dict[str, Any]]]:
                 "peDelta": row["pe_delta"],
                 "peVega": row["pe_vega"],
                 "indiaVix": row["india_vix"],
+                "ceBid": row["ce_bid"],
+                "ceAsk": row["ce_ask"],
+                "peBid": row["pe_bid"],
+                "peAsk": row["pe_ask"],
             }
         )
     return result
@@ -1662,6 +1729,245 @@ def get_oi_upgraded_signal_log(session_date: str) -> list[dict[str, Any]]:
             "vwap": row["vwap"],
             "cePremium": row["ce_premium"],
             "pePremium": row["pe_premium"],
+        }
+        for row in rows
+    ]
+
+
+def create_pe_ce_crossover_trade(
+    *,
+    underlying: str,
+    side: str,
+    strike: float,
+    expiry: str,
+    dte: int | None,
+    security_id: str,
+    exchange_segment: str,
+    lots: int,
+    lot_size: int,
+    entry_time: int,
+    entry_premium: float,
+    stop_loss_percent: float,
+    target_percent: float,
+) -> int:
+    now = datetime.now().isoformat(timespec="seconds")
+    with _DB_LOCK, _connect() as conn:
+        cur = conn.execute(
+            """
+            INSERT INTO pe_ce_crossover_trades (
+                underlying, side, strike, expiry, dte, security_id, exchange_segment,
+                lots, lot_size, entry_time, entry_premium, stop_loss_percent, target_percent,
+                peak_premium, trail_stop_premium, status, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 'open', ?, ?)
+            """,
+            (
+                underlying,
+                side,
+                strike,
+                expiry,
+                dte,
+                security_id,
+                exchange_segment,
+                lots,
+                lot_size,
+                entry_time,
+                entry_premium,
+                stop_loss_percent,
+                target_percent,
+                entry_premium,
+                now,
+                now,
+            ),
+        )
+        conn.commit()
+        return int(cur.lastrowid)
+
+
+def get_open_pe_ce_crossover_trade(underlying: str, side: str) -> dict[str, Any] | None:
+    with _DB_LOCK, _connect() as conn:
+        row = conn.execute(
+            "SELECT * FROM pe_ce_crossover_trades WHERE underlying = ? AND side = ? AND status = 'open' ORDER BY id DESC LIMIT 1",
+            (underlying, side),
+        ).fetchone()
+    return _pe_ce_crossover_trade_from_row(row) if row else None
+
+
+def list_open_pe_ce_crossover_trades() -> list[dict[str, Any]]:
+    with _DB_LOCK, _connect() as conn:
+        rows = conn.execute("SELECT * FROM pe_ce_crossover_trades WHERE status = 'open'").fetchall()
+    return [_pe_ce_crossover_trade_from_row(row) for row in rows]
+
+
+def update_pe_ce_crossover_trade_progress(
+    trade_id: int, *, peak_premium: float | None, trail_stop_premium: float | None
+) -> None:
+    now = datetime.now().isoformat(timespec="seconds")
+    with _DB_LOCK, _connect() as conn:
+        conn.execute(
+            "UPDATE pe_ce_crossover_trades SET peak_premium = ?, trail_stop_premium = ?, updated_at = ? WHERE id = ?",
+            (peak_premium, trail_stop_premium, now, trade_id),
+        )
+        conn.commit()
+
+
+def close_pe_ce_crossover_trade(
+    trade_id: int, *, exit_time: int, exit_premium: float, exit_reason: str, realized_pnl: float, charges: float
+) -> None:
+    now = datetime.now().isoformat(timespec="seconds")
+    with _DB_LOCK, _connect() as conn:
+        conn.execute(
+            """
+            UPDATE pe_ce_crossover_trades
+            SET status = 'closed', exit_time = ?, exit_premium = ?, exit_reason = ?, realized_pnl = ?, charges = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (exit_time, exit_premium, exit_reason, realized_pnl, charges, now, trade_id),
+        )
+        conn.commit()
+
+
+def list_pe_ce_crossover_trades(underlying: str | None = None) -> list[dict[str, Any]]:
+    with _DB_LOCK, _connect() as conn:
+        if underlying:
+            rows = conn.execute(
+                "SELECT * FROM pe_ce_crossover_trades WHERE underlying = ? ORDER BY entry_time DESC", (underlying,)
+            ).fetchall()
+        else:
+            rows = conn.execute("SELECT * FROM pe_ce_crossover_trades ORDER BY entry_time DESC").fetchall()
+    return [_pe_ce_crossover_trade_from_row(row) for row in rows]
+
+
+def count_pe_ce_crossover_trades_today(underlying: str, side: str, start_of_day_epoch: int) -> int:
+    with _DB_LOCK, _connect() as conn:
+        row = conn.execute(
+            "SELECT COUNT(*) AS n FROM pe_ce_crossover_trades WHERE underlying = ? AND side = ? AND entry_time >= ?",
+            (underlying, side, start_of_day_epoch),
+        ).fetchone()
+    return int(row["n"]) if row else 0
+
+
+def get_last_pe_ce_crossover_exit_time(underlying: str, side: str) -> int | None:
+    with _DB_LOCK, _connect() as conn:
+        row = conn.execute(
+            """
+            SELECT exit_time FROM pe_ce_crossover_trades
+            WHERE underlying = ? AND side = ? AND status = 'closed' AND exit_time IS NOT NULL
+            ORDER BY exit_time DESC LIMIT 1
+            """,
+            (underlying, side),
+        ).fetchone()
+    return int(row["exit_time"]) if row and row["exit_time"] is not None else None
+
+
+def get_today_realized_pnl_pe_ce_crossover(start_of_day_epoch: int) -> float:
+    with _DB_LOCK, _connect() as conn:
+        row = conn.execute(
+            """
+            SELECT COALESCE(SUM(realized_pnl), 0) AS total
+            FROM pe_ce_crossover_trades
+            WHERE status = 'closed' AND exit_time >= ?
+            """,
+            (start_of_day_epoch,),
+        ).fetchone()
+    return float(row["total"]) if row else 0.0
+
+
+def _pe_ce_crossover_trade_from_row(row: sqlite3.Row) -> dict[str, Any]:
+    return {
+        "id": row["id"],
+        "underlying": row["underlying"],
+        "side": row["side"],
+        "strike": row["strike"],
+        "expiry": row["expiry"],
+        "dte": row["dte"],
+        "securityId": row["security_id"],
+        "exchangeSegment": row["exchange_segment"],
+        "lots": row["lots"],
+        "lotSize": row["lot_size"],
+        "entryTime": row["entry_time"],
+        "entryPremium": row["entry_premium"],
+        "stopLossPercent": row["stop_loss_percent"],
+        "targetPercent": row["target_percent"],
+        "peakPremium": row["peak_premium"],
+        "trailStopPremium": row["trail_stop_premium"],
+        "status": row["status"],
+        "exitTime": row["exit_time"],
+        "exitPremium": row["exit_premium"],
+        "exitReason": row["exit_reason"],
+        "realizedPnl": row["realized_pnl"],
+        "charges": row["charges"],
+        "createdAt": row["created_at"],
+    }
+
+
+def record_pe_ce_crossover_signal(
+    *,
+    session_date: str,
+    epoch: int,
+    underlying: str,
+    side: str,
+    state: str,
+    blocked_reason: str | None,
+    ema_fast: float | None,
+    ema_slow: float | None,
+    premium: float | None,
+    premium_expansion_percent: float | None,
+    spread_percent: float | None,
+) -> None:
+    now = datetime.now().isoformat(timespec="seconds")
+    with _DB_LOCK, _connect() as conn:
+        conn.execute(
+            """
+            INSERT OR IGNORE INTO pe_ce_crossover_signal_log (
+                session_date, epoch, underlying, side, state, blocked_reason,
+                ema_fast, ema_slow, premium, premium_expansion_percent, spread_percent, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                session_date,
+                epoch,
+                underlying,
+                side,
+                state,
+                blocked_reason,
+                ema_fast,
+                ema_slow,
+                premium,
+                premium_expansion_percent,
+                spread_percent,
+                now,
+            ),
+        )
+        conn.commit()
+
+
+def list_pe_ce_crossover_signal_log(session_date: str, underlying: str | None = None, limit: int = 500) -> list[dict[str, Any]]:
+    with _DB_LOCK, _connect() as conn:
+        if underlying:
+            rows = conn.execute(
+                """
+                SELECT * FROM pe_ce_crossover_signal_log WHERE session_date = ? AND underlying = ?
+                ORDER BY epoch DESC LIMIT ?
+                """,
+                (session_date, underlying, limit),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM pe_ce_crossover_signal_log WHERE session_date = ? ORDER BY epoch DESC LIMIT ?",
+                (session_date, limit),
+            ).fetchall()
+    return [
+        {
+            "time": row["epoch"],
+            "underlying": row["underlying"],
+            "side": row["side"],
+            "state": row["state"],
+            "blockedReason": row["blocked_reason"],
+            "emaFast": row["ema_fast"],
+            "emaSlow": row["ema_slow"],
+            "premium": row["premium"],
+            "premiumExpansionPercent": row["premium_expansion_percent"],
+            "spreadPercent": row["spread_percent"],
         }
         for row in rows
     ]

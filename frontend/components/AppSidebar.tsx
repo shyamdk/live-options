@@ -10,6 +10,7 @@ import {
   LineChart,
   PenTool,
   RadioTower,
+  SplitSquareHorizontal,
   TrendingUp,
 } from "lucide-react";
 import Link from "next/link";
@@ -31,6 +32,7 @@ const navItems = [
   { href: "/pstrategy", label: "pStrategy", short: "PS", icon: PenTool },
   { href: "/nifty-swing", label: "Nifty-Swing", short: "NS", icon: LineChart },
   { href: "/pstrategy-nifty", label: "pStrategy-Nifty", short: "PN", icon: TrendingUp },
+  { href: "/pe-ce-crossover", label: "PE-CE Crossover", short: "PC", icon: SplitSquareHorizontal },
 ];
 
 const STORAGE_KEY = "live-options-sidebar-collapsed";

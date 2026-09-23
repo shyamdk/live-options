@@ -99,6 +99,7 @@ async def pcr_oi(session_date: str | None = Query(default=None, alias="date")) -
         "sessionDate": resolved_date,
         "NIFTY": _pipeline(snapshots.get("NIFTY", [])),
         "SENSEX": _pipeline(snapshots.get("SENSEX", [])),
+        "BANKNIFTY": _pipeline(snapshots.get("BANKNIFTY", [])),
     }
 
 

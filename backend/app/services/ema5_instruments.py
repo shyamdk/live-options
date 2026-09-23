@@ -31,8 +31,10 @@ async def resolve_next_expiry(dhan: DhanService, underlying_scrip: int) -> str |
 async def resolve_atm_option(
     dhan: DhanService, *, underlying_scrip: int, expiry: str, side: str, strike_step: float
 ) -> dict[str, Any] | None:
-    """Returns {strike, securityId, ltp} for the ATM (nearest-strike) option
-    on the given side, or None if the chain has no usable data.
+    """Returns {strike, securityId, ltp, bid, ask} for the ATM (nearest-
+    strike) option on the given side, or None if the chain has no usable
+    data. bid/ask come straight from the same chain payload (Dhan's
+    top_bid_price/top_ask_price) -- no extra fetch needed.
     """
     chain = await dhan.option_chain(underlying_scrip, INDEX_SEGMENT, expiry)
     spot = float(chain.get("last_price") or 0)
@@ -62,4 +64,6 @@ async def resolve_atm_option(
         "strike": strike_price,
         "securityId": str(payload.get("security_id")),
         "ltp": float(payload.get("last_price") or 0),
+        "bid": float(payload.get("top_bid_price") or 0) or None,
+        "ask": float(payload.get("top_ask_price") or 0) or None,
     }

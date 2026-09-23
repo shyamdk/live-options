@@ -60,12 +60,17 @@ export type PcrOiSnapshot = {
   deltaVegaAligned: "CE" | "PE" | null;
   oiRegime: "longBuildup" | "shortBuildup" | "longUnwinding" | "shortCovering" | null;
   indiaVix: number | null;
+  ceBid: number | null;
+  ceAsk: number | null;
+  peBid: number | null;
+  peAsk: number | null;
 };
 
 export type PcrOiPayload = {
   sessionDate?: string;
   NIFTY: PcrOiSnapshot[];
   SENSEX: PcrOiSnapshot[];
+  BANKNIFTY?: PcrOiSnapshot[];
 };
 
 export type MarketCandle = {

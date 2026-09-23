@@ -55,6 +55,25 @@ async def resolve_equity_security_id(trading_symbol: str, *, exchange: str = "NS
     )
 
 
+async def resolve_lot_size_by_security_id(security_id: int | str) -> int:
+    """Current lot size for an option/futures contract, straight from the
+    instrument master (SEM_LOT_UNITS) -- spec requirement: "Load current lot
+    size from the instrument master; never hard-code a permanent lot size."
+    Raises ScripMasterError if the contract can't be found, same reasoning
+    as resolve_equity_security_id: a wrong/missing lot size silently
+    mis-sizes a real order, worse than a loud failure.
+    """
+    rows = await _get_rows()
+    target = str(security_id)
+    for row in rows:
+        if row["security_id"].strip() == target:
+            try:
+                return int(float(row["lot_units"]))
+            except (TypeError, ValueError):
+                continue
+    raise ScripMasterError(f"Could not resolve lot size for security_id {security_id!r} from the scrip master.")
+
+
 async def _get_rows() -> list[dict[str, str]]:
     now = time.monotonic()
     if _cache["rows"] is not None and now - _cache["fetched_at"] < _CACHE_TTL_SECONDS:
@@ -73,6 +92,7 @@ async def _get_rows() -> list[dict[str, str]]:
     security_id_col = _find_column(reader.fieldnames, "SECURITY_ID")
     exchange_col = _find_column(reader.fieldnames, "EXCH_ID") or _find_column(reader.fieldnames, "EXCHANGE")
     segment_col = _find_column(reader.fieldnames, "SEGMENT")
+    lot_units_col = _find_column(reader.fieldnames, "LOT_UNITS")
     if not symbol_col or not security_id_col or not exchange_col:
         raise ScripMasterError(
             f"Dhan scrip master CSV columns didn't match expectations: {reader.fieldnames[:15]}"
@@ -84,6 +104,7 @@ async def _get_rows() -> list[dict[str, str]]:
             "security_id": row.get(security_id_col, ""),
             "exchange": row.get(exchange_col, ""),
             "segment": row.get(segment_col, "") if segment_col else "",
+            "lot_units": row.get(lot_units_col, "") if lot_units_col else "",
         }
         for row in reader
     ]

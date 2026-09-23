@@ -21,7 +21,7 @@ from app.core.timeutil import epoch_to_ist_time, in_time_window, now_ist, now_is
 from app.db.sqlite import record_pcr_oi_snapshot
 from app.services.dhan import DhanService
 
-UNDERLYINGS = ("NIFTY", "SENSEX")
+UNDERLYINGS = ("NIFTY", "SENSEX", "BANKNIFTY")
 INDEX_SEGMENT = "IDX_I"
 
 _expiries: dict[str, str | None] = {}
@@ -72,7 +72,11 @@ async def refresh_pcr_oi_now() -> None:
 
 
 def _security_id(settings: Settings, underlying: str) -> int:
-    return settings.dhan_nifty_security_id if underlying == "NIFTY" else settings.dhan_sensex_security_id
+    if underlying == "NIFTY":
+        return settings.dhan_nifty_security_id
+    if underlying == "BANKNIFTY":
+        return settings.dhan_banknifty_security_id
+    return settings.dhan_sensex_security_id
 
 
 async def _resolve_expiries(dhan: DhanService, settings: Settings, today: date) -> dict[str, str | None]:
@@ -130,6 +134,10 @@ async def _poll_once(settings: Settings, now: datetime) -> None:
             pe_delta=snapshot["pe_delta"],
             pe_vega=snapshot["pe_vega"],
             india_vix=india_vix,
+            ce_bid=snapshot["ce_bid"],
+            ce_ask=snapshot["ce_ask"],
+            pe_bid=snapshot["pe_bid"],
+            pe_ask=snapshot["pe_ask"],
         )
 
 
@@ -190,6 +198,10 @@ def _summarize_chain(chain: dict[str, Any]) -> dict[str, Any]:
         "pe_iv": _number(pe_atm.get("implied_volatility")),
         "pe_delta": _number((pe_atm.get("greeks") or {}).get("delta")),
         "pe_vega": _number((pe_atm.get("greeks") or {}).get("vega")),
+        "ce_bid": _number(ce_atm.get("top_bid_price")),
+        "ce_ask": _number(ce_atm.get("top_ask_price")),
+        "pe_bid": _number(pe_atm.get("top_bid_price")),
+        "pe_ask": _number(pe_atm.get("top_ask_price")),
     }
 
 

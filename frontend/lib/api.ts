@@ -26,6 +26,15 @@ import type { CryptoSwingIndicators, CryptoSwingLiveStatus, CryptoSwingSymbol, C
 import type { EmaSettings, PstrategyData, PstrategyResolution } from "@/types/pstrategy";
 import type { NiftySwingIndicators, NiftySwingLiveStatus, NiftySwingResolution, NiftySwingTrade } from "@/types/nifty-swing";
 import type { PstrategyNiftyCandlesData, PstrategyNiftyResolution, PstrategyNiftyTrade } from "@/types/pstrategy-nifty";
+import type {
+  PeCeBacktestResult,
+  PeCeCandlesData,
+  PeCeSide,
+  PeCeSignalLogEntry,
+  PeCeStatus,
+  PeCeTrade,
+  PeCeUnderlying,
+} from "@/types/pe-ce-crossover";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8001";
 const AUTH_TOKEN_KEY = "live-options-auth-token";
@@ -523,6 +532,50 @@ export async function getPstrategyNiftyTrades(
     `/api/pstrategy-nifty/trades?resolution=${resolution}`,
     undefined,
     "Failed to load pStrategy-Nifty paper trades",
+  );
+}
+
+export async function getPeCeCrossoverCandles(underlying: PeCeUnderlying, side: PeCeSide): Promise<PeCeCandlesData> {
+  return apiJson<PeCeCandlesData>(
+    `/api/pe-ce-crossover/candles?underlying=${underlying}&side=${side}`,
+    undefined,
+    `Failed to load ${underlying} ${side} candles`,
+  );
+}
+
+export async function getPeCeCrossoverTrades(underlying: PeCeUnderlying): Promise<{ trades: PeCeTrade[]; underlying: PeCeUnderlying }> {
+  return apiJson<{ trades: PeCeTrade[]; underlying: PeCeUnderlying }>(
+    `/api/pe-ce-crossover/trades?underlying=${underlying}`,
+    undefined,
+    "Failed to load PE-CE Crossover trades",
+  );
+}
+
+export async function getPeCeCrossoverSignalLog(
+  underlying: PeCeUnderlying,
+): Promise<{ log: PeCeSignalLogEntry[]; sessionDate: string }> {
+  return apiJson<{ log: PeCeSignalLogEntry[]; sessionDate: string }>(
+    `/api/pe-ce-crossover/signal-log?underlying=${underlying}`,
+    undefined,
+    "Failed to load PE-CE Crossover signal log",
+  );
+}
+
+export async function getPeCeCrossoverStatus(): Promise<PeCeStatus> {
+  return apiJson<PeCeStatus>("/api/pe-ce-crossover/status", undefined, "Failed to load PE-CE Crossover status");
+}
+
+export async function runPeCeCrossoverBacktest(
+  underlying: PeCeUnderlying,
+  side: PeCeSide,
+  fromDate: string,
+  toDate: string,
+): Promise<PeCeBacktestResult> {
+  const query = new URLSearchParams({ underlying, side, fromDate, toDate });
+  return apiJson<PeCeBacktestResult>(
+    `/api/pe-ce-crossover/backtest?${query.toString()}`,
+    undefined,
+    "Failed to run backtest",
   );
 }
 
