@@ -114,3 +114,24 @@ export interface BatmanTrade {
   payoff?: { price: number; expiry: number; today: number }[];
   breakevens?: number[];
 }
+
+export interface BatmanAnalysis extends Omit<BatmanPreview, "config"> {
+  error?: string;
+  series: string;
+  dte?: number;
+  atmIv?: number | null;
+  expiries: { expiry: string; dte: number; monthly: boolean }[];
+  suggested: { buyOffset: number; sellGap: number; hedgeGap: number; balanceMove: number } | null;
+  inputs?: {
+    baseLots: number;
+    shortRatio: number;
+    outerRatio: number;
+    buyOffset: number;
+    sellGap: number;
+    hedgeGap: number;
+    extraCallLots: number | null;
+    capital: number;
+    balanceMove: number;
+  };
+  autoExtraCallLots?: boolean;
+}

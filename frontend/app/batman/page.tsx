@@ -9,6 +9,7 @@ import { DailyTotalsTable, groupDailyTotals } from "@/components/DailyTotals";
 import StrikeDistanceMap from "@/components/StrikeDistanceMap";
 import VarahaPayoffChart from "@/components/VarahaPayoffChart";
 import {
+  analyzeBatman,
   closeBatmanTrade,
   enterBatmanNow,
   getBatmanConfig,
@@ -17,7 +18,7 @@ import {
   getBatmanTrades,
   updateBatmanConfig,
 } from "@/lib/api";
-import type { BatmanConfig, BatmanMode, BatmanPreview, BatmanTrade } from "@/types/batman";
+import type { BatmanAnalysis, BatmanConfig, BatmanMode, BatmanPreview, BatmanTrade } from "@/types/batman";
 
 const REFRESH_MS = 60000;
 const EXIT_LABEL: Record<string, string> = {
@@ -95,7 +96,25 @@ function fmtDate(value: string | null | undefined): string {
 }
 
 export default function BatmanPage() {
-  const mode: BatmanMode = "monthly"; // weekly was built but switched off
+  const mode: BatmanMode = "monthly"; // weekly trading is switched off; the Weekly tab is analysis only
+  const [tab, setTab] = useState<"monthly" | "weekly">("monthly");
+  useEffect(() => {
+    try {
+      const fromUrl = new URLSearchParams(window.location.search).get("tab");
+      const saved = fromUrl ?? window.localStorage.getItem("batman:tab");
+      if (saved === "monthly" || saved === "weekly") setTab(saved);
+    } catch {
+      // ignore
+    }
+  }, []);
+  function switchTab(next: "monthly" | "weekly") {
+    setTab(next);
+    try {
+      window.localStorage.setItem("batman:tab", next);
+    } catch {
+      // ignore
+    }
+  }
   const [preview, setPreview] = useState<BatmanPreview | null>(null);
   const [config, setConfig] = useState<BatmanConfig | null>(null);
   const [trades, setTrades] = useState<BatmanTrade[]>([]);
@@ -189,13 +208,40 @@ export default function BatmanPage() {
           <button type="button" className="button secondary" onClick={() => load()} style={{ whiteSpace: "nowrap" }}>
             <RefreshCw size={14} /> Refresh
           </button>
-          <button type="button" className="button" onClick={enterNow} disabled={!!busy} style={{ whiteSpace: "nowrap" }}>
+          <button type="button" className="button" onClick={enterNow} disabled={!!busy || tab !== "monthly"} style={{ whiteSpace: "nowrap" }}>
             <Play size={14} /> {busy === "enter" ? "Entering…" : "Enter now"}
           </button>
         </div>
       </header>
 
 
+      <nav style={{ display: "flex", gap: 4, borderBottom: "1px solid var(--line)", marginBottom: 14 }}>
+        {(["monthly", "weekly"] as const).map((t) => (
+          <button
+            key={t}
+            type="button"
+            onClick={() => switchTab(t)}
+            style={{
+              padding: "8px 14px",
+              fontSize: 14,
+              fontWeight: t === tab ? 600 : 500,
+              color: t === tab ? "var(--blue)" : "var(--muted)",
+              background: "none",
+              border: "none",
+              borderBottom: `2px solid ${t === tab ? "var(--blue)" : "transparent"}`,
+              marginBottom: -1,
+              cursor: "pointer",
+            }}
+          >
+            {t === "monthly" ? "Monthly (paper trading)" : "Weekly (analyzer)"}
+          </button>
+        ))}
+      </nav>
+
+      {tab === "weekly" ? (
+        <WeeklyAnalyzer />
+      ) : (
+        <>
       {error ? <div className="alert error">{error}</div> : null}
       {message ? <div className="alert success">{message}</div> : null}
 
@@ -224,7 +270,289 @@ export default function BatmanPage() {
       </CollapsibleSection>
 
       <SettingsSection mode={mode} config={config} busy={busy === "config"} onSave={saveConfig} />
+        </>
+      )}
     </section>
+  );
+}
+
+type AnalyzerForm = {
+  expiry: string;
+  baseLots: string;
+  shortRatio: string;
+  outerRatio: string;
+  buyOffset: string;
+  sellGap: string;
+  hedgeGap: string;
+  extraCallLots: string;
+  capital: string;
+  balanceMove: string;
+};
+
+const EMPTY_FORM: AnalyzerForm = {
+  expiry: "",
+  baseLots: "3",
+  shortRatio: "3",
+  outerRatio: "2",
+  buyOffset: "",
+  sellGap: "",
+  hedgeGap: "",
+  extraCallLots: "auto",
+  capital: "1000000",
+  balanceMove: "",
+};
+
+function WeeklyAnalyzer() {
+  const [form, setForm] = useState<AnalyzerForm>(EMPTY_FORM);
+  const [result, setResult] = useState<BatmanAnalysis | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const timerRef = useRef<number | null>(null);
+
+  async function run(current: AnalyzerForm) {
+    setLoading(true);
+    try {
+      const data = await analyzeBatman({
+        expiry: current.expiry || undefined,
+        baseLots: current.baseLots,
+        shortRatio: current.shortRatio,
+        outerRatio: current.outerRatio,
+        buyOffset: current.buyOffset || undefined,
+        sellGap: current.sellGap || undefined,
+        hedgeGap: current.hedgeGap || undefined,
+        extraCallLots: current.extraCallLots === "auto" ? undefined : current.extraCallLots,
+        capital: current.capital,
+        balanceMove: current.balanceMove || undefined,
+      });
+      setResult(data);
+      setError(data.error ?? null);
+      // First load: show the expiry / distances the server picked so the form reflects them.
+      if (data.inputs && !current.buyOffset) {
+        setForm((f) => ({
+          ...f,
+          expiry: f.expiry || data.series,
+          buyOffset: String(data.inputs!.buyOffset),
+          sellGap: String(data.inputs!.sellGap),
+          hedgeGap: String(data.inputs!.hedgeGap),
+          balanceMove: String(data.inputs!.balanceMove),
+        }));
+      }
+    } catch (exc) {
+      setError(exc instanceof Error ? exc.message : "Analysis failed.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    run(EMPTY_FORM);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  function update(key: keyof AnalyzerForm, value: string) {
+    const next = { ...form, [key]: value };
+    setForm(next);
+    if (timerRef.current) window.clearTimeout(timerRef.current);
+    timerRef.current = window.setTimeout(() => run(next), 600);
+  }
+
+  function useSuggested() {
+    if (!result?.suggested) return;
+    const next = {
+      ...form,
+      buyOffset: String(result.suggested.buyOffset),
+      sellGap: String(result.suggested.sellGap),
+      hedgeGap: String(result.suggested.hedgeGap),
+      balanceMove: String(result.suggested.balanceMove),
+    };
+    setForm(next);
+    void run(next);
+  }
+
+  function pickExpiry(expiry: string) {
+    // New expiry -> re-derive distances from that expiry's expected move.
+    const next = { ...form, expiry, buyOffset: "", sellGap: "", hedgeGap: "", balanceMove: "" };
+    setForm(next);
+    void run(next);
+  }
+
+  const field = (key: keyof AnalyzerForm, label: string, hint?: string, step = 50) => (
+    <label style={{ display: "flex", flexDirection: "column", gap: 3, fontSize: 12 }}>
+      <span style={{ color: "var(--muted)", fontWeight: 600 }}>{label}</span>
+      <input
+        type="number"
+        step={step}
+        min={0}
+        value={form[key]}
+        onChange={(e) => update(key, e.target.value)}
+        style={{ width: 100, fontSize: 13, padding: "3px 6px" }}
+      />
+      {hint ? <span className="pcr-oi-caption">{hint}</span> : null}
+    </label>
+  );
+  const ratioSelect = (key: "shortRatio" | "outerRatio", label: string, values: number[]) => (
+    <label style={{ display: "flex", flexDirection: "column", gap: 3, fontSize: 12 }}>
+      <span style={{ color: "var(--muted)", fontWeight: 600 }}>{label}</span>
+      <select value={form[key]} onChange={(e) => update(key, e.target.value)} style={{ fontSize: 13, padding: "3px 6px", width: 100 }}>
+        {values.map((v) => (
+          <option key={v} value={v}>
+            {v}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+
+  return (
+    <>
+      <div className="alert warning">
+        Analysis only -- nothing here places paper or live trades. Pick an expiry and the Batman structure; the payoff
+        and T+0 numbers come from the live Dhan chain (cached ~30s).
+      </div>
+      {error ? <div className="alert error">{error}</div> : null}
+
+      <CollapsibleSection
+        id="batman-weekly-inputs"
+        title="Structure"
+        aside={
+          <span className="pcr-oi-caption">
+            {loading ? "Calculating…" : result?.series ? `${fmtDate(result.series)} · ${result.dte} days to expiry` : ""}
+          </span>
+        }
+      >
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 12 }}>
+          {(result?.expiries ?? []).map((e) => (
+            <button
+              key={e.expiry}
+              type="button"
+              className="button secondary"
+              onClick={() => pickExpiry(e.expiry)}
+              style={{
+                padding: "3px 10px",
+                fontSize: 12,
+                ...(e.expiry === (form.expiry || result?.series) ? { background: "var(--blue)", color: "#fff" } : {}),
+              }}
+            >
+              {new Date(`${e.expiry}T00:00:00`).toLocaleDateString("en-IN", { day: "2-digit", month: "short" })} · {e.dte}d
+              {e.monthly ? " · M" : ""}
+            </button>
+          ))}
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))", gap: 12, alignItems: "start" }}>
+          {field("baseLots", "Base lots (x)", "inner leg lots", 1)}
+          {ratioSelect("shortRatio", "Short ratio (×x)", [2, 3, 4, 5])}
+          {ratioSelect("outerRatio", "Outer ratio (×x)", [0, 1, 2, 3, 4])}
+          {field("buyOffset", "Buy strike from spot (pts)")}
+          {field("sellGap", "Sell gap (pts)")}
+          {field("hedgeGap", "Outer hedge gap (pts)")}
+          <label style={{ display: "flex", flexDirection: "column", gap: 3, fontSize: 12 }}>
+            <span style={{ color: "var(--muted)", fontWeight: 600 }}>Extra outer CE lots</span>
+            <select
+              value={form.extraCallLots}
+              onChange={(e) => update("extraCallLots", e.target.value)}
+              style={{ fontSize: 13, padding: "3px 6px", width: 100 }}
+            >
+              <option value="auto">Auto (balance)</option>
+              {Array.from({ length: 13 }, (_, i) => (
+                <option key={i} value={String(i)}>
+                  {i}
+                </option>
+              ))}
+            </select>
+            <span className="pcr-oi-caption">Filter 2 call over-hedge</span>
+          </label>
+          {field("balanceMove", "T+0 balance move (pts)")}
+          {field("capital", "Capital ₹", "for the % figures", 100000)}
+        </div>
+        <div style={{ display: "flex", gap: 10, alignItems: "center", marginTop: 12, flexWrap: "wrap" }}>
+          <button type="button" className="button secondary" onClick={useSuggested} disabled={!result?.suggested}>
+            Use expected-move distances
+          </button>
+          {result?.suggested ? (
+            <span className="pcr-oi-caption">
+              ±{result.suggested.buyOffset} / {result.suggested.sellGap} / {result.suggested.hedgeGap} -- the monthly rulebook&apos;s proportions
+              (0.6× / 0.25× / 1.2×) scaled to this expiry&apos;s expected move ±{num(result.expectedMove, 0)}
+            </span>
+          ) : null}
+        </div>
+      </CollapsibleSection>
+
+      {result && !result.error && result.legs ? (
+        <CollapsibleSection id="batman-weekly-result" title="Payoff">
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+            {[
+              { label: "NIFTY", value: num(result.spot), caption: result.expectedMove ? `expected move ±${num(result.expectedMove, 0)}` : undefined },
+              { label: "Net credit", value: `${inr(result.credit)} (${num(result.creditPercent)}%)`, caption: "monthly rulebook cap 6%" },
+              {
+                label: "Outer CE over-hedge",
+                value: `+${result.extraCallLots} lots`,
+                caption: result.autoExtraCallLots ? "auto-balanced" : "fixed",
+              },
+              {
+                label: `T+0 at ±${num(result.balanceMove, 0)}`,
+                value: `${num(result.t0DownPercent)}% / ${num(result.t0UpPercent)}%`,
+                caption: `${inr(result.t0Down)} / ${inr(result.t0Up)}`,
+              },
+              { label: "At expiry (±15%)", value: `${inr(result.expiryMaxProfit)} / ${inr(result.expiryMaxLoss)}`, caption: "max profit / max loss" },
+              { label: "Breakevens", value: (result.breakevens ?? []).map((b) => num(b, 0)).join(" · ") || "—" },
+            ].map((m) => (
+              <div key={m.label} className="metric metric-compact" style={{ flex: "1 1 170px" }}>
+                <span>{m.label}</span>
+                <strong>{m.value}</strong>
+                {m.caption ? <span className="pcr-oi-caption">{m.caption}</span> : null}
+              </div>
+            ))}
+          </div>
+          <StrikeDistanceMap
+            id="batman-weekly"
+            spot={result.spot}
+            marks={[0.5, 1, 1.5, 2, 2.5, 3, 4]}
+            legs={result.legs.map((l) => ({
+              key: `${l.optionType}${l.strike}`,
+              strike: l.strike,
+              label: `${l.action === "SELL" ? "S" : "B"}${l.qty} ${l.strike.toLocaleString("en-IN")} ${l.optionType}`,
+              short: l.action === "SELL",
+            }))}
+          />
+          <LegsTable legs={result.legs} />
+          {result.payoff ? (
+            <div style={{ marginTop: 12 }}>
+              <VarahaPayoffChart
+                chartId="batman-weekly"
+                label="Batman (weekly analysis)"
+                points={result.payoff}
+                breakevens={result.breakevens ?? []}
+                spot={result.spot ?? 0}
+                expectedMove={result.expectedMove ?? null}
+              />
+            </div>
+          ) : null}
+          {result.balanceTable?.length ? (
+            <details style={{ marginTop: 8 }}>
+              <summary style={{ cursor: "pointer", fontSize: 13 }}>Over-hedge trials (T+0 at ±{num(result.balanceMove, 0)})</summary>
+              <table style={{ marginTop: 6 }}>
+                <thead>
+                  <tr>
+                    <th>Extra outer CE lots</th>
+                    <th>Down</th>
+                    <th>Up</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {result.balanceTable.map((row) => (
+                    <tr key={row.extraCallLots} style={row.extraCallLots === result.extraCallLots ? { background: "var(--blue-soft)" } : undefined}>
+                      <td>+{row.extraCallLots}</td>
+                      <td>{inr(row.t0Down)}</td>
+                      <td>{inr(row.t0Up)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </details>
+          ) : null}
+        </CollapsibleSection>
+      ) : null}
+    </>
   );
 }
 

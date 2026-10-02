@@ -2,13 +2,36 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Path
+from fastapi import APIRouter, Body, Depends, HTTPException, Path, Query
 
 from app.services import batman
 from app.services.app_auth import require_auth
 
 router = APIRouter(prefix="/batman", tags=["batman"])
 MODE = Path(pattern="^monthly$")  # weekly is built but switched off
+
+
+@router.get("/analyze", dependencies=[Depends(require_auth)])
+async def analyze(
+    expiry: str | None = None,
+    baseLots: int = Query(default=3, ge=1, le=50),
+    shortRatio: int = Query(default=3, ge=1, le=10),
+    outerRatio: int = Query(default=2, ge=0, le=10),
+    buyOffset: float | None = Query(default=None, ge=0, le=5000),
+    sellGap: float | None = Query(default=None, gt=0, le=5000),
+    hedgeGap: float | None = Query(default=None, gt=0, le=5000),
+    extraCallLots: int | None = Query(default=None, ge=0, le=50),
+    capital: float = Query(default=1_000_000, gt=0),
+    balanceMove: float | None = Query(default=None, gt=0, le=5000),
+) -> dict[str, Any]:
+    """Weekly tab: analysis only, never trades."""
+    try:
+        return await batman.analyze(
+            expiry=expiry, base_lots=baseLots, short_ratio=shortRatio, outer_ratio=outerRatio, buy_offset=buyOffset,
+            sell_gap=sellGap, hedge_gap=hedgeGap, extra_call_lots=extraCallLots, capital=capital, balance_move=balanceMove,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Batman analysis failed: {exc}") from exc
 
 
 @router.get("/{mode}/config", dependencies=[Depends(require_auth)])

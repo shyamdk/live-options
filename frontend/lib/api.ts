@@ -25,7 +25,7 @@ import type { AnimeshCandlesResponse, AnimeshSession, AnimeshSessionDetail, Anim
 import type { CreditSpreadState } from "@/types/credit-spread";
 import type { SimpleCrossoverConfig, SimpleCrossoverData, SimpleCrossoverSide, SimpleCrossoverTrade } from "@/types/simple-crossover";
 import type { ThetaRuntimeConfig, ThetaSession, ThetaSessionDetail, ThetaState } from "@/types/theta";
-import type { BatmanConfig, BatmanMode, BatmanPreview, BatmanTrade } from "@/types/batman";
+import type { BatmanAnalysis, BatmanConfig, BatmanMode, BatmanPreview, BatmanTrade } from "@/types/batman";
 import type { BtcSpotChart, BtcStrangleChart, BtcStrangleConfig, BtcStranglePreview, BtcStrangleTrade } from "@/types/btc-strangle";
 import type {
   FullButterflyFilters,
@@ -708,4 +708,13 @@ export async function getBatmanTrade(id: number): Promise<BatmanTrade> {
 
 export async function closeBatmanTrade(id: number): Promise<{ status: string; message?: string }> {
   return apiJson(`/api/batman/trades/${id}/close`, { method: "POST" }, "Failed to close Batman trade");
+}
+
+export async function analyzeBatman(params: Record<string, string | number | null | undefined>): Promise<BatmanAnalysis> {
+  const query = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (value === null || value === undefined || value === "") continue;
+    query.set(key, String(value));
+  }
+  return apiJson<BatmanAnalysis>(`/api/batman/analyze?${query}`, undefined, "Batman analysis failed");
 }

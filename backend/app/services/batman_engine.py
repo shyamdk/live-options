@@ -51,16 +51,17 @@ def _fill(quote: dict[str, Any], action: str) -> float:
 
 def build_legs(
     chain: list[dict[str, Any]], spot: float, *, buy_offset: float, sell_gap: float, hedge_gap: float,
-    base_lots: int, extra_call_lots: int = 0,
+    base_lots: int, extra_call_lots: int = 0, short_ratio: int = 3, outer_ratio: int = 2,
 ) -> list[dict[str, Any]] | None:
+    """Ratio defaults to the rulebook's 1:3:2 (inner : short : outer)."""
     _, call_base, put_base = bases(spot)
     spec = [
         ("BUY", base_lots, "CE", call_base + buy_offset, "inner"),
-        ("SELL", 3 * base_lots, "CE", call_base + buy_offset + sell_gap, "short"),
-        ("BUY", 2 * base_lots + extra_call_lots, "CE", call_base + buy_offset + sell_gap + hedge_gap, "outer"),
+        ("SELL", short_ratio * base_lots, "CE", call_base + buy_offset + sell_gap, "short"),
+        ("BUY", outer_ratio * base_lots + extra_call_lots, "CE", call_base + buy_offset + sell_gap + hedge_gap, "outer"),
         ("BUY", base_lots, "PE", put_base - buy_offset, "inner"),
-        ("SELL", 3 * base_lots, "PE", put_base - buy_offset - sell_gap, "short"),
-        ("BUY", 2 * base_lots, "PE", put_base - buy_offset - sell_gap - hedge_gap, "outer"),
+        ("SELL", short_ratio * base_lots, "PE", put_base - buy_offset - sell_gap, "short"),
+        ("BUY", outer_ratio * base_lots, "PE", put_base - buy_offset - sell_gap - hedge_gap, "outer"),
     ]
     legs = []
     for action, lots, option_type, strike, role in spec:
@@ -97,8 +98,12 @@ def construct(
     chain: list[dict[str, Any]], spot: float, *, years: float, lot_size: int, capital: float, base_lots: int,
     buy_offset: float, sell_gap: float, hedge_gap: float, credit_cap_percent: float, shift_step: float,
     max_shifts: int, balance_move: float, over_hedge: bool, max_extra_call_lots: int,
+    short_ratio: int = 3, outer_ratio: int = 2, fixed_extra_call_lots: int | None = None,
 ) -> dict[str, Any]:
-    """Applies Filter 1 (credit cap) then Filter 2 (call over-hedge)."""
+    """Applies Filter 1 (credit cap) then Filter 2 (call over-hedge). With
+    fixed_extra_call_lots set, Filter 2 just reports the balance for every
+    trial and uses that fixed number instead of the best one."""
+    ratio = {"short_ratio": short_ratio, "outer_ratio": outer_ratio}
     expiry_block = {"chain": chain, "years": years}
     forward_ratio = ve.forward_ratio(expiry_block, spot)
     offset = buy_offset
@@ -106,7 +111,7 @@ def construct(
     legs = None
     credit = 0.0
     while True:
-        legs = build_legs(chain, spot, buy_offset=offset, sell_gap=sell_gap, hedge_gap=hedge_gap, base_lots=base_lots)
+        legs = build_legs(chain, spot, buy_offset=offset, sell_gap=sell_gap, hedge_gap=hedge_gap, base_lots=base_lots, **ratio)
         if not legs:
             return {"error": f"Option chain has no quote for a leg at buy offset {offset:.0f}."}
         credit = net_credit(legs, lot_size)
@@ -122,7 +127,7 @@ def construct(
         best = None
         for k in range(0, max_extra_call_lots + 1):
             trial = build_legs(chain, spot, buy_offset=offset, sell_gap=sell_gap, hedge_gap=hedge_gap,
-                               base_lots=base_lots, extra_call_lots=k)
+                               base_lots=base_lots, extra_call_lots=k, **ratio)
             if not trial:
                 break
             down = t0_pnl(trial, spot - balance_move, years, forward_ratio, lot_size)
@@ -133,7 +138,12 @@ def construct(
                 best = (gap, k, trial)
         if best:
             extra, legs = best[1], best[2]
-            credit = net_credit(legs, lot_size)
+    if fixed_extra_call_lots is not None:
+        fixed = build_legs(chain, spot, buy_offset=offset, sell_gap=sell_gap, hedge_gap=hedge_gap,
+                           base_lots=base_lots, extra_call_lots=fixed_extra_call_lots, **ratio)
+        if fixed:
+            extra, legs = fixed_extra_call_lots, fixed
+    credit = net_credit(legs, lot_size)
 
     # Max profit/loss at expiry within +-15% of spot: with extra outer calls
     # the upside keeps growing forever, so an unbounded figure is meaningless.

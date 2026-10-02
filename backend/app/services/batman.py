@@ -467,6 +467,95 @@ async def trade_detail(trade_id: int) -> dict[str, Any]:
     return trade
 
 
+# ---------------------------------------------------------------- weekly analyzer
+#
+# Batman -> Weekly tab: an interactive builder for any NIFTY expiry. Pure
+# analysis -- it never creates trades. Chains are cached briefly so moving the
+# controls doesn't hammer Dhan's rate-limited option-chain endpoint.
+
+ANALYZER_CHAIN_CACHE_SECONDS = 30
+ANALYZER_EXPIRY_CACHE_SECONDS = 300
+_analyzer_chains: dict[str, tuple[float, float, list[dict[str, Any]]]] = {}
+_analyzer_expiries: tuple[float, list[date]] | None = None
+
+
+async def _cached_expiries(dhan: DhanService) -> list[date]:
+    global _analyzer_expiries
+    if _analyzer_expiries and time.monotonic() - _analyzer_expiries[0] < ANALYZER_EXPIRY_CACHE_SECONDS:
+        return _analyzer_expiries[1]
+    expiries = await _expiries(dhan)
+    _analyzer_expiries = (time.monotonic(), expiries)
+    return expiries
+
+
+async def _cached_chain(dhan: DhanService, series: date) -> tuple[float, list[dict[str, Any]]]:
+    cached = _analyzer_chains.get(series.isoformat())
+    if cached and time.monotonic() - cached[0] < ANALYZER_CHAIN_CACHE_SECONDS:
+        return cached[1], cached[2]
+    spot, rows = await _chain(dhan, series)
+    _analyzer_chains[series.isoformat()] = (time.monotonic(), spot, rows)
+    return spot, rows
+
+
+async def analyze(
+    *, expiry: str | None, base_lots: int, short_ratio: int, outer_ratio: int, buy_offset: float | None,
+    sell_gap: float | None, hedge_gap: float | None, extra_call_lots: int | None, capital: float,
+    balance_move: float | None, max_extra_call_lots: int = 12,
+) -> dict[str, Any]:
+    dhan = DhanService()
+    today = now_ist().date()
+    expiries = [d for d in await _cached_expiries(dhan) if d >= today]
+    if not expiries:
+        return {"error": "No NIFTY expiries listed."}
+    # Default to the weekly ~8+ days out (a Batman needs time; the last few
+    # days are pure gamma). Any listed expiry can still be picked.
+    default = next((d for d in expiries if (d - today).days >= 8), expiries[0])
+    series = next((d for d in expiries if d.isoformat() == expiry), default)
+    spot, rows = await _cached_chain(dhan, series)
+
+    straddle = ve.atm_straddle({"chain": rows}, spot)
+    em = straddle["expectedMove"] if straddle else None
+    suggested = None
+    if em:
+        b, sg, hg = engine.weekly_distances(em, 0.6, 0.25, 1.2)
+        suggested = {"buyOffset": b, "sellGap": sg, "hedgeGap": hg, "balanceMove": engine._round_to_step(em * 0.67)}
+    buy_offset = buy_offset if buy_offset is not None else (suggested or {}).get("buyOffset", 400.0)
+    sell_gap = sell_gap if sell_gap is not None else (suggested or {}).get("sellGap", 200.0)
+    hedge_gap = hedge_gap if hedge_gap is not None else (suggested or {}).get("hedgeGap", 800.0)
+    balance_move = balance_move if balance_move is not None else (suggested or {}).get("balanceMove", 500.0)
+
+    plan = engine.construct(
+        rows, spot, years=varaha._years_until_expiry(series), lot_size=LOT_SIZE, capital=capital,
+        base_lots=base_lots, buy_offset=buy_offset, sell_gap=sell_gap, hedge_gap=hedge_gap,
+        credit_cap_percent=1000.0, shift_step=50.0, max_shifts=0, balance_move=balance_move,
+        over_hedge=True, max_extra_call_lots=max_extra_call_lots, short_ratio=short_ratio,
+        outer_ratio=outer_ratio, fixed_extra_call_lots=extra_call_lots,
+    )
+    expiry_list = [
+        {"expiry": d.isoformat(), "dte": (d - today).days, "monthly": d in monthly_expiries(expiries)}
+        for d in expiries
+        if (d - today).days <= 60
+    ]
+    if "error" in plan:
+        return {**plan, "expiries": expiry_list, "series": series.isoformat(), "suggested": suggested}
+    plan["payoff"] = engine.payoff_points(plan["legs"], spot, plan["years"], plan["forwardRatio"], LOT_SIZE)
+    plan.update(
+        series=series.isoformat(),
+        dte=(series - today).days,
+        expiries=expiry_list,
+        expectedMove=round(em, 1) if em else None,
+        atmIv=straddle["atmIv"] if straddle else None,
+        suggested=suggested,
+        inputs={
+            "baseLots": base_lots, "shortRatio": short_ratio, "outerRatio": outer_ratio, "buyOffset": buy_offset,
+            "sellGap": sell_gap, "hedgeGap": hedge_gap, "extraCallLots": extra_call_lots, "capital": capital,
+            "balanceMove": balance_move,
+        },
+        autoExtraCallLots=extra_call_lots is None,
+    )
+    return plan
+
+
 # ---------------------------------------------------------------- loop / alerts
 
 
