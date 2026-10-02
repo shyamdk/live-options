@@ -7,22 +7,24 @@ from app.api.animesh import router as animesh_router
 from app.api.app_auth import router as app_auth_router
 from app.api.assistant import router as assistant_router
 from app.api.auth import router as auth_router
+from app.api.batman import router as batman_router
+from app.api.btc_strangle import router as btc_strangle_router
 from app.api.credit_spread import router as credit_spread_router
-from app.api.crypto_swing import router as crypto_swing_router
 from app.api.ema5 import router as ema5_router
 from app.api.gamma_blast import router as gamma_blast_router
 from app.api.journals import router as journals_router
 from app.api.market import router as market_router
-from app.api.nifty_swing import router as nifty_swing_router
 from app.api.paper_trading import router as paper_trading_router
-from app.api.pe_ce_crossover import router as pe_ce_crossover_router
-from app.api.pstrategy import router as pstrategy_router
-from app.api.pstrategy_nifty import router as pstrategy_nifty_router
+from app.api.equity import router as equity_router
+from app.api.simple_crossover import router as simple_crossover_router
 from app.api.theta import router as theta_router
 from app.api.trades import router as trades_router
+from app.api.varaha import router as varaha_router
 from app.core.config import get_settings
 from app.db.sqlite import init_db
 from app.services.animesh import start_animesh_task, stop_animesh_task
+from app.services.batman import start_batman_task, stop_batman_task
+from app.services.btc_strangle import start_btc_strangle_task, stop_btc_strangle_task
 from app.services.credit_spread import start_credit_spread_task, stop_credit_spread_task
 from app.services.ema5 import start_ema5_task, stop_ema5_task
 from app.services.gamma_blast import start_gamma_blast_task, stop_gamma_blast_task
@@ -34,13 +36,11 @@ from app.services.market_news import (
     stop_market_news_task,
 )
 from app.services.oi_upgraded import start_oi_upgraded_task, stop_oi_upgraded_task
-from app.services.crypto_swing_live import start_crypto_swing_live_task, stop_crypto_swing_live_task
-from app.services.nifty_swing_live import start_nifty_swing_live_task, stop_nifty_swing_live_task
 from app.services.paper_trading import start_paper_trading_task, stop_paper_trading_task
 from app.services.pcr_oi import start_pcr_oi_task, stop_pcr_oi_task
-from app.services.pe_ce_crossover import start_pe_ce_crossover_task, stop_pe_ce_crossover_task
-from app.services.pstrategy_nifty import start_pstrategy_nifty_task, stop_pstrategy_nifty_task
+from app.services.simple_crossover import start_simple_crossover_task, stop_simple_crossover_task
 from app.services.theta import start_theta_task, stop_theta_task
+from app.services.varaha import start_varaha_task, stop_varaha_task
 from app.services.trades import (
     start_risk_order_monitor_task,
     start_spot_distance_monitor_task,
@@ -64,10 +64,10 @@ market_calendar_task = None
 pcr_oi_task = None
 paper_trading_task = None
 oi_upgraded_task = None
-crypto_swing_live_task = None
-pstrategy_nifty_task = None
-nifty_swing_live_task = None
-pe_ce_crossover_task = None
+simple_crossover_task = None
+varaha_task = None
+btc_strangle_task = None
+batman_task = None
 
 app.add_middleware(
     CORSMiddleware,
@@ -80,7 +80,7 @@ app.add_middleware(
 
 @app.on_event("startup")
 async def startup() -> None:
-    global risk_order_monitor_task, spot_distance_monitor_task, gamma_blast_task, journal_insights_task, ema5_task, animesh_task, credit_spread_task, theta_task, market_news_task, market_calendar_task, pcr_oi_task, paper_trading_task, oi_upgraded_task, crypto_swing_live_task, pstrategy_nifty_task, nifty_swing_live_task, pe_ce_crossover_task
+    global risk_order_monitor_task, spot_distance_monitor_task, gamma_blast_task, journal_insights_task, ema5_task, animesh_task, credit_spread_task, theta_task, market_news_task, market_calendar_task, pcr_oi_task, paper_trading_task, oi_upgraded_task, simple_crossover_task, varaha_task, btc_strangle_task, batman_task
     init_db()
     spot_distance_monitor_task = start_spot_distance_monitor_task()
     risk_order_monitor_task = start_risk_order_monitor_task()
@@ -95,10 +95,10 @@ async def startup() -> None:
     pcr_oi_task = start_pcr_oi_task()
     paper_trading_task = start_paper_trading_task()
     oi_upgraded_task = start_oi_upgraded_task()
-    crypto_swing_live_task = start_crypto_swing_live_task()
-    pstrategy_nifty_task = start_pstrategy_nifty_task()
-    nifty_swing_live_task = start_nifty_swing_live_task()
-    pe_ce_crossover_task = start_pe_ce_crossover_task()
+    simple_crossover_task = start_simple_crossover_task()
+    varaha_task = start_varaha_task()
+    btc_strangle_task = start_btc_strangle_task()
+    batman_task = start_batman_task()
 
 
 @app.on_event("shutdown")
@@ -116,10 +116,10 @@ async def shutdown() -> None:
     await stop_pcr_oi_task(pcr_oi_task)
     await stop_paper_trading_task(paper_trading_task)
     await stop_oi_upgraded_task(oi_upgraded_task)
-    await stop_crypto_swing_live_task(crypto_swing_live_task)
-    await stop_pstrategy_nifty_task(pstrategy_nifty_task)
-    await stop_nifty_swing_live_task(nifty_swing_live_task)
-    await stop_pe_ce_crossover_task(pe_ce_crossover_task)
+    await stop_simple_crossover_task(simple_crossover_task)
+    await stop_varaha_task(varaha_task)
+    await stop_btc_strangle_task(btc_strangle_task)
+    await stop_batman_task(batman_task)
 
 
 @app.get("/health")
@@ -138,9 +138,9 @@ app.include_router(ema5_router, prefix=settings.api_prefix)
 app.include_router(animesh_router, prefix=settings.api_prefix)
 app.include_router(credit_spread_router, prefix=settings.api_prefix)
 app.include_router(theta_router, prefix=settings.api_prefix)
+app.include_router(varaha_router, prefix=settings.api_prefix)
+app.include_router(btc_strangle_router, prefix=settings.api_prefix)
+app.include_router(batman_router, prefix=settings.api_prefix)
 app.include_router(paper_trading_router, prefix=settings.api_prefix)
-app.include_router(crypto_swing_router, prefix=settings.api_prefix)
-app.include_router(pstrategy_router, prefix=settings.api_prefix)
-app.include_router(pstrategy_nifty_router, prefix=settings.api_prefix)
-app.include_router(nifty_swing_router, prefix=settings.api_prefix)
-app.include_router(pe_ce_crossover_router, prefix=settings.api_prefix)
+app.include_router(simple_crossover_router, prefix=settings.api_prefix)
+app.include_router(equity_router, prefix=settings.api_prefix)

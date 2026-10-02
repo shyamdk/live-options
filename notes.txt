@@ -106,4 +106,112 @@ Let me know if you have any questions
 
 
 
-Create a tab - Crypto
+Create a tab - Crypto-Swing
+create a small program to check connection to delta exchange
+use the api key and secret provided on .env
+if required, for login automation i have also provided 2fa details as 
+LAST_PASS_2FA_KEY
+
+if you are able to log in get the fund details
+
+we will proceed from there..
+
+On top panel, along with nifty , sensex, also provide details for ethusd and btcusd 
+from delta exchange
+
+I have attached a crypro swing stragtegy in crypto-swing-trading.md
+review the same and let me know if you have any questions
+
+Please display the charts for BTC and ETH, long with 
+
+
+change the logic in such a way that i should be able to paper trade the momemtum,
+ in the image, where i have marked in red box, the consolidation should be marked 
+ (narrow groups of candles, can we be 4 or more or less... but mark the narrow 
+ sequence of candles and once the momemtum is start either on the down side (short trade)
+ or up side (long trades) - For now just mark the momemtum candles accurately.
+
+ Also, plot the ema 20 and ema 9 indicators, nighlight the cross overs,
+ when 9 goes above 20 with a green cross and when 9 goes below 20 with
+ a red cross. 
+
+ For long trades momemtum candle should be above 20 ema and vice versa for short trades.
+ Ask any questions you might have.
+ We will do only markings for now... (No paper trades)
+
+SL will be the low of the candles previous to momemtum candle
+
+After the trade,
+ When there is momemtum, the candles come close to 9 ema, some times even touch it.
+ caution or SL is when candles closes below 20 ema. 
+ when the candles touch 9 ema and there is significat profit (what is significant profit)
+ already, and the gap beween 9 ema and 20 ema is high (what is high), we can
+ consider pyramiding (adding more..)
+
+
+Also, can you review and trades and suggest how we can cut losses soon and extend profits (or even avoid losing trades)
+
+
+Create two pages, Nifty-Swing, implement the same strategy as Crypto Swing.
+In this case, we will buy niftybees , quanity should be configurable but default it to 
+50.
+
+Another page, pStrategy-Nifty, here we will look for momemtum (1m, 3m) similar to 
+pStrategy. When ever we find momemtum, we will buy ATM CE - by defualt keep it 1 lot.
+
+both are paper trades. 
+
+ask me any questions you have
+
+
+Page - Simple Cross Over..
+
+Phase 1 - Show Data
+We will implement a simple strategy, where we will track ema cross over - 21/8
+Mark the points are charts (as in image), also show the folllowing
+Day Direction - Up, Down, Side Ways 
+(use details from OI — Upgraded page to determine this)
+
+Last Cross Over / Under price
+RSI @ Last Cross Over / Under price
+Ema 21 (current)
+Ema 8 (current)
+Rsi (current)
+EMA GAP (current), alos mention - on an average if its increasing or decrearing.. (last 3 periods)
+
+UI - show the chart and show all the above metrics side by side (Compact)
+
+Phase 2 - Paper Trades
+Based on the direction - Up or Down, decide on the ATM CE or PE (only buys),
+we will ignore Sideways days
+
+Entry
+On Cross Over 
+And the Cross Over should have touched the ema cross over price with OHCLC
+(reason some times candles open way above the cross over and we end up in losses)
+
+Exit
+On Cross under 
+RSI peaks
+
+
+Tracking
+EMA GAP
+PCR
+Change in OI PE and CE
+
+Show all trades along with date, time, atm, entry, exit, current PL,
+Same for close trades...
+
+On top of paper trades, below charts, show day wise PL
+
+Also provide a comments field for each trade where i can capture some notes...
+
+Based on on the trades so far in XAUT, can propose changes in strategy 
+or risk reward so that we can minimise losses and maximise profits. 
+use open ai key if required...
+
+
+
+
+

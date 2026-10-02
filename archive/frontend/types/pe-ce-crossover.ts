@@ -1,5 +1,6 @@
 export type PeCeUnderlying = "NIFTY" | "BANKNIFTY" | "SENSEX";
 export type PeCeSide = "CE" | "PE";
+export type PeCeMode = "paper" | "shadow" | "live";
 
 export interface PeCeCandle {
   time: number;
@@ -22,6 +23,8 @@ export interface PeCeCandlesData {
   candles: PeCeCandle[];
   emaFastValues: (number | null)[];
   emaSlowValues: (number | null)[];
+  rsiValues: (number | null)[];
+  adxValues: (number | null)[];
   trades: PeCeTrade[];
 }
 
@@ -46,6 +49,10 @@ export interface PeCeTrade {
   exitReason: string | null;
   realizedPnl: number | null;
   charges: number | null;
+  mode: PeCeMode;
+  entryOrderId: string | null;
+  exitOrderId: string | null;
+  note: string | null;
 }
 
 export type PeCeSignalState = "NO_SIGNAL" | "CANDIDATE" | "WAITING_FOR_EXPANSION" | "READY" | "BLOCKED" | "IN_POSITION";
@@ -61,6 +68,8 @@ export interface PeCeSignalLogEntry {
   premium: number | null;
   premiumExpansionPercent: number | null;
   spreadPercent: number | null;
+  rsi: number | null;
+  adx: number | null;
 }
 
 export interface PeCeBacktestTrade {
@@ -100,6 +109,11 @@ export interface PeCeBacktestResult {
   limitations?: string[];
 }
 
+export interface PeCeRuntimeConfig {
+  premiumExpansionFilterEnabled: boolean;
+  spreadFilterEnabled: boolean;
+}
+
 export interface PeCeStatus {
   monitorEnabled: boolean;
   underlyings: PeCeUnderlying[];
@@ -113,7 +127,35 @@ export interface PeCeStatus {
   maxTradesPerDay: number;
   cooldownMinutes: number;
   positionMode: "total" | "per_side";
+  currentMode: PeCeMode;
+  liveEnabled: boolean;
+  shadowMode: boolean;
+  globalLiveOrderEnabled: boolean;
+  telegramAlertsEnabled: boolean;
   openPositions: number;
   todayRealizedPnl: number;
+  trades: PeCeTrade[];
+}
+
+export interface PeCeReportMetrics {
+  tradeCount: number;
+  netPnl: number;
+  winRate: number | null;
+  profitFactor: number | null;
+  expectancy: number | null;
+  maxDrawdown: number;
+  avgWin: number | null;
+  avgLoss: number | null;
+  longestLosingStreak: number;
+}
+
+export interface PeCeReportResult {
+  error?: string;
+  mode: PeCeMode;
+  fromDate: string;
+  toDate: string;
+  metrics: PeCeReportMetrics;
+  metricsBySide: Record<string, PeCeReportMetrics>;
+  metricsByUnderlying: Record<string, PeCeReportMetrics>;
   trades: PeCeTrade[];
 }

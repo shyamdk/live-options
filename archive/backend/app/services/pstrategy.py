@@ -96,6 +96,7 @@ def check_ema_trail_exit(
     rsi_value: float | None = None,
     rsi_long_exit: float = RSI_LONG_EXIT,
     rsi_short_exit: float = RSI_SHORT_EXIT,
+    hard_stop: float | None = None,
 ) -> dict[str, Any]:
     """One tick of pStrategy's EMA-hold + ATR-Chandelier-trail exit rule for
     an already-open position -- shared verbatim between the batch replay
@@ -115,6 +116,20 @@ def check_ema_trail_exit(
     TRAIL_ATR_MULTIPLE x ATR, ratcheting only in the position's favor,
     checked intrabar (low/high) -- this can exit even while `close` is
     still technically held.
+
+    `hard_stop`, when given, is the entry-time invalidation level (the
+    opposite boundary of the box the breakout came from -- see
+    build_paper_trades) and is active from the very first tick, unlike the
+    ATR trail which only arms once the trade is already favorable. Without
+    it, a position that reverses hard before the trail ever arms has no
+    price-based protection at all -- only the lagging EMA-close check,
+    which can't react until a candle finishes closing (real case: a
+    XAUTUSD short on 21 Sep lost -11.66% net because the reversal candle's
+    own close was already past the EMA before the trail had armed). Once a
+    tighter trail level exists, whichever of the two is more protective
+    wins each tick -- the hard stop doesn't get looser just because the
+    trail hasn't caught up to it yet, but the trail can supersede it once
+    it's tighter.
 
     Returns {"exit", "bestClose", "trailStop", "exitPrice", "reason"} --
     `bestClose`/`trailStop` are always returned (updated even when not
@@ -146,16 +161,26 @@ def check_ema_trail_exit(
                 else (max(new_trail_stop, candidate) if side == "long" else min(new_trail_stop, candidate))
             )
 
+    # The active stop each tick is whichever of the hard invalidation level
+    # and the (possibly not-yet-armed) trail is more protective -- i.e.
+    # closer to price. Before the trail arms, that's just the hard stop;
+    # once armed, the trail can only ever tighten it further, never loosen.
+    effective_stop = new_trail_stop
+    if hard_stop is not None:
+        effective_stop = hard_stop if effective_stop is None else (
+            max(effective_stop, hard_stop) if side == "long" else min(effective_stop, hard_stop)
+        )
+
     # Checked intrabar (low/high), not just the close -- a sharp reversal
     # that round-trips within a single candle would otherwise only be
-    # caught after the fact, at the close, defeating the point of a
-    # trailing stop.
-    hit_trail = new_trail_stop is not None and (
-        (side == "long" and low <= new_trail_stop) or (side == "short" and high >= new_trail_stop)
+    # caught after the fact, at the close, defeating the point of a stop.
+    hit_stop = effective_stop is not None and (
+        (side == "long" and low <= effective_stop) or (side == "short" and high >= effective_stop)
     )
-    if hit_trail:
-        exit_price = stop_fill_price(side, new_trail_stop, open_price)
-        return {"exit": True, "bestClose": new_best_close, "trailStop": new_trail_stop, "exitPrice": exit_price, "reason": "trail_stop"}
+    if hit_stop:
+        exit_price = stop_fill_price(side, effective_stop, open_price)
+        reason = "trail_stop" if new_trail_stop is not None and effective_stop == new_trail_stop else "hard_stop"
+        return {"exit": True, "bestClose": new_best_close, "trailStop": new_trail_stop, "exitPrice": exit_price, "reason": reason}
 
     held = (side == "long" and close > ema_slow_value) or (side == "short" and close < ema_slow_value)
     if held:
@@ -397,6 +422,7 @@ def build_paper_trades(
                     rsi_value=rsi_k,
                     rsi_long_exit=rsi_long_exit,
                     rsi_short_exit=rsi_short_exit,
+                    hard_stop=stop,
                 )
                 best_close = result["bestClose"]
                 trail_stop = result["trailStop"]

@@ -55,6 +55,67 @@ async def resolve_equity_security_id(trading_symbol: str, *, exchange: str = "NS
     )
 
 
+async def resolve_nearest_mcx_future(symbol_name: str) -> dict[str, Any] | None:
+    """Nearest-expiry MCX commodity future's security_id for a given
+    SM_SYMBOL_NAME (e.g. "GOLD", "SILVER", "CRUDEOIL"). MCX commodities have
+    no spot-tradable instrument, so the nearest-expiry future is the
+    standard proxy for "current price" -- same convention brokers'
+    commodity tickers use. Returns None (not an exception) rather than
+    raising, since this only ever backs a best-effort display panel, not an
+    order -- a missing/renamed commodity shouldn't take the whole panel
+    down (see market.py's _commodity_indices, same reasoning as its
+    existing _crypto_indices).
+    """
+    rows = await _get_rows()
+    target = symbol_name.strip().upper()
+    candidates = [
+        row
+        for row in rows
+        if row.get("exchange", "").strip().upper() == "MCX"
+        and row.get("instrument", "").strip().upper() == "FUTCOM"
+        and row.get("symbol_name", "").strip().upper() == target
+        and row.get("expiry_date", "").strip()
+    ]
+    if not candidates:
+        return None
+    candidates.sort(key=lambda row: row["expiry_date"])
+    row = candidates[0]
+    try:
+        security_id = int(row["security_id"])
+    except (TypeError, ValueError):
+        return None
+    return {"securityId": security_id, "expiry": row["expiry_date"]}
+
+
+async def resolve_nifty_futures(count: int = 2) -> list[dict[str, Any]]:
+    """Nearest `count` NIFTY index-future contracts (current month, next
+    month, ...) by expiry, for the market-strip's futures panel. Same
+    resolve-then-quote pattern as resolve_nearest_mcx_future -- NIFTY
+    futures have no SM_SYMBOL_NAME set in the scrip master, so contracts are
+    matched on SEM_TRADING_SYMBOL's "NIFTY-<Mon><Year>-FUT" convention
+    instead (confirmed against a live download of the CSV; excludes
+    NIFTYNXT50/NIFTYFPI/BANKNIFTY, which use different prefixes).
+    """
+    rows = await _get_rows()
+    candidates = [
+        row
+        for row in rows
+        if row.get("exchange", "").strip().upper() == "NSE"
+        and row.get("instrument", "").strip().upper() == "FUTIDX"
+        and row.get("symbol", "").strip().upper().startswith("NIFTY-")
+        and row.get("expiry_date", "").strip()
+    ]
+    candidates.sort(key=lambda row: row["expiry_date"])
+    results = []
+    for row in candidates[:count]:
+        try:
+            security_id = int(row["security_id"])
+        except (TypeError, ValueError):
+            continue
+        results.append({"securityId": security_id, "expiry": row["expiry_date"], "tradingSymbol": row["symbol"]})
+    return results
+
+
 async def resolve_lot_size_by_security_id(security_id: int | str) -> int:
     """Current lot size for an option/futures contract, straight from the
     instrument master (SEM_LOT_UNITS) -- spec requirement: "Load current lot
@@ -93,6 +154,9 @@ async def _get_rows() -> list[dict[str, str]]:
     exchange_col = _find_column(reader.fieldnames, "EXCH_ID") or _find_column(reader.fieldnames, "EXCHANGE")
     segment_col = _find_column(reader.fieldnames, "SEGMENT")
     lot_units_col = _find_column(reader.fieldnames, "LOT_UNITS")
+    instrument_col = _find_column(reader.fieldnames, "INSTRUMENT_NAME")
+    symbol_name_col = _find_column(reader.fieldnames, "SYMBOL_NAME")
+    expiry_date_col = _find_column(reader.fieldnames, "EXPIRY_DATE")
     if not symbol_col or not security_id_col or not exchange_col:
         raise ScripMasterError(
             f"Dhan scrip master CSV columns didn't match expectations: {reader.fieldnames[:15]}"
@@ -105,6 +169,9 @@ async def _get_rows() -> list[dict[str, str]]:
             "exchange": row.get(exchange_col, ""),
             "segment": row.get(segment_col, "") if segment_col else "",
             "lot_units": row.get(lot_units_col, "") if lot_units_col else "",
+            "instrument": row.get(instrument_col, "") if instrument_col else "",
+            "symbol_name": row.get(symbol_name_col, "") if symbol_name_col else "",
+            "expiry_date": row.get(expiry_date_col, "") if expiry_date_col else "",
         }
         for row in reader
     ]

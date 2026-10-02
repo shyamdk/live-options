@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import threading
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -690,6 +690,12 @@ def init_db() -> None:
             )
             """
         )
+        # Entry-time invalidation level (the opposite boundary of the box the
+        # breakout came from) -- active from the first tick, unlike the ATR
+        # trail which only arms once favorable. Added after a real XAUTUSD
+        # short lost -11.66% net with no price-based protection at all
+        # before the trail armed; see check_ema_trail_exit's docstring.
+        _add_column_if_missing(conn, "pstrategy_nifty_trades", "hard_stop_underlying", "REAL")
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS oi_upgraded_signal_log (
@@ -742,9 +748,19 @@ def init_db() -> None:
             )
             """
         )
+        # Phase 2 broker integration: mode distinguishes paper (Phase 1,
+        # default for every pre-existing row)/shadow/live trades so guardrail
+        # accounting and reporting can be scoped per mode. order_id/note carry
+        # the Dhan order reference or a shadow "would have..." note.
+        _add_column_if_missing(conn, "pe_ce_crossover_trades", "mode", "TEXT NOT NULL DEFAULT 'paper'")
+        _add_column_if_missing(conn, "pe_ce_crossover_trades", "entry_order_id", "TEXT")
+        _add_column_if_missing(conn, "pe_ce_crossover_trades", "exit_order_id", "TEXT")
+        _add_column_if_missing(conn, "pe_ce_crossover_trades", "note", "TEXT")
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS pe_ce_crossover_signal_log (
+                -- rsi/adx (informational only, not a gating filter) added
+                -- via _add_column_if_missing below
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 session_date TEXT NOT NULL,
                 epoch INTEGER NOT NULL,
@@ -759,6 +775,302 @@ def init_db() -> None:
                 spread_percent REAL,
                 created_at TEXT NOT NULL,
                 UNIQUE(session_date, epoch, underlying, side)
+            )
+            """
+        )
+        _add_column_if_missing(conn, "pe_ce_crossover_signal_log", "rsi", "REAL")
+        _add_column_if_missing(conn, "pe_ce_crossover_signal_log", "adx", "REAL")
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS pe_ce_crossover_settings (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS simple_crossover_trades (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                underlying TEXT NOT NULL,
+                side TEXT NOT NULL,
+                strike REAL NOT NULL,
+                expiry TEXT NOT NULL,
+                security_id TEXT NOT NULL,
+                exchange_segment TEXT NOT NULL,
+                lots INTEGER NOT NULL,
+                lot_size INTEGER NOT NULL,
+                entry_time INTEGER NOT NULL,
+                entry_premium REAL NOT NULL,
+                entry_ema_gap REAL,
+                entry_pcr REAL,
+                entry_ce_oi_change INTEGER,
+                entry_pe_oi_change INTEGER,
+                day_direction TEXT,
+                status TEXT NOT NULL DEFAULT 'open',
+                current_premium REAL,
+                remaining_lots INTEGER NOT NULL DEFAULT 0,
+                target1_hit INTEGER NOT NULL DEFAULT 0,
+                target2_hit INTEGER NOT NULL DEFAULT 0,
+                peak_premium REAL,
+                trailing_stop_price REAL,
+                exit_time INTEGER,
+                exit_premium REAL,
+                exit_reason TEXT,
+                realized_pnl REAL,
+                comment TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+        _add_column_if_missing(conn, "simple_crossover_trades", "remaining_lots", "INTEGER NOT NULL DEFAULT 0")
+        _add_column_if_missing(conn, "simple_crossover_trades", "target1_hit", "INTEGER NOT NULL DEFAULT 0")
+        _add_column_if_missing(conn, "simple_crossover_trades", "target2_hit", "INTEGER NOT NULL DEFAULT 0")
+        _add_column_if_missing(conn, "simple_crossover_trades", "peak_premium", "REAL")
+        _add_column_if_missing(conn, "simple_crossover_trades", "trailing_stop_price", "REAL")
+        _add_column_if_missing(conn, "simple_crossover_trades", "timeframe_minutes", "INTEGER NOT NULL DEFAULT 1")
+        conn.execute(
+            "UPDATE simple_crossover_trades SET remaining_lots = lots WHERE status = 'open' AND remaining_lots = 0"
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS simple_crossover_exit_legs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                trade_id INTEGER NOT NULL,
+                lots INTEGER NOT NULL,
+                exit_time INTEGER NOT NULL,
+                exit_premium REAL NOT NULL,
+                exit_reason TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                UNIQUE(trade_id, exit_reason)
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS simple_crossover_xaut_trades (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                side TEXT NOT NULL,
+                quantity REAL NOT NULL,
+                entry_time INTEGER NOT NULL,
+                entry_price REAL NOT NULL,
+                entry_ema_gap REAL,
+                day_direction TEXT,
+                status TEXT NOT NULL DEFAULT 'open',
+                current_price REAL,
+                exit_time INTEGER,
+                exit_price REAL,
+                exit_reason TEXT,
+                realized_pnl REAL,
+                comment TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+        # Margin/leverage sizing: snapshotted per trade at entry time so a
+        # later change to the margin/leverage settings doesn't retroactively
+        # change an already-open or closed trade's % P&L.
+        _add_column_if_missing(conn, "simple_crossover_xaut_trades", "margin", "REAL")
+        _add_column_if_missing(conn, "simple_crossover_xaut_trades", "leverage", "REAL")
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS simple_crossover_settings (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS simple_crossover_xaut_settings (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS batman_trades (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                mode TEXT NOT NULL,
+                session_date TEXT NOT NULL,
+                trigger TEXT NOT NULL,
+                expiry TEXT NOT NULL,
+                entry_time INTEGER NOT NULL,
+                spot REAL NOT NULL,
+                capital REAL NOT NULL,
+                lot_size INTEGER NOT NULL,
+                base_lots INTEGER NOT NULL,
+                buy_offset REAL NOT NULL,
+                sell_gap REAL NOT NULL,
+                hedge_gap REAL NOT NULL,
+                extra_call_lots INTEGER NOT NULL,
+                credit REAL NOT NULL,
+                credit_percent REAL NOT NULL,
+                target_percent REAL NOT NULL,
+                stop_percent REAL NOT NULL,
+                exit_by INTEGER NOT NULL,
+                status TEXT NOT NULL,
+                exit_time INTEGER,
+                exit_reason TEXT,
+                realized_pnl REAL,
+                charges REAL,
+                last_mtm REAL,
+                last_update INTEGER,
+                plan_json TEXT,
+                notes TEXT
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS batman_legs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                trade_id INTEGER NOT NULL,
+                action TEXT NOT NULL,
+                option_type TEXT NOT NULL,
+                role TEXT NOT NULL,
+                strike REAL NOT NULL,
+                lots INTEGER NOT NULL,
+                security_id TEXT,
+                entry_price REAL NOT NULL,
+                iv REAL,
+                exit_price REAL,
+                last_ltp REAL,
+                last_bid REAL,
+                last_ask REAL
+            )
+            """
+        )
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_batman_legs_trade ON batman_legs (trade_id)")
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS batman_mtm (
+                trade_id INTEGER NOT NULL,
+                time INTEGER NOT NULL,
+                mtm REAL NOT NULL,
+                spot REAL
+            )
+            """
+        )
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_batman_mtm_trade ON batman_mtm (trade_id, time)")
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS batman_settings (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS btc_strangle_trades (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                mode TEXT NOT NULL,
+                session_date TEXT NOT NULL,
+                expiry_code TEXT NOT NULL,
+                settlement_time INTEGER NOT NULL,
+                entry_time INTEGER NOT NULL,
+                spot REAL NOT NULL,
+                atm_strike REAL,
+                straddle REAL NOT NULL,
+                multiplier REAL NOT NULL,
+                distance REAL NOT NULL,
+                stop_loss_percent REAL NOT NULL,
+                contracts INTEGER NOT NULL,
+                status TEXT NOT NULL,
+                trigger TEXT NOT NULL,
+                notes TEXT,
+                closed_at INTEGER,
+                created_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS btc_strangle_legs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                trade_id INTEGER NOT NULL,
+                option_type TEXT NOT NULL,
+                symbol TEXT NOT NULL,
+                product_id INTEGER NOT NULL,
+                strike REAL NOT NULL,
+                requested_contracts INTEGER NOT NULL,
+                contracts INTEGER NOT NULL,
+                entry_price REAL,
+                sl_price REAL,
+                status TEXT NOT NULL,
+                exit_price REAL,
+                exit_time INTEGER,
+                exit_reason TEXT,
+                entry_order_id TEXT,
+                sl_order_id TEXT,
+                exit_order_id TEXT,
+                entry_fee REAL NOT NULL DEFAULT 0,
+                exit_fee REAL NOT NULL DEFAULT 0,
+                last_mark REAL,
+                last_bid REAL,
+                last_ask REAL,
+                last_update INTEGER,
+                error TEXT
+            )
+            """
+        )
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_btc_strangle_legs_trade ON btc_strangle_legs (trade_id)")
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS btc_strangle_settings (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS tag_levels (
+                session_date TEXT NOT NULL,
+                tag TEXT NOT NULL,
+                target_net REAL,
+                stop_loss_net REAL,
+                status TEXT NOT NULL,
+                trigger_kind TEXT,
+                trigger_net REAL,
+                triggered_at TEXT,
+                result_json TEXT,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY (session_date, tag)
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS varaha_recommendations (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_date TEXT NOT NULL,
+                trigger TEXT NOT NULL,
+                manual_override TEXT,
+                snapshot_json TEXT NOT NULL,
+                result_json TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_varaha_recommendations_date ON varaha_recommendations (session_date, id)"
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS varaha_settings (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL,
+                updated_at TEXT NOT NULL
             )
             """
         )
@@ -809,6 +1121,74 @@ def init_db() -> None:
                 updated_at TEXT NOT NULL
             )
             """
+        )
+        # Equity page (ported from options-dash): Dhan holdings/quotes/
+        # transactions/candles + Screener fundamentals + OpenAI news, all
+        # cached here to avoid re-scraping/re-fetching on every page load.
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS equity_cache (
+                category TEXT NOT NULL,
+                cache_key TEXT NOT NULL,
+                payload TEXT NOT NULL,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (category, cache_key)
+            )
+            """
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_equity_cache_category_updated ON equity_cache(category, updated_at DESC)"
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS equity_transactions_cache (
+                transaction_key TEXT PRIMARY KEY,
+                symbol TEXT,
+                security_id TEXT,
+                isin TEXT,
+                exchange_time TEXT,
+                payload TEXT NOT NULL,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_equity_transactions_lookup ON equity_transactions_cache(security_id, isin, exchange_time DESC)"
+        )
+        # Options leg-days imported from user-provided Dhan "Global Transaction
+        # Report" CSVs -- Dhan's live trade-history API has no per-leg options
+        # granularity and only reaches back ~2.5-3 months, so this is populated
+        # by a one-time/occasional import script, not the live API path.
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS equity_options_transactions (
+                id TEXT PRIMARY KEY,
+                trade_date TEXT NOT NULL,
+                underlying TEXT NOT NULL,
+                expiry_date TEXT,
+                strike REAL,
+                option_type TEXT,
+                exchange TEXT,
+                bill_no TEXT,
+                buy_qty REAL,
+                buy_value REAL,
+                sell_qty REAL,
+                sell_value REAL,
+                brokerage REAL,
+                gst REAL,
+                stt REAL,
+                sebi_fees REAL,
+                stamp_duty REAL,
+                txn_charges REAL,
+                oth_charges REAL,
+                gross_amount REAL,
+                source TEXT,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_equity_options_txn_date ON equity_options_transactions(trade_date)"
         )
         conn.commit()
 
@@ -1561,6 +1941,7 @@ def create_pstrategy_nifty_trade(
     entry_premium: float,
     entry_underlying_price: float,
     stop_loss_percent: float,
+    hard_stop_underlying: float | None = None,
 ) -> int:
     now = datetime.now().isoformat(timespec="seconds")
     with _DB_LOCK, _connect() as conn:
@@ -1570,8 +1951,8 @@ def create_pstrategy_nifty_trade(
                 resolution, side, strike, expiry, security_id, exchange_segment,
                 lots, lot_size, entry_time, entry_premium, entry_underlying_price,
                 stop_loss_percent, peak_premium, best_underlying_close, trail_stop_underlying,
-                status, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, NULL, 'open', ?, ?)
+                status, created_at, updated_at, hard_stop_underlying
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, NULL, 'open', ?, ?, ?)
             """,
             (
                 resolution,
@@ -1589,6 +1970,7 @@ def create_pstrategy_nifty_trade(
                 entry_underlying_price,
                 now,
                 now,
+                hard_stop_underlying,
             ),
         )
         conn.commit()
@@ -1671,6 +2053,7 @@ def _pstrategy_nifty_trade_from_row(row: sqlite3.Row) -> dict[str, Any]:
         "peakPremium": row["peak_premium"],
         "bestUnderlyingClose": row["best_underlying_close"],
         "trailStopUnderlying": row["trail_stop_underlying"],
+        "hardStopUnderlying": row["hard_stop_underlying"],
         "status": row["status"],
         "exitTime": row["exit_time"],
         "exitPremium": row["exit_premium"],
@@ -1749,6 +2132,9 @@ def create_pe_ce_crossover_trade(
     entry_premium: float,
     stop_loss_percent: float,
     target_percent: float,
+    mode: str = "paper",
+    entry_order_id: str | None = None,
+    note: str | None = None,
 ) -> int:
     now = datetime.now().isoformat(timespec="seconds")
     with _DB_LOCK, _connect() as conn:
@@ -1757,8 +2143,8 @@ def create_pe_ce_crossover_trade(
             INSERT INTO pe_ce_crossover_trades (
                 underlying, side, strike, expiry, dte, security_id, exchange_segment,
                 lots, lot_size, entry_time, entry_premium, stop_loss_percent, target_percent,
-                peak_premium, trail_stop_premium, status, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 'open', ?, ?)
+                peak_premium, trail_stop_premium, status, mode, entry_order_id, note, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 'open', ?, ?, ?, ?, ?)
             """,
             (
                 underlying,
@@ -1775,6 +2161,9 @@ def create_pe_ce_crossover_trade(
                 stop_loss_percent,
                 target_percent,
                 entry_premium,
+                mode,
+                entry_order_id,
+                note,
                 now,
                 now,
             ),
@@ -1792,9 +2181,14 @@ def get_open_pe_ce_crossover_trade(underlying: str, side: str) -> dict[str, Any]
     return _pe_ce_crossover_trade_from_row(row) if row else None
 
 
-def list_open_pe_ce_crossover_trades() -> list[dict[str, Any]]:
+def list_open_pe_ce_crossover_trades(mode: str | None = None) -> list[dict[str, Any]]:
     with _DB_LOCK, _connect() as conn:
-        rows = conn.execute("SELECT * FROM pe_ce_crossover_trades WHERE status = 'open'").fetchall()
+        if mode:
+            rows = conn.execute(
+                "SELECT * FROM pe_ce_crossover_trades WHERE status = 'open' AND mode = ?", (mode,)
+            ).fetchall()
+        else:
+            rows = conn.execute("SELECT * FROM pe_ce_crossover_trades WHERE status = 'open'").fetchall()
     return [_pe_ce_crossover_trade_from_row(row) for row in rows]
 
 
@@ -1811,17 +2205,29 @@ def update_pe_ce_crossover_trade_progress(
 
 
 def close_pe_ce_crossover_trade(
-    trade_id: int, *, exit_time: int, exit_premium: float, exit_reason: str, realized_pnl: float, charges: float
+    trade_id: int,
+    *,
+    exit_time: int,
+    exit_premium: float,
+    exit_reason: str,
+    realized_pnl: float,
+    charges: float,
+    exit_order_id: str | None = None,
+    exit_note: str | None = None,
 ) -> None:
     now = datetime.now().isoformat(timespec="seconds")
     with _DB_LOCK, _connect() as conn:
         conn.execute(
             """
             UPDATE pe_ce_crossover_trades
-            SET status = 'closed', exit_time = ?, exit_premium = ?, exit_reason = ?, realized_pnl = ?, charges = ?, updated_at = ?
+            SET status = 'closed', exit_time = ?, exit_premium = ?, exit_reason = ?, realized_pnl = ?, charges = ?,
+                exit_order_id = ?, note = CASE WHEN ? IS NULL THEN note
+                                              WHEN note IS NULL THEN ?
+                                              ELSE note || ' | ' || ? END,
+                updated_at = ?
             WHERE id = ?
             """,
-            (exit_time, exit_premium, exit_reason, realized_pnl, charges, now, trade_id),
+            (exit_time, exit_premium, exit_reason, realized_pnl, charges, exit_order_id, exit_note, exit_note, exit_note, now, trade_id),
         )
         conn.commit()
 
@@ -1837,37 +2243,50 @@ def list_pe_ce_crossover_trades(underlying: str | None = None) -> list[dict[str,
     return [_pe_ce_crossover_trade_from_row(row) for row in rows]
 
 
-def count_pe_ce_crossover_trades_today(underlying: str, side: str, start_of_day_epoch: int) -> int:
+def list_pe_ce_crossover_trades_for_report(mode: str, from_epoch: int, to_epoch: int) -> list[dict[str, Any]]:
+    with _DB_LOCK, _connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT * FROM pe_ce_crossover_trades
+            WHERE mode = ? AND status = 'closed' AND exit_time >= ? AND exit_time <= ?
+            ORDER BY exit_time ASC
+            """,
+            (mode, from_epoch, to_epoch),
+        ).fetchall()
+    return [_pe_ce_crossover_trade_from_row(row) for row in rows]
+
+
+def count_pe_ce_crossover_trades_today(underlying: str, side: str, start_of_day_epoch: int, mode: str) -> int:
     with _DB_LOCK, _connect() as conn:
         row = conn.execute(
-            "SELECT COUNT(*) AS n FROM pe_ce_crossover_trades WHERE underlying = ? AND side = ? AND entry_time >= ?",
-            (underlying, side, start_of_day_epoch),
+            "SELECT COUNT(*) AS n FROM pe_ce_crossover_trades WHERE underlying = ? AND side = ? AND entry_time >= ? AND mode = ?",
+            (underlying, side, start_of_day_epoch, mode),
         ).fetchone()
     return int(row["n"]) if row else 0
 
 
-def get_last_pe_ce_crossover_exit_time(underlying: str, side: str) -> int | None:
+def get_last_pe_ce_crossover_exit_time(underlying: str, side: str, mode: str) -> int | None:
     with _DB_LOCK, _connect() as conn:
         row = conn.execute(
             """
             SELECT exit_time FROM pe_ce_crossover_trades
-            WHERE underlying = ? AND side = ? AND status = 'closed' AND exit_time IS NOT NULL
+            WHERE underlying = ? AND side = ? AND status = 'closed' AND exit_time IS NOT NULL AND mode = ?
             ORDER BY exit_time DESC LIMIT 1
             """,
-            (underlying, side),
+            (underlying, side, mode),
         ).fetchone()
     return int(row["exit_time"]) if row and row["exit_time"] is not None else None
 
 
-def get_today_realized_pnl_pe_ce_crossover(start_of_day_epoch: int) -> float:
+def get_today_realized_pnl_pe_ce_crossover(start_of_day_epoch: int, mode: str) -> float:
     with _DB_LOCK, _connect() as conn:
         row = conn.execute(
             """
             SELECT COALESCE(SUM(realized_pnl), 0) AS total
             FROM pe_ce_crossover_trades
-            WHERE status = 'closed' AND exit_time >= ?
+            WHERE status = 'closed' AND exit_time >= ? AND mode = ?
             """,
-            (start_of_day_epoch,),
+            (start_of_day_epoch, mode),
         ).fetchone()
     return float(row["total"]) if row else 0.0
 
@@ -1896,6 +2315,10 @@ def _pe_ce_crossover_trade_from_row(row: sqlite3.Row) -> dict[str, Any]:
         "exitReason": row["exit_reason"],
         "realizedPnl": row["realized_pnl"],
         "charges": row["charges"],
+        "mode": row["mode"] if "mode" in row.keys() else "paper",
+        "entryOrderId": row["entry_order_id"] if "entry_order_id" in row.keys() else None,
+        "exitOrderId": row["exit_order_id"] if "exit_order_id" in row.keys() else None,
+        "note": row["note"] if "note" in row.keys() else None,
         "createdAt": row["created_at"],
     }
 
@@ -1913,6 +2336,8 @@ def record_pe_ce_crossover_signal(
     premium: float | None,
     premium_expansion_percent: float | None,
     spread_percent: float | None,
+    rsi: float | None = None,
+    adx: float | None = None,
 ) -> None:
     now = datetime.now().isoformat(timespec="seconds")
     with _DB_LOCK, _connect() as conn:
@@ -1920,8 +2345,8 @@ def record_pe_ce_crossover_signal(
             """
             INSERT OR IGNORE INTO pe_ce_crossover_signal_log (
                 session_date, epoch, underlying, side, state, blocked_reason,
-                ema_fast, ema_slow, premium, premium_expansion_percent, spread_percent, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ema_fast, ema_slow, premium, premium_expansion_percent, spread_percent, rsi, adx, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 session_date,
@@ -1935,6 +2360,8 @@ def record_pe_ce_crossover_signal(
                 premium,
                 premium_expansion_percent,
                 spread_percent,
+                rsi,
+                adx,
                 now,
             ),
         )
@@ -1968,9 +2395,378 @@ def list_pe_ce_crossover_signal_log(session_date: str, underlying: str | None = 
             "premium": row["premium"],
             "premiumExpansionPercent": row["premium_expansion_percent"],
             "spreadPercent": row["spread_percent"],
+            "rsi": row["rsi"] if "rsi" in row.keys() else None,
+            "adx": row["adx"] if "adx" in row.keys() else None,
         }
         for row in rows
     ]
+
+
+def get_pe_ce_crossover_setting(key: str) -> str | None:
+    with _DB_LOCK, _connect() as conn:
+        row = conn.execute("SELECT value FROM pe_ce_crossover_settings WHERE key = ?", (key,)).fetchone()
+    return row["value"] if row else None
+
+
+def set_pe_ce_crossover_setting(key: str, value: str) -> None:
+    now = datetime.now().isoformat(timespec="seconds")
+    with _DB_LOCK, _connect() as conn:
+        conn.execute(
+            """
+            INSERT INTO pe_ce_crossover_settings (key, value, updated_at) VALUES (?, ?, ?)
+            ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+            """,
+            (key, value, now),
+        )
+        conn.commit()
+
+
+def create_simple_crossover_trade(
+    *,
+    underlying: str,
+    side: str,
+    strike: float,
+    expiry: str,
+    security_id: str,
+    exchange_segment: str,
+    lots: int,
+    lot_size: int,
+    entry_time: int,
+    entry_premium: float,
+    entry_ema_gap: float | None,
+    entry_pcr: float | None,
+    entry_ce_oi_change: int | None,
+    entry_pe_oi_change: int | None,
+    day_direction: str | None,
+    timeframe_minutes: int = 1,
+) -> int:
+    now = datetime.now().isoformat(timespec="seconds")
+    with _DB_LOCK, _connect() as conn:
+        cur = conn.execute(
+            """
+            INSERT INTO simple_crossover_trades (
+                underlying, side, strike, expiry, security_id, exchange_segment, lots, lot_size,
+                entry_time, entry_premium, entry_ema_gap, entry_pcr, entry_ce_oi_change, entry_pe_oi_change,
+                day_direction, status, current_premium, remaining_lots, peak_premium, created_at, updated_at,
+                timeframe_minutes
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                underlying, side, strike, expiry, security_id, exchange_segment, lots, lot_size,
+                entry_time, entry_premium, entry_ema_gap, entry_pcr, entry_ce_oi_change, entry_pe_oi_change,
+                day_direction, entry_premium, lots, entry_premium, now, now, timeframe_minutes,
+            ),
+        )
+        conn.commit()
+        return int(cur.lastrowid)
+
+
+def get_open_simple_crossover_trade(side: str) -> dict[str, Any] | None:
+    with _DB_LOCK, _connect() as conn:
+        row = conn.execute(
+            "SELECT * FROM simple_crossover_trades WHERE side = ? AND status = 'open' ORDER BY id DESC LIMIT 1", (side,)
+        ).fetchone()
+    return _simple_crossover_trade_from_row(row) if row else None
+
+
+def list_open_simple_crossover_trades() -> list[dict[str, Any]]:
+    with _DB_LOCK, _connect() as conn:
+        rows = conn.execute("SELECT * FROM simple_crossover_trades WHERE status = 'open'").fetchall()
+    return [_simple_crossover_trade_from_row(row) for row in rows]
+
+
+def update_simple_crossover_trade_progress(
+    trade_id: int, *, current_premium: float, peak_premium: float, trailing_stop_price: float | None
+) -> None:
+    now = datetime.now().isoformat(timespec="seconds")
+    with _DB_LOCK, _connect() as conn:
+        conn.execute(
+            """
+            UPDATE simple_crossover_trades
+            SET current_premium = ?, peak_premium = ?, trailing_stop_price = ?, updated_at = ?
+            WHERE id = ? AND status = 'open'
+            """,
+            (current_premium, peak_premium, trailing_stop_price, now, trade_id),
+        )
+        conn.commit()
+
+
+def record_simple_crossover_exit_leg(
+    trade_id: int, *, lots: int, exit_time: int, exit_premium: float, exit_reason: str
+) -> bool:
+    if lots <= 0:
+        return False
+    now = datetime.now().isoformat(timespec="seconds")
+    with _DB_LOCK, _connect() as conn:
+        row = conn.execute(
+            "SELECT * FROM simple_crossover_trades WHERE id = ? AND status = 'open'", (trade_id,)
+        ).fetchone()
+        if not row or int(row["remaining_lots"] or 0) < lots:
+            return False
+        try:
+            conn.execute(
+                """
+                INSERT INTO simple_crossover_exit_legs (trade_id, lots, exit_time, exit_premium, exit_reason, created_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (trade_id, lots, exit_time, exit_premium, exit_reason, now),
+            )
+        except sqlite3.IntegrityError:
+            return False
+
+        remaining_lots = int(row["remaining_lots"]) - lots
+        realized_pnl = float(row["realized_pnl"] or 0) + (
+            exit_premium - float(row["entry_premium"])
+        ) * int(row["lot_size"]) * lots
+        target1_hit = bool(row["target1_hit"]) or exit_reason == "target_5"
+        target2_hit = bool(row["target2_hit"]) or exit_reason == "target_10"
+        trailing_stop_price = row["trailing_stop_price"]
+        if exit_reason == "target_10":
+            trailing_stop_price = float(row["entry_premium"]) * 1.05
+
+        status = "closed" if remaining_lots == 0 else "open"
+        exit_at = exit_time if remaining_lots == 0 else None
+        exit_average = None
+        final_reason = None
+        if remaining_lots == 0:
+            exits = conn.execute(
+                "SELECT lots, exit_premium, exit_reason FROM simple_crossover_exit_legs WHERE trade_id = ?",
+                (trade_id,),
+            ).fetchall()
+            exited_lots = sum(int(item["lots"]) for item in exits)
+            exit_average = (
+                sum(int(item["lots"]) * float(item["exit_premium"]) for item in exits) / exited_lots
+                if exited_lots
+                else exit_premium
+            )
+            final_reason = exit_reason
+        conn.execute(
+            """
+            UPDATE simple_crossover_trades
+            SET status = ?, remaining_lots = ?, target1_hit = ?, target2_hit = ?, peak_premium = MAX(COALESCE(peak_premium, entry_premium), ?),
+                trailing_stop_price = ?, exit_time = ?, exit_premium = ?, exit_reason = ?, realized_pnl = ?,
+                current_premium = ?, updated_at = ?
+            WHERE id = ? AND status = 'open'
+            """,
+            (
+                status, remaining_lots, int(target1_hit), int(target2_hit), exit_premium,
+                trailing_stop_price, exit_at, exit_average, final_reason, realized_pnl,
+                exit_premium, now, trade_id,
+            ),
+        )
+        conn.commit()
+        return True
+
+
+def list_simple_crossover_trades() -> list[dict[str, Any]]:
+    with _DB_LOCK, _connect() as conn:
+        rows = conn.execute("SELECT * FROM simple_crossover_trades ORDER BY entry_time DESC").fetchall()
+        exit_rows = conn.execute(
+            "SELECT * FROM simple_crossover_exit_legs ORDER BY exit_time, id"
+        ).fetchall()
+    legs_by_trade: dict[int, list[dict[str, Any]]] = {}
+    for leg in exit_rows:
+        legs_by_trade.setdefault(int(leg["trade_id"]), []).append(
+            {
+                "lots": int(leg["lots"]),
+                "exitTime": int(leg["exit_time"]),
+                "exitPremium": float(leg["exit_premium"]),
+                "exitReason": leg["exit_reason"],
+            }
+        )
+    return [_simple_crossover_trade_from_row(row, legs_by_trade.get(int(row["id"]), [])) for row in rows]
+
+
+def update_simple_crossover_trade_comment(trade_id: int, comment: str) -> dict[str, Any] | None:
+    now = datetime.now().isoformat(timespec="seconds")
+    with _DB_LOCK, _connect() as conn:
+        conn.execute(
+            "UPDATE simple_crossover_trades SET comment = ?, updated_at = ? WHERE id = ?", (comment, now, trade_id)
+        )
+        conn.commit()
+        row = conn.execute("SELECT * FROM simple_crossover_trades WHERE id = ?", (trade_id,)).fetchone()
+    return _simple_crossover_trade_from_row(row) if row else None
+
+
+def _simple_crossover_trade_from_row(row: sqlite3.Row, exit_legs: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+    return {
+        "id": row["id"],
+        "underlying": row["underlying"],
+        "side": row["side"],
+        "strike": row["strike"],
+        "expiry": row["expiry"],
+        "securityId": row["security_id"],
+        "exchangeSegment": row["exchange_segment"],
+        "lots": row["lots"],
+        "lotSize": row["lot_size"],
+        "entryTime": row["entry_time"],
+        "entryPremium": row["entry_premium"],
+        "entryEmaGap": row["entry_ema_gap"],
+        "entryPcr": row["entry_pcr"],
+        "entryCeOiChange": row["entry_ce_oi_change"],
+        "entryPeOiChange": row["entry_pe_oi_change"],
+        "dayDirection": row["day_direction"],
+        "timeframeMinutes": row["timeframe_minutes"],
+        "status": row["status"],
+        "currentPremium": row["current_premium"],
+        "remainingLots": row["remaining_lots"],
+        "target1Hit": bool(row["target1_hit"]),
+        "target2Hit": bool(row["target2_hit"]),
+        "peakPremium": row["peak_premium"],
+        "trailingStopPrice": row["trailing_stop_price"],
+        "exitTime": row["exit_time"],
+        "exitPremium": row["exit_premium"],
+        "exitReason": row["exit_reason"],
+        "realizedPnl": row["realized_pnl"],
+        "exitLegs": exit_legs or [],
+        "comment": row["comment"],
+        "createdAt": row["created_at"],
+    }
+
+
+def create_simple_crossover_xaut_trade(
+    *,
+    side: str,
+    quantity: float,
+    entry_time: int,
+    entry_price: float,
+    entry_ema_gap: float | None,
+    day_direction: str | None,
+    margin: float,
+    leverage: float,
+) -> int:
+    now = datetime.now().isoformat(timespec="seconds")
+    with _DB_LOCK, _connect() as conn:
+        cur = conn.execute(
+            """
+            INSERT INTO simple_crossover_xaut_trades (
+                side, quantity, entry_time, entry_price, entry_ema_gap, day_direction,
+                margin, leverage, status, current_price, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'open', ?, ?, ?)
+            """,
+            (side, quantity, entry_time, entry_price, entry_ema_gap, day_direction, margin, leverage, entry_price, now, now),
+        )
+        conn.commit()
+        return int(cur.lastrowid)
+
+
+def get_open_simple_crossover_xaut_trade(side: str) -> dict[str, Any] | None:
+    with _DB_LOCK, _connect() as conn:
+        row = conn.execute(
+            "SELECT * FROM simple_crossover_xaut_trades WHERE side = ? AND status = 'open' ORDER BY id DESC LIMIT 1",
+            (side,),
+        ).fetchone()
+    return _simple_crossover_xaut_trade_from_row(row) if row else None
+
+
+def list_open_simple_crossover_xaut_trades() -> list[dict[str, Any]]:
+    with _DB_LOCK, _connect() as conn:
+        rows = conn.execute("SELECT * FROM simple_crossover_xaut_trades WHERE status = 'open'").fetchall()
+    return [_simple_crossover_xaut_trade_from_row(row) for row in rows]
+
+
+def update_simple_crossover_xaut_trade_progress(trade_id: int, *, current_price: float) -> None:
+    now = datetime.now().isoformat(timespec="seconds")
+    with _DB_LOCK, _connect() as conn:
+        conn.execute(
+            "UPDATE simple_crossover_xaut_trades SET current_price = ?, updated_at = ? WHERE id = ?",
+            (current_price, now, trade_id),
+        )
+        conn.commit()
+
+
+def close_simple_crossover_xaut_trade(
+    trade_id: int, *, exit_time: int, exit_price: float, exit_reason: str, realized_pnl: float
+) -> None:
+    now = datetime.now().isoformat(timespec="seconds")
+    with _DB_LOCK, _connect() as conn:
+        conn.execute(
+            """
+            UPDATE simple_crossover_xaut_trades
+            SET status = 'closed', exit_time = ?, exit_price = ?, exit_reason = ?, realized_pnl = ?,
+                current_price = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (exit_time, exit_price, exit_reason, realized_pnl, exit_price, now, trade_id),
+        )
+        conn.commit()
+
+
+def list_simple_crossover_xaut_trades() -> list[dict[str, Any]]:
+    with _DB_LOCK, _connect() as conn:
+        rows = conn.execute("SELECT * FROM simple_crossover_xaut_trades ORDER BY entry_time DESC").fetchall()
+    return [_simple_crossover_xaut_trade_from_row(row) for row in rows]
+
+
+def update_simple_crossover_xaut_trade_comment(trade_id: int, comment: str) -> dict[str, Any] | None:
+    now = datetime.now().isoformat(timespec="seconds")
+    with _DB_LOCK, _connect() as conn:
+        conn.execute(
+            "UPDATE simple_crossover_xaut_trades SET comment = ?, updated_at = ? WHERE id = ?", (comment, now, trade_id)
+        )
+        conn.commit()
+        row = conn.execute("SELECT * FROM simple_crossover_xaut_trades WHERE id = ?", (trade_id,)).fetchone()
+    return _simple_crossover_xaut_trade_from_row(row) if row else None
+
+
+def _simple_crossover_xaut_trade_from_row(row: sqlite3.Row) -> dict[str, Any]:
+    return {
+        "id": row["id"],
+        "side": row["side"],
+        "quantity": row["quantity"],
+        "entryTime": row["entry_time"],
+        "entryPrice": row["entry_price"],
+        "entryEmaGap": row["entry_ema_gap"],
+        "dayDirection": row["day_direction"],
+        "margin": row["margin"],
+        "leverage": row["leverage"],
+        "status": row["status"],
+        "currentPrice": row["current_price"],
+        "exitTime": row["exit_time"],
+        "exitPrice": row["exit_price"],
+        "exitReason": row["exit_reason"],
+        "realizedPnl": row["realized_pnl"],
+        "comment": row["comment"],
+        "createdAt": row["created_at"],
+    }
+
+
+def get_simple_crossover_setting(key: str) -> str | None:
+    with _DB_LOCK, _connect() as conn:
+        row = conn.execute("SELECT value FROM simple_crossover_settings WHERE key = ?", (key,)).fetchone()
+    return row["value"] if row else None
+
+
+def set_simple_crossover_setting(key: str, value: str) -> None:
+    now = datetime.now().isoformat(timespec="seconds")
+    with _DB_LOCK, _connect() as conn:
+        conn.execute(
+            """
+            INSERT INTO simple_crossover_settings (key, value, updated_at) VALUES (?, ?, ?)
+            ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+            """,
+            (key, value, now),
+        )
+        conn.commit()
+
+
+def get_simple_crossover_xaut_setting(key: str) -> str | None:
+    with _DB_LOCK, _connect() as conn:
+        row = conn.execute("SELECT value FROM simple_crossover_xaut_settings WHERE key = ?", (key,)).fetchone()
+    return row["value"] if row else None
+
+
+def set_simple_crossover_xaut_setting(key: str, value: str) -> None:
+    now = datetime.now().isoformat(timespec="seconds")
+    with _DB_LOCK, _connect() as conn:
+        conn.execute(
+            """
+            INSERT INTO simple_crossover_xaut_settings (key, value, updated_at) VALUES (?, ?, ?)
+            ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+            """,
+            (key, value, now),
+        )
+        conn.commit()
 
 
 def create_crypto_swing_live_trade(
@@ -2214,3 +3010,621 @@ def _nifty_swing_live_trade_from_row(row: sqlite3.Row) -> dict[str, Any]:
         "orderId": row["order_id"],
         "note": row["note"],
     }
+
+
+def get_equity_cache(category: str, cache_key: str, max_age_seconds: int | float | None = None) -> dict[str, Any] | None:
+    with _DB_LOCK, _connect() as conn:
+        row = conn.execute(
+            "SELECT category, cache_key, payload, updated_at FROM equity_cache WHERE category = ? AND cache_key = ?",
+            (category, cache_key),
+        ).fetchone()
+    if not row:
+        return None
+    updated_at = _parse_sqlite_timestamp(row["updated_at"])
+    if max_age_seconds is not None and updated_at is not None:
+        age = (datetime.now(timezone.utc) - updated_at).total_seconds()
+        if age > max_age_seconds:
+            return None
+    return {
+        "category": row["category"],
+        "cacheKey": row["cache_key"],
+        "payload": json.loads(row["payload"]),
+        "updatedAt": row["updated_at"],
+    }
+
+
+def list_equity_cache_by_category(category: str) -> dict[str, dict[str, Any]]:
+    """All entries in a category, keyed by cache_key -- e.g. every manual
+    lowest-price override, keyed by security id."""
+    with _DB_LOCK, _connect() as conn:
+        rows = conn.execute(
+            "SELECT cache_key, payload, updated_at FROM equity_cache WHERE category = ?", (category,)
+        ).fetchall()
+    return {row["cache_key"]: {"payload": json.loads(row["payload"]), "updatedAt": row["updated_at"]} for row in rows}
+
+
+def delete_equity_cache(category: str, cache_key: str) -> None:
+    with _DB_LOCK, _connect() as conn:
+        conn.execute("DELETE FROM equity_cache WHERE category = ? AND cache_key = ?", (category, cache_key))
+        conn.commit()
+
+
+def upsert_equity_cache(category: str, cache_key: str, payload: dict[str, Any]) -> dict[str, Any]:
+    with _DB_LOCK, _connect() as conn:
+        conn.execute(
+            """
+            INSERT INTO equity_cache(category, cache_key, payload, updated_at)
+            VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(category, cache_key) DO UPDATE SET
+                payload = excluded.payload,
+                updated_at = CURRENT_TIMESTAMP
+            """,
+            (category, cache_key, json.dumps(payload)),
+        )
+        conn.commit()
+    return payload
+
+
+def upsert_equity_transactions(transactions: list[dict[str, Any]]) -> None:
+    if not transactions:
+        return
+    with _DB_LOCK, _connect() as conn:
+        conn.executemany(
+            """
+            INSERT INTO equity_transactions_cache(transaction_key, symbol, security_id, isin, exchange_time, payload, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(transaction_key) DO UPDATE SET
+                symbol = excluded.symbol,
+                security_id = excluded.security_id,
+                isin = excluded.isin,
+                exchange_time = excluded.exchange_time,
+                payload = excluded.payload,
+                updated_at = CURRENT_TIMESTAMP
+            """,
+            [
+                (
+                    str(row.get("id") or row.get("transactionKey") or ""),
+                    row.get("symbol"),
+                    str(row.get("securityId") or "") or None,
+                    row.get("isin"),
+                    row.get("exchangeTime"),
+                    json.dumps(row),
+                )
+                for row in transactions
+                if row.get("id") or row.get("transactionKey")
+            ],
+        )
+        conn.commit()
+
+
+def list_equity_transactions_cache(
+    *, security_ids: set[str] | None = None, isins: set[str] | None = None, limit: int = 5000
+) -> list[dict[str, Any]]:
+    clauses = []
+    params: list[Any] = []
+    if security_ids:
+        placeholders = ",".join("?" for _ in security_ids)
+        clauses.append(f"security_id IN ({placeholders})")
+        params.extend(sorted(security_ids))
+    if isins:
+        placeholders = ",".join("?" for _ in isins)
+        clauses.append(f"isin IN ({placeholders})")
+        params.extend(sorted(isins))
+    query = "SELECT payload FROM equity_transactions_cache"
+    if clauses:
+        query += " WHERE " + " OR ".join(clauses)
+    query += " ORDER BY exchange_time DESC LIMIT ?"
+    params.append(limit)
+    with _DB_LOCK, _connect() as conn:
+        rows = conn.execute(query, params).fetchall()
+    return [json.loads(row["payload"]) for row in rows]
+
+
+def upsert_equity_options_transactions(rows: list[dict[str, Any]]) -> int:
+    if not rows:
+        return 0
+    with _DB_LOCK, _connect() as conn:
+        conn.executemany(
+            """
+            INSERT INTO equity_options_transactions(
+                id, trade_date, underlying, expiry_date, strike, option_type, exchange, bill_no,
+                buy_qty, buy_value, sell_qty, sell_value,
+                brokerage, gst, stt, sebi_fees, stamp_duty, txn_charges, oth_charges,
+                gross_amount, source, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(id) DO UPDATE SET
+                trade_date = excluded.trade_date,
+                underlying = excluded.underlying,
+                expiry_date = excluded.expiry_date,
+                strike = excluded.strike,
+                option_type = excluded.option_type,
+                exchange = excluded.exchange,
+                bill_no = excluded.bill_no,
+                buy_qty = excluded.buy_qty,
+                buy_value = excluded.buy_value,
+                sell_qty = excluded.sell_qty,
+                sell_value = excluded.sell_value,
+                brokerage = excluded.brokerage,
+                gst = excluded.gst,
+                stt = excluded.stt,
+                sebi_fees = excluded.sebi_fees,
+                stamp_duty = excluded.stamp_duty,
+                txn_charges = excluded.txn_charges,
+                oth_charges = excluded.oth_charges,
+                gross_amount = excluded.gross_amount,
+                source = excluded.source,
+                updated_at = CURRENT_TIMESTAMP
+            """,
+            [
+                (
+                    row["id"],
+                    row["tradeDate"],
+                    row["underlying"],
+                    row.get("expiryDate"),
+                    row.get("strike"),
+                    row.get("optionType"),
+                    row.get("exchange"),
+                    row.get("billNo"),
+                    row.get("buyQty"),
+                    row.get("buyValue"),
+                    row.get("sellQty"),
+                    row.get("sellValue"),
+                    row.get("brokerage"),
+                    row.get("gst"),
+                    row.get("stt"),
+                    row.get("sebiFees"),
+                    row.get("stampDuty"),
+                    row.get("txnCharges"),
+                    row.get("othCharges"),
+                    row.get("grossAmount"),
+                    row.get("source"),
+                )
+                for row in rows
+            ],
+        )
+        conn.commit()
+    return len(rows)
+
+
+def list_equity_options_transactions(
+    *, from_date: str | None = None, to_date: str | None = None
+) -> list[dict[str, Any]]:
+    clauses = []
+    params: list[Any] = []
+    if from_date:
+        clauses.append("trade_date >= ?")
+        params.append(from_date)
+    if to_date:
+        clauses.append("trade_date <= ?")
+        params.append(to_date)
+    query = "SELECT * FROM equity_options_transactions"
+    if clauses:
+        query += " WHERE " + " AND ".join(clauses)
+    query += " ORDER BY trade_date ASC"
+    with _DB_LOCK, _connect() as conn:
+        rows = conn.execute(query, params).fetchall()
+    return [dict(row) for row in rows]
+
+
+def _parse_sqlite_timestamp(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S%z", "%Y-%m-%dT%H:%M:%S.%f%z"):
+        try:
+            parsed = datetime.strptime(value, fmt)
+        except ValueError:
+            continue
+        return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+    return None
+
+
+def save_varaha_recommendation(
+    *, session_date: str, trigger: str, manual_override: str | None, snapshot: dict[str, Any], result: dict[str, Any]
+) -> int:
+    now = datetime.now().isoformat(timespec="seconds")
+    with _DB_LOCK, _connect() as conn:
+        cursor = conn.execute(
+            """
+            INSERT INTO varaha_recommendations (session_date, trigger, manual_override, snapshot_json, result_json, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (session_date, trigger, manual_override, json.dumps(snapshot), json.dumps(result), now),
+        )
+        conn.commit()
+        return int(cursor.lastrowid)
+
+
+def _varaha_row(row: sqlite3.Row, *, include_snapshot: bool) -> dict[str, Any]:
+    item = {
+        "id": row["id"],
+        "sessionDate": row["session_date"],
+        "trigger": row["trigger"],
+        "manualOverride": row["manual_override"],
+        "createdAt": row["created_at"],
+        "result": _json(row["result_json"]) or {},
+    }
+    if include_snapshot:
+        item["snapshot"] = _json(row["snapshot_json"]) or {}
+    return item
+
+
+def get_latest_varaha_recommendation(session_date: str | None = None, *, include_snapshot: bool = False) -> dict[str, Any] | None:
+    with _DB_LOCK, _connect() as conn:
+        if session_date:
+            row = conn.execute(
+                "SELECT * FROM varaha_recommendations WHERE session_date = ? ORDER BY id DESC LIMIT 1", (session_date,)
+            ).fetchone()
+        else:
+            row = conn.execute("SELECT * FROM varaha_recommendations ORDER BY id DESC LIMIT 1").fetchone()
+    return _varaha_row(row, include_snapshot=include_snapshot) if row else None
+
+
+def has_varaha_scheduled_run(session_date: str) -> bool:
+    with _DB_LOCK, _connect() as conn:
+        row = conn.execute(
+            "SELECT 1 FROM varaha_recommendations WHERE session_date = ? AND trigger = 'scheduled' LIMIT 1", (session_date,)
+        ).fetchone()
+    return row is not None
+
+
+def list_varaha_daily_history(limit: int = 20) -> list[dict[str, Any]]:
+    """Latest recommendation per session date, newest first (no snapshots)."""
+    with _DB_LOCK, _connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT r.* FROM varaha_recommendations r
+            JOIN (SELECT session_date, MAX(id) AS max_id FROM varaha_recommendations GROUP BY session_date) latest
+              ON latest.max_id = r.id
+            ORDER BY r.session_date DESC
+            LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
+    return [_varaha_row(row, include_snapshot=False) for row in rows]
+
+
+def get_varaha_setting(key: str) -> str | None:
+    with _DB_LOCK, _connect() as conn:
+        row = conn.execute("SELECT value FROM varaha_settings WHERE key = ?", (key,)).fetchone()
+    return row["value"] if row else None
+
+
+def set_varaha_setting(key: str, value: str) -> None:
+    now = datetime.now().isoformat(timespec="seconds")
+    with _DB_LOCK, _connect() as conn:
+        conn.execute(
+            """
+            INSERT INTO varaha_settings (key, value, updated_at) VALUES (?, ?, ?)
+            ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+            """,
+            (key, value, now),
+        )
+        conn.commit()
+
+
+# Tag-level Net P&L target / stop loss for Manage Trades. Scoped to one
+# session_date so a level set on a reused tag ("nifty") never carries over to
+# the next day's new positions. status: NONE | ARMED | TRIGGERING | DONE |
+# PARTIAL | FAILED -- anything past ARMED means the automatic exit has
+# already fired for that tag today and must not fire again.
+
+
+def _tag_level_row(row: sqlite3.Row) -> dict[str, Any]:
+    return {
+        "tag": row["tag"],
+        "sessionDate": row["session_date"],
+        "target": row["target_net"],
+        "stopLoss": row["stop_loss_net"],
+        "status": row["status"],
+        "triggerKind": row["trigger_kind"],
+        "triggerNet": row["trigger_net"],
+        "triggeredAt": row["triggered_at"],
+        "result": _json(row["result_json"]),
+        "updatedAt": row["updated_at"],
+    }
+
+
+def get_tag_levels(session_date: str) -> dict[str, dict[str, Any]]:
+    with _DB_LOCK, _connect() as conn:
+        rows = conn.execute("SELECT * FROM tag_levels WHERE session_date = ?", (session_date,)).fetchall()
+    return {row["tag"]: _tag_level_row(row) for row in rows}
+
+
+def upsert_tag_levels(session_date: str, tag: str, *, target: float | None, stop_loss: float | None) -> dict[str, Any]:
+    """Saving levels (re-)arms the tag and clears any earlier trigger."""
+    now = datetime.now().isoformat(timespec="seconds")
+    status = "ARMED" if target is not None or stop_loss is not None else "NONE"
+    with _DB_LOCK, _connect() as conn:
+        conn.execute(
+            """
+            INSERT INTO tag_levels (session_date, tag, target_net, stop_loss_net, status, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(session_date, tag) DO UPDATE SET
+                target_net = excluded.target_net,
+                stop_loss_net = excluded.stop_loss_net,
+                status = excluded.status,
+                trigger_kind = NULL,
+                trigger_net = NULL,
+                triggered_at = NULL,
+                result_json = NULL,
+                updated_at = excluded.updated_at
+            """,
+            (session_date, tag, target, stop_loss, status, now),
+        )
+        conn.commit()
+        row = conn.execute(
+            "SELECT * FROM tag_levels WHERE session_date = ? AND tag = ?", (session_date, tag)
+        ).fetchone()
+    return _tag_level_row(row)
+
+
+def has_armed_tag_levels(session_date: str) -> bool:
+    with _DB_LOCK, _connect() as conn:
+        row = conn.execute(
+            "SELECT 1 FROM tag_levels WHERE session_date = ? AND status = 'ARMED' LIMIT 1", (session_date,)
+        ).fetchone()
+    return row is not None
+
+
+def claim_tag_trigger(session_date: str, tag: str, *, kind: str, net: float) -> bool:
+    """Atomically moves ARMED -> TRIGGERING. Only the caller that gets True
+    may place exit orders, so a tag can never be squared off twice."""
+    now = datetime.now().isoformat(timespec="seconds")
+    with _DB_LOCK, _connect() as conn:
+        cursor = conn.execute(
+            """
+            UPDATE tag_levels
+            SET status = 'TRIGGERING', trigger_kind = ?, trigger_net = ?, triggered_at = ?, updated_at = ?
+            WHERE session_date = ? AND tag = ? AND status = 'ARMED'
+            """,
+            (kind, net, now, now, session_date, tag),
+        )
+        conn.commit()
+        return cursor.rowcount == 1
+
+
+def finish_tag_trigger(session_date: str, tag: str, *, status: str, result: dict[str, Any]) -> None:
+    now = datetime.now().isoformat(timespec="seconds")
+    with _DB_LOCK, _connect() as conn:
+        conn.execute(
+            "UPDATE tag_levels SET status = ?, result_json = ?, updated_at = ? WHERE session_date = ? AND tag = ?",
+            (status, json.dumps(result, default=str), now, session_date, tag),
+        )
+        conn.commit()
+
+
+# ---------------------------------------------------------------- BTC Strangle
+
+_BTC_TRADE_FIELDS = {
+    "id": "id", "mode": "mode", "session_date": "sessionDate", "expiry_code": "expiryCode",
+    "settlement_time": "settlementTime", "entry_time": "entryTime", "spot": "spot", "atm_strike": "atmStrike",
+    "straddle": "straddle", "multiplier": "multiplier", "distance": "distance",
+    "stop_loss_percent": "stopLossPercent", "contracts": "contracts", "status": "status", "trigger": "trigger",
+    "notes": "notes", "closed_at": "closedAt", "created_at": "createdAt",
+}
+_BTC_LEG_FIELDS = {
+    "id": "id", "trade_id": "tradeId", "option_type": "optionType", "symbol": "symbol", "product_id": "productId",
+    "strike": "strike", "requested_contracts": "requestedContracts", "contracts": "contracts",
+    "entry_price": "entryPrice", "sl_price": "slPrice", "status": "status", "exit_price": "exitPrice",
+    "exit_time": "exitTime", "exit_reason": "exitReason", "entry_order_id": "entryOrderId",
+    "sl_order_id": "slOrderId", "exit_order_id": "exitOrderId", "entry_fee": "entryFee", "exit_fee": "exitFee",
+    "last_mark": "lastMark", "last_bid": "lastBid", "last_ask": "lastAsk", "last_update": "lastUpdate", "error": "error",
+}
+
+
+def _btc_row(row: sqlite3.Row, fields: dict[str, str]) -> dict[str, Any]:
+    return {camel: row[col] for col, camel in fields.items()}
+
+
+def create_btc_strangle_trade(**values: Any) -> int:
+    values = {**values, "created_at": datetime.now().isoformat(timespec="seconds")}
+    cols = ", ".join(values)
+    marks = ", ".join(f":{k}" for k in values)
+    with _DB_LOCK, _connect() as conn:
+        cursor = conn.execute(f"INSERT INTO btc_strangle_trades ({cols}) VALUES ({marks})", values)
+        conn.commit()
+        return int(cursor.lastrowid)
+
+
+def create_btc_strangle_leg(**values: Any) -> int:
+    cols = ", ".join(values)
+    marks = ", ".join(f":{k}" for k in values)
+    with _DB_LOCK, _connect() as conn:
+        cursor = conn.execute(f"INSERT INTO btc_strangle_legs ({cols}) VALUES ({marks})", values)
+        conn.commit()
+        return int(cursor.lastrowid)
+
+
+def update_btc_strangle_leg(leg_id: int, **values: Any) -> None:
+    if not values:
+        return
+    sets = ", ".join(f"{k} = :{k}" for k in values)
+    with _DB_LOCK, _connect() as conn:
+        conn.execute(f"UPDATE btc_strangle_legs SET {sets} WHERE id = :leg_id", {**values, "leg_id": leg_id})
+        conn.commit()
+
+
+def update_btc_strangle_trade(trade_id: int, **values: Any) -> None:
+    if not values:
+        return
+    sets = ", ".join(f"{k} = :{k}" for k in values)
+    with _DB_LOCK, _connect() as conn:
+        conn.execute(f"UPDATE btc_strangle_trades SET {sets} WHERE id = :trade_id", {**values, "trade_id": trade_id})
+        conn.commit()
+
+
+def list_btc_strangle_trades(*, status: str | None = None, limit: int = 200) -> list[dict[str, Any]]:
+    with _DB_LOCK, _connect() as conn:
+        if status:
+            rows = conn.execute(
+                "SELECT * FROM btc_strangle_trades WHERE status = ? ORDER BY entry_time DESC LIMIT ?", (status, limit)
+            ).fetchall()
+        else:
+            rows = conn.execute("SELECT * FROM btc_strangle_trades ORDER BY entry_time DESC LIMIT ?", (limit,)).fetchall()
+        trades = [_btc_row(row, _BTC_TRADE_FIELDS) for row in rows]
+        ids = [t["id"] for t in trades]
+        legs_by_trade: dict[int, list[dict[str, Any]]] = {i: [] for i in ids}
+        if ids:
+            marks = ",".join("?" for _ in ids)
+            for row in conn.execute(f"SELECT * FROM btc_strangle_legs WHERE trade_id IN ({marks}) ORDER BY id", ids):
+                legs_by_trade[row["trade_id"]].append(_btc_row(row, _BTC_LEG_FIELDS))
+    for trade in trades:
+        trade["legs"] = legs_by_trade.get(trade["id"], [])
+    return trades
+
+
+def get_btc_strangle_trade(trade_id: int) -> dict[str, Any] | None:
+    with _DB_LOCK, _connect() as conn:
+        row = conn.execute("SELECT * FROM btc_strangle_trades WHERE id = ?", (trade_id,)).fetchone()
+        if not row:
+            return None
+        trade = _btc_row(row, _BTC_TRADE_FIELDS)
+        trade["legs"] = [
+            _btc_row(leg, _BTC_LEG_FIELDS)
+            for leg in conn.execute("SELECT * FROM btc_strangle_legs WHERE trade_id = ? ORDER BY id", (trade_id,))
+        ]
+    return trade
+
+
+def has_btc_strangle_trade_for_session(session_date: str, mode: str) -> bool:
+    with _DB_LOCK, _connect() as conn:
+        row = conn.execute(
+            "SELECT 1 FROM btc_strangle_trades WHERE session_date = ? AND mode = ? AND trigger = 'scheduled' LIMIT 1",
+            (session_date, mode),
+        ).fetchone()
+    return row is not None
+
+
+def get_btc_strangle_setting(key: str) -> str | None:
+    with _DB_LOCK, _connect() as conn:
+        row = conn.execute("SELECT value FROM btc_strangle_settings WHERE key = ?", (key,)).fetchone()
+    return row["value"] if row else None
+
+
+def set_btc_strangle_setting(key: str, value: str) -> None:
+    now = datetime.now().isoformat(timespec="seconds")
+    with _DB_LOCK, _connect() as conn:
+        conn.execute(
+            """
+            INSERT INTO btc_strangle_settings (key, value, updated_at) VALUES (?, ?, ?)
+            ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+            """,
+            (key, value, now),
+        )
+        conn.commit()
+
+
+# ---------------------------------------------------------------- Batman
+
+_BATMAN_TRADE_FIELDS = {
+    "id": "id", "mode": "mode", "session_date": "sessionDate", "trigger": "trigger", "expiry": "expiry",
+    "entry_time": "entryTime", "spot": "spot", "capital": "capital", "lot_size": "lotSize", "base_lots": "baseLots",
+    "buy_offset": "buyOffset", "sell_gap": "sellGap", "hedge_gap": "hedgeGap", "extra_call_lots": "extraCallLots",
+    "credit": "credit", "credit_percent": "creditPercent", "target_percent": "targetPercent",
+    "stop_percent": "stopPercent", "exit_by": "exitBy", "status": "status", "exit_time": "exitTime",
+    "exit_reason": "exitReason", "realized_pnl": "realizedPnl", "charges": "charges", "last_mtm": "lastMtm",
+    "last_update": "lastUpdate", "notes": "notes",
+}
+_BATMAN_LEG_FIELDS = {
+    "id": "id", "trade_id": "tradeId", "action": "action", "option_type": "optionType", "role": "role",
+    "strike": "strike", "lots": "lots", "security_id": "securityId", "entry_price": "entryPrice", "iv": "iv",
+    "exit_price": "exitPrice", "last_ltp": "lastLtp", "last_bid": "lastBid", "last_ask": "lastAsk",
+}
+
+
+def create_batman_trade(legs: list[dict[str, Any]], **values: Any) -> int:
+    cols = ", ".join(values)
+    marks = ", ".join(f":{k}" for k in values)
+    with _DB_LOCK, _connect() as conn:
+        trade_id = int(conn.execute(f"INSERT INTO batman_trades ({cols}) VALUES ({marks})", values).lastrowid)
+        for leg in legs:
+            conn.execute(
+                """
+                INSERT INTO batman_legs (trade_id, action, option_type, role, strike, lots, security_id, entry_price, iv,
+                                         last_ltp, last_bid, last_ask)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (trade_id, leg["action"], leg["optionType"], leg["role"], leg["strike"], leg["qty"], leg.get("securityId"),
+                 leg["price"], leg.get("iv"), leg.get("ltp"), leg.get("bid"), leg.get("ask")),
+            )
+        conn.commit()
+    return trade_id
+
+
+def update_batman_trade(trade_id: int, **values: Any) -> None:
+    if not values:
+        return
+    sets = ", ".join(f"{k} = :{k}" for k in values)
+    with _DB_LOCK, _connect() as conn:
+        conn.execute(f"UPDATE batman_trades SET {sets} WHERE id = :trade_id", {**values, "trade_id": trade_id})
+        conn.commit()
+
+
+def update_batman_leg(leg_id: int, **values: Any) -> None:
+    if not values:
+        return
+    sets = ", ".join(f"{k} = :{k}" for k in values)
+    with _DB_LOCK, _connect() as conn:
+        conn.execute(f"UPDATE batman_legs SET {sets} WHERE id = :leg_id", {**values, "leg_id": leg_id})
+        conn.commit()
+
+
+def list_batman_trades(*, mode: str | None = None, status: str | None = None, limit: int = 200) -> list[dict[str, Any]]:
+    clauses, params = [], []
+    if mode:
+        clauses.append("mode = ?")
+        params.append(mode)
+    if status:
+        clauses.append("status = ?")
+        params.append(status)
+    where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+    with _DB_LOCK, _connect() as conn:
+        rows = conn.execute(f"SELECT * FROM batman_trades {where} ORDER BY entry_time DESC LIMIT ?", (*params, limit)).fetchall()
+        trades = [{camel: row[col] for col, camel in _BATMAN_TRADE_FIELDS.items()} for row in rows]
+        for trade in trades:
+            trade["legs"] = [
+                {camel: leg[col] for col, camel in _BATMAN_LEG_FIELDS.items()}
+                for leg in conn.execute("SELECT * FROM batman_legs WHERE trade_id = ? ORDER BY id", (trade["id"],))
+            ]
+    return trades
+
+
+def has_batman_trade_for_session(mode: str, session_date: str) -> bool:
+    with _DB_LOCK, _connect() as conn:
+        row = conn.execute(
+            "SELECT 1 FROM batman_trades WHERE mode = ? AND session_date = ? AND trigger = 'scheduled' LIMIT 1",
+            (mode, session_date),
+        ).fetchone()
+    return row is not None
+
+
+def record_batman_mtm(trade_id: int, time_epoch: int, mtm: float, spot: float | None) -> None:
+    with _DB_LOCK, _connect() as conn:
+        conn.execute("INSERT INTO batman_mtm (trade_id, time, mtm, spot) VALUES (?, ?, ?, ?)", (trade_id, time_epoch, mtm, spot))
+        conn.commit()
+
+
+def list_batman_mtm(trade_id: int) -> list[dict[str, Any]]:
+    with _DB_LOCK, _connect() as conn:
+        rows = conn.execute("SELECT time, mtm, spot FROM batman_mtm WHERE trade_id = ? ORDER BY time", (trade_id,)).fetchall()
+    return [{"time": r["time"], "mtm": r["mtm"], "spot": r["spot"]} for r in rows]
+
+
+def get_batman_setting(key: str) -> str | None:
+    with _DB_LOCK, _connect() as conn:
+        row = conn.execute("SELECT value FROM batman_settings WHERE key = ?", (key,)).fetchone()
+    return row["value"] if row else None
+
+
+def set_batman_setting(key: str, value: str) -> None:
+    now = datetime.now().isoformat(timespec="seconds")
+    with _DB_LOCK, _connect() as conn:
+        conn.execute(
+            """
+            INSERT INTO batman_settings (key, value, updated_at) VALUES (?, ?, ?)
+            ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+            """,
+            (key, value, now),
+        )
+        conn.commit()

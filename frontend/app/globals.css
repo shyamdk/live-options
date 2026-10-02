@@ -488,6 +488,12 @@ button:disabled {
   color: var(--green);
 }
 
+.status-live.warn {
+  border-color: var(--red);
+  background: var(--red-soft);
+  color: var(--red);
+}
+
 .alert {
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -547,6 +553,22 @@ button:disabled {
   overflow-wrap: anywhere;
   font-size: 20px;
   line-height: 1.2;
+}
+
+/* Compact variant for a narrow sidebar column of metrics (e.g. next to a
+   chart) -- .metric itself stays unchanged everywhere else it's used. */
+.metric-compact {
+  min-height: auto;
+  gap: 3px;
+  padding: 8px 10px;
+}
+
+.metric-compact span {
+  font-size: 10.5px;
+}
+
+.metric-compact strong {
+  font-size: 15px;
 }
 
 .table-section {
@@ -1157,6 +1179,12 @@ td strong {
 
 .closed-row {
   background: #fbfcfd;
+}
+
+.totals-row td {
+  font-weight: 600;
+  border-top: 2px solid #dde3ec;
+  background: #f7f9fc;
 }
 
 .chart-row td {
@@ -1827,4 +1855,119 @@ td strong {
 
 .assistant-caption {
   margin: 0 14px 12px;
+}
+
+/* Equity page (ported from options-dash) */
+.equity-grade-legend-item {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.equity-grade-legend-item b {
+  color: var(--text);
+  margin-right: 4px;
+}
+
+.equity-grade {
+  display: inline-flex;
+  align-items: center;
+  font-size: 11px;
+  font-weight: 700;
+  border-radius: 999px;
+  padding: 2px 8px;
+  white-space: nowrap;
+}
+
+.equity-grade-a {
+  background: var(--green-soft);
+  color: var(--green);
+}
+
+.equity-grade-b {
+  background: var(--blue-soft);
+  color: var(--blue);
+}
+
+.equity-grade-c {
+  background: var(--amber-soft);
+  color: var(--amber);
+}
+
+.equity-grade-d,
+.equity-grade-e {
+  background: var(--red-soft);
+  color: var(--red);
+}
+
+.equity-sortable-th {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: none;
+  border: none;
+  font: inherit;
+  font-weight: 600;
+  color: inherit;
+  cursor: pointer;
+  padding: 0;
+}
+
+.equity-sortable-th.active {
+  color: var(--blue);
+}
+
+.equity-guru-chip {
+  display: inline-flex;
+  align-items: center;
+  font-size: 11px;
+  border-radius: 999px;
+  padding: 2px 8px;
+  border: 1px solid var(--line);
+  color: var(--muted);
+}
+
+.equity-guru-chip.pass {
+  border-color: var(--green);
+  color: var(--green);
+  background: var(--green-soft);
+}
+
+.equity-sentiment-pill {
+  display: inline-flex;
+  align-items: center;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: 999px;
+  padding: 2px 8px;
+  text-transform: capitalize;
+}
+
+.equity-sentiment-pill.positive {
+  background: var(--green-soft);
+  color: var(--green);
+}
+
+.equity-sentiment-pill.negative {
+  background: var(--red-soft);
+  color: var(--red);
+}
+
+.equity-sentiment-pill.mixed {
+  background: var(--amber-soft);
+  color: var(--amber);
+}
+
+.equity-sentiment-pill.neutral {
+  background: var(--line-soft);
+  color: var(--muted);
+}
+
+.equity-news-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 12px;
+}
+
+.equity-news-card {
+  margin: 0;
 }

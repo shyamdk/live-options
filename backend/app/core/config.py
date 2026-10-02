@@ -70,6 +70,24 @@ class Settings(BaseSettings):
 
     openai_api_key: str | None = None
     openai_model: str = "gpt-4o"
+    # Used by the Equity page's News tab (Responses API + web_search tool),
+    # separate from the chat-completions model above.
+    openai_base_url: str = "https://api.openai.com/v1"
+    openai_news_model: str = "gpt-5.4-mini"
+
+    # Equity page: Dhan holdings/quotes/transactions/candles + Screener.in
+    # fundamentals + OpenAI news, ported from options-dash (see that repo's
+    # equity.md for the full design writeup).
+    screener_url: str = "https://www.screener.in"
+    screener_urls: str | None = None
+    login_email: str | None = None
+    login_password: str | None = None
+    equity_transactions_lookback_days: int = 1825
+    equity_trade_history_max_pages: int = 50
+    equity_fundamentals_cache_hours: int = 24
+    equity_quote_cache_seconds: int = 120
+    equity_price_cache_minutes: int = 1440
+    equity_news_cache_hours: int = 6
 
     # Delta Exchange India -- key+secret HMAC-signed REST API, no browser
     # session/2FA needed for programmatic access (2FA only gates their web
@@ -209,6 +227,125 @@ class Settings(BaseSettings):
     # -> next-expiry policy in pe_ce_expiry.py; set to an explicit expiry
     # string to override it (logged when set).
     pe_ce_crossover_expiry_policy_override: str | None = None
+
+    # Phase 2 broker integration -- two-flag gate mirrors
+    # nifty_swing_live_enabled/nifty_swing_shadow_mode. While live_enabled is
+    # false (default), every trade is mode="paper" and no order/reconciliation
+    # code runs at all -- byte-identical to Phase 1. Once live_enabled=true,
+    # shadow_mode (default true) decides whether the same decision path tags
+    # trades "shadow" (no Dhan order call, just a note) or "live" (real
+    # order). A real order additionally still requires the global
+    # live_order_enabled kill switch to be true -- see orders.py.
+    pe_ce_crossover_live_enabled: bool = False
+    pe_ce_crossover_shadow_mode: bool = True
+    # INTRADAY, not the global default MARGIN -- gives Dhan's own
+    # auto-square-off as a second safety net behind this strategy's own
+    # mandatory EOD close, since it never holds overnight.
+    pe_ce_crossover_live_order_product_type: str = "INTRADAY"
+
+    # Phase 3a: Telegram alerts on entry/exit/guardrail-blocked/live-order-
+    # failure/reconciliation-mismatch only -- not on every routine tick.
+    pe_ce_crossover_telegram_alerts_enabled: bool = True
+
+    # Simple Cross Over: paper-only entries on the day-direction-matched
+    # side's EMA8/EMA21 cross-over, with fixed stop, staged targets, and a
+    # mandatory EOD close. Off by default.
+    simple_crossover_monitor_enabled: bool = False
+    simple_crossover_poll_interval_seconds: int = 30
+    simple_crossover_session_start_time: str = "09:15"
+    simple_crossover_session_end_time: str = "15:30"
+    simple_crossover_stop_loss_percent: float = 8.0
+
+    # Simple Cross Over - XAUT: same strategy applied to XAUTUSD on Delta
+    # Exchange -- a single spot/perp instrument (no CE/PE pair), 24/7
+    # market. Up day -> long on an up-crossover; Down day -> short on a
+    # down-crossover (the mirror signal, since there's no separate
+    # PE-equivalent instrument to buy). Exits mirror by side: long exits on
+    # cross-under or RSI >= rsi_long_exit; short exits on cross-over or RSI
+    # <= rsi_short_exit -- same two-threshold pattern pStrategy-Nifty
+    # already uses for long/short RSI-extreme exits. No NSE session window
+    # (polls continuously); "EOD" becomes a midnight-IST square-off instead.
+    # Paper-only -- position size is modeled as margin x leverage (Delta
+    # Exchange lets XAUTUSD perpetuals go up to 50x), same as the archived
+    # pStrategy engine, so P&L/charges can be shown as a % of margin (the
+    # number that actually reflects capital efficiency) as well as in $.
+    simple_crossover_xaut_monitor_enabled: bool = False
+    simple_crossover_xaut_poll_interval_seconds: int = 30
+    # RSI-extreme exit thresholds -- bootstrap defaults only, overridden by
+    # the DB-backed runtime config (simple_crossover_xaut_settings) once the
+    # user edits them from the UI, same as the day-direction filter toggle.
+    simple_crossover_xaut_rsi_long_exit: float = 92.0
+    simple_crossover_xaut_rsi_short_exit: float = 8.0
+    simple_crossover_xaut_max_gap_from_crossover_percent: float = 0.5
+    # Bootstrap defaults only -- overridden by the DB-backed runtime config
+    # once edited from the UI. quantity (XAUTUSD units) at entry = margin *
+    # leverage / entry price.
+    simple_crossover_xaut_margin_per_trade: float = 50.0
+    simple_crossover_xaut_leverage: float = 50.0
+    # Delta's published taker commission for the XAUTUSD perpetual --
+    # confirmed live via GET /v2/products/XAUTUSD (taker_commission_rate:
+    # 0.0001 = 0.01%; maker is the same), same verified rate the archived
+    # pStrategy engine used. Charged on both the entry and exit legs'
+    # notional (price * quantity), same as a real taker fill.
+    simple_crossover_xaut_taker_fee_percent: float = 0.01
+    # Entry EMA-gap filter bootstrap defaults -- see the
+    # ENTRY_GAP_FILTER_SETTING_KEY comment in simple_crossover_xaut.py for
+    # the analysis behind these numbers.
+    simple_crossover_xaut_min_entry_gap: float = 0.06
+    simple_crossover_xaut_max_entry_gap: float = 0.25
+
+    # Batman (batman-option-strategy-guide.pdf): NIFTY 1:3:2 double ratio
+    # spread, monthly per the rulebook + a weekly variant. Paper only.
+    batman_monitor_enabled: bool = True
+
+    # BTC Strangle (bitcoin-strangle.pdf): sells an OTM BTC call + put on
+    # Delta Exchange India every night, strikes at spot +- multiplier x ATM
+    # straddle, per-leg stop loss. Paper by default; live orders need BOTH
+    # btc_strangle_live_order_enabled (env kill switch) AND the page's mode
+    # set to live. Every value below except the kill switch is only a
+    # bootstrap default -- the page's settings (DB) override them.
+    btc_strangle_monitor_enabled: bool = True
+    btc_strangle_live_order_enabled: bool = False
+    btc_strangle_poll_interval_seconds: int = 15
+    btc_strangle_entry_time: str = "22:30"
+    btc_strangle_entry_window_end: str = "22:45"
+    btc_strangle_expiry_offset: int = 2
+    btc_strangle_strike_multiplier: float = 1.8
+    btc_strangle_stop_loss_percent: float = 100.0
+    btc_strangle_contracts: int = 500
+    btc_strangle_expiry_exit_time: str = "17:25"
+    btc_strangle_expiry_buyback_threshold: float = 5.0
+    btc_strangle_min_available_balance: float = 2000.0
+    btc_strangle_entry_fill_timeout_seconds: int = 60
+    # Delta options fee: min(taker rate x underlying notional, premium cap x
+    # premium), plus 18% GST -- product values confirmed via /v2/products.
+    btc_strangle_taker_fee_rate: float = 0.0001
+    btc_strangle_premium_fee_cap: float = 0.035
+    btc_strangle_gst_rate: float = 0.18
+
+    # Varaha: NIFTY adaptive daily strategy -- recommendation only (no
+    # orders, no paper trades). Takes one snapshot at the decision time,
+    # stores it, and ranks candidate structures with OpenAI. All thresholds
+    # are research starting points from the spec, not calibrated values.
+    varaha_monitor_enabled: bool = True
+    varaha_decision_time: str = "15:00"
+    varaha_min_dte: int = 2
+    varaha_max_dte: int = 12
+    varaha_max_expiries: int = 2
+    varaha_lot_size: int = 65
+    varaha_lots: int = 1
+    varaha_max_loss_inr: float = 50000.0
+    varaha_big_move_score: int = 6
+    varaha_watch_score: int = 4
+    varaha_em_atr_normal: float = 0.9
+    varaha_em_atr_elevated: float = 1.2
+    varaha_vix_sharp_rise_percent: float = 5.0
+    varaha_direction_confidence_percent: float = 65.0
+    varaha_min_reward_risk: float = 1.0
+    varaha_loss_width_em_target: float = 0.75
+    varaha_max_spread_points: float = 2.0
+    varaha_max_spread_percent: float = 20.0
+    varaha_ai_top_n: int = 3
 
     # Logs each new oi_signal_engine poll to oi_upgraded_signal_log (phase 5
     # signal history) -- read-only, no order placement, off by default.
@@ -385,6 +522,10 @@ class Settings(BaseSettings):
     @property
     def resolved_dhan_client_id(self) -> str | None:
         return self.dhan_client_id
+
+    @property
+    def resolved_openai_api_key(self) -> str | None:
+        return self.openai_api_key
 
     @field_validator("dhan_india_vix_security_id", mode="before")
     @classmethod

@@ -5,4 +5,5 @@ python-dotenv==1.2.1
 pydantic-settings==2.12.0
 websockets==16.0
 openai==2.45.0
+beautifulsoup4==4.12.3
 

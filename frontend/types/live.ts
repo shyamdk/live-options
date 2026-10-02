@@ -181,6 +181,45 @@ export type LiveTrade = {
   charges?: Record<string, unknown> | null;
   levels?: TradeLevels;
   riskStatus?: RiskStatus;
+  tag?: string | null;
+  defaultTag?: string | null;
+};
+
+export type TagExitLeg = {
+  tradeId: string;
+  label: string;
+  side: string;
+  quantity: number;
+  status: string;
+  ok: boolean;
+  message?: string | null;
+  orderId?: string | null;
+};
+
+export type TagLevels = {
+  tag: string;
+  target: number | null;
+  stopLoss: number | null;
+  status: "NONE" | "ARMED" | "TRIGGERING" | "DONE" | "PARTIAL" | "FAILED";
+  triggerKind: "target" | "stopLoss" | "manual" | null;
+  triggerNet: number | null;
+  triggeredAt: string | null;
+  result: { status: string; legs: TagExitLeg[]; skippedLongs: string[]; mode: string; at: string; manual?: boolean } | null;
+  updatedAt: string | null;
+};
+
+export type TagSummary = {
+  tag: string;
+  isStrangle: boolean;
+  openCount: number;
+  closedCount: number;
+  dayPnl: number;
+  charges: number;
+  netPnl: number;
+  remainingPremium: number;
+  toTarget: number | null;
+  toStopLoss: number | null;
+  levels: TagLevels;
 };
 
 export type LiveTradeSummary = {
@@ -203,6 +242,7 @@ export type LiveTradeSnapshot = {
   warning?: string | null;
   updatedAt: string;
   summary: LiveTradeSummary;
+  tagGroups?: TagSummary[];
   groups: {
     closed: LiveTrade[];
     equity: LiveTrade[];

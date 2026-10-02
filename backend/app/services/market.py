@@ -2,14 +2,24 @@ from __future__ import annotations
 
 import copy
 import time
+from datetime import datetime
 from typing import Any
 
 from app.core.config import Settings, get_settings
 from app.services.delta_exchange import DeltaExchangeService
 from app.services.dhan import DhanService
+from app.services.dhan_scrip_master import resolve_nearest_mcx_future, resolve_nifty_futures
 
+MCX_SEGMENT = "MCX_COMM"
+FNO_SEGMENT = "NSE_FNO"
+# (display label, SM_SYMBOL_NAME in Dhan's scrip master). MCX has no
+# tradable spot instrument -- nearest-expiry future is the standard proxy.
+# Domestic INR futures, not international spot/Brent.
+MCX_COMMODITIES = (("Gold (MCX)", "GOLD"), ("Silver (MCX)", "SILVER"), ("Crude Oil (MCX)", "CRUDEOIL"))
+NIFTY_FUTURES_COUNT = 2
 
 _MARKET_CACHE: tuple[float, dict[str, Any]] | None = None
+_COMMODITY_CACHE: tuple[float, dict[str, Any]] | None = None
 
 
 class MarketService:
@@ -63,6 +73,70 @@ class MarketService:
         }
         return payload
 
+    async def commodities(self) -> dict[str, Any]:
+        """Gold/Silver/Crude Oil via Dhan's MCX segment (domestic INR
+        futures, nearest expiry, no spot instrument exists) plus the
+        current/next-month NIFTY index futures. A separate panel/cache from
+        indices() since it's materially slower (a scrip-master lookup per
+        instrument) and doesn't need the same freshness as NIFTY/SENSEX.
+        """
+        global _COMMODITY_CACHE
+        now = time.monotonic()
+        if _COMMODITY_CACHE and now - _COMMODITY_CACHE[0] < self.settings.dhan_market_quote_cache_seconds:
+            return copy.deepcopy(_COMMODITY_CACHE[1])
+
+        results = await self._commodity_and_futures_indices()
+        payload = {"source": "dhan-mcx", "updatedAt": int(time.time()), "indices": results}
+        _COMMODITY_CACHE = (now, copy.deepcopy(payload))
+        return payload
+
+    async def _commodity_and_futures_indices(self) -> list[dict[str, Any]]:
+        # One batched quote call across both segments (same pattern _quote()
+        # uses for NIFTY/BANKNIFTY/SENSEX/VIX) -- separate calls in quick
+        # succession is exactly the shape that trips Dhan's own rate
+        # limiter (seen for real once already in this codebase's history).
+        dhan = DhanService(self.settings)
+        mcx_futures: dict[str, dict[str, Any]] = {}
+        for label, symbol_name in MCX_COMMODITIES:
+            try:
+                future = await resolve_nearest_mcx_future(symbol_name)
+            except Exception:
+                future = None
+            if future:
+                mcx_futures[label] = future
+
+        try:
+            nifty_contracts = await resolve_nifty_futures(NIFTY_FUTURES_COUNT)
+        except Exception:
+            nifty_contracts = []
+        nifty_futures = {_nifty_future_label(contract): contract for contract in nifty_contracts}
+
+        segments: dict[str, list[int]] = {}
+        if mcx_futures:
+            segments[MCX_SEGMENT] = [f["securityId"] for f in mcx_futures.values()]
+        if nifty_futures:
+            segments[FNO_SEGMENT] = [f["securityId"] for f in nifty_futures.values()]
+
+        quotes_by_segment: dict[str, Any] = {}
+        if segments:
+            try:
+                quotes_by_segment = await dhan.market_quotes_by_segment(segments)
+            except Exception:
+                quotes_by_segment = {}
+
+        mcx_quotes = quotes_by_segment.get(MCX_SEGMENT) or {}
+        fno_quotes = quotes_by_segment.get(FNO_SEGMENT) or {}
+
+        results: list[dict[str, Any]] = []
+        for label, _symbol_name in MCX_COMMODITIES:
+            future = mcx_futures.get(label)
+            quote = mcx_quotes.get(str(future["securityId"]), {}) if future else {}
+            results.append(self._index(label, quote))
+        for label, future in nifty_futures.items():
+            quote = fno_quotes.get(str(future["securityId"]), {})
+            results.append(self._index(label, quote))
+        return results
+
     async def _crypto_indices(self) -> list[dict[str, Any]]:
         # Best-effort -- a Delta Exchange hiccup shouldn't take down the
         # NIFTY/SENSEX strip, which is the primary thing this panel is for.
@@ -115,6 +189,15 @@ class MarketService:
             "change": round(net_change, 2) if net_change is not None else None,
             "percentChange": round(percent_change, 2) if percent_change is not None else None,
         }
+
+
+def _nifty_future_label(contract: dict[str, Any]) -> str:
+    expiry = str(contract.get("expiry") or "")
+    try:
+        month = datetime.strptime(expiry[:10], "%Y-%m-%d").strftime("%b")
+    except ValueError:
+        return "Nifty Fut"
+    return f"Nifty Fut ({month})"
 
 
 def _number(value: Any) -> float | None:

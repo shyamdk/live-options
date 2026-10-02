@@ -6,6 +6,7 @@ import { FormEvent, useEffect, useState } from "react";
 import AppSidebar from "@/components/AppSidebar";
 import AssistantChat from "@/components/AssistantChat";
 import MarketNewsTicker from "@/components/MarketNewsTicker";
+import CommoditiesStrip from "@/components/CommoditiesStrip";
 import MarketStrip from "@/components/MarketStrip";
 import { clearAuthToken, getAuthSession, getAuthStatus, loginApp } from "@/lib/api";
 import type { AuthStatus } from "@/types/live";
@@ -98,6 +99,7 @@ export default function AuthShell({ children }: Readonly<{ children: React.React
       <AppSidebar />
       <main className="main">
         <MarketStrip />
+        <CommoditiesStrip />
         <MarketNewsTicker />
         {children}
       </main>

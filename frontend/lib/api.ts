@@ -15,26 +15,27 @@ import type {
   PaperTrade,
   PaperTradingSettings,
   PcrOiPayload,
+  TagExitLeg,
+  TagLevels,
   TradeLevels,
 } from "@/types/live";
 import type { GammaBlastSessionDetail, GammaBlastState } from "@/types/gamma-blast";
 import type { Ema5CandlesResponse, Ema5Config, Ema5Session, Ema5SessionDetail, Ema5Side, Ema5State } from "@/types/ema5";
 import type { AnimeshCandlesResponse, AnimeshSession, AnimeshSessionDetail, AnimeshSide, AnimeshState } from "@/types/animesh";
 import type { CreditSpreadState } from "@/types/credit-spread";
+import type { SimpleCrossoverConfig, SimpleCrossoverData, SimpleCrossoverSide, SimpleCrossoverTrade } from "@/types/simple-crossover";
 import type { ThetaRuntimeConfig, ThetaSession, ThetaSessionDetail, ThetaState } from "@/types/theta";
-import type { CryptoSwingIndicators, CryptoSwingLiveStatus, CryptoSwingSymbol, CryptoSwingTrade, CryptoSwingWallet } from "@/types/crypto-swing";
-import type { EmaSettings, PstrategyData, PstrategyResolution } from "@/types/pstrategy";
-import type { NiftySwingIndicators, NiftySwingLiveStatus, NiftySwingResolution, NiftySwingTrade } from "@/types/nifty-swing";
-import type { PstrategyNiftyCandlesData, PstrategyNiftyResolution, PstrategyNiftyTrade } from "@/types/pstrategy-nifty";
+import type { BatmanConfig, BatmanMode, BatmanPreview, BatmanTrade } from "@/types/batman";
+import type { BtcSpotChart, BtcStrangleChart, BtcStrangleConfig, BtcStranglePreview, BtcStrangleTrade } from "@/types/btc-strangle";
 import type {
-  PeCeBacktestResult,
-  PeCeCandlesData,
-  PeCeSide,
-  PeCeSignalLogEntry,
-  PeCeStatus,
-  PeCeTrade,
-  PeCeUnderlying,
-} from "@/types/pe-ce-crossover";
+  FullButterflyFilters,
+  FullButterflyScan,
+  VarahaConfig,
+  VarahaHistoryItem,
+  VarahaLatestPayload,
+  VarahaOverride,
+} from "@/types/varaha";
+import type { EquityNewsPayload, EquityOptionsReportPayload, EquityPortfolioPayload, EquityTransactionsPayload } from "@/types/equity";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8001";
 const AUTH_TOKEN_KEY = "live-options-auth-token";
@@ -97,6 +98,10 @@ export async function loginApp(username: string, password: string): Promise<Auth
 
 export async function getMarketIndices(): Promise<MarketIndicesPayload> {
   return apiJson<MarketIndicesPayload>("/api/market/indices", undefined, "Failed to load market strip");
+}
+
+export async function getMarketCommodities(): Promise<MarketIndicesPayload> {
+  return apiJson<MarketIndicesPayload>("/api/market/commodities", undefined, "Failed to load commodities strip");
 }
 
 export async function getMarketNews(): Promise<MarketNewsPayload> {
@@ -194,6 +199,22 @@ export async function closeTrade(tradeId: string, quantity?: number) {
     `/api/trades/${encodeURIComponent(tradeId)}/close`,
     { method: "POST", body: JSON.stringify({ quantity }) },
     "Failed to close trade",
+  );
+}
+
+export async function saveTagLevels(tag: string, levels: { target: number | null; stopLoss: number | null }) {
+  return apiJson<{ levels: TagLevels }>(
+    `/api/trades/tags/${encodeURIComponent(tag)}/levels`,
+    { method: "PUT", body: JSON.stringify(levels) },
+    "Failed to save tag levels",
+  );
+}
+
+export async function exitTag(tag: string) {
+  return apiJson<{ tag: string; status: string; message?: string; legs?: TagExitLeg[] }>(
+    `/api/trades/tags/${encodeURIComponent(tag)}/exit`,
+    { method: "POST" },
+    "Failed to close tag",
   );
 }
 
@@ -422,160 +443,45 @@ export async function updatePaperTradingSettings(
   );
 }
 
-export async function getCryptoSwingWallet(): Promise<CryptoSwingWallet> {
-  return apiJson<CryptoSwingWallet>("/api/crypto-swing/wallet", undefined, "Failed to load Delta Exchange wallet");
-}
-
-export async function getCryptoSwingLiveStatus(): Promise<CryptoSwingLiveStatus> {
-  return apiJson<CryptoSwingLiveStatus>("/api/crypto-swing/live-status", undefined, "Failed to load live trading status");
-}
-
-export async function getCryptoSwingCandles(symbol: CryptoSwingSymbol, resolution = "30m"): Promise<CryptoSwingIndicators> {
-  return apiJson<CryptoSwingIndicators>(
-    `/api/crypto-swing/candles?symbol=${symbol}&resolution=${resolution}`,
+export async function getSimpleCrossoverConfig(): Promise<SimpleCrossoverConfig> {
+  return apiJson<SimpleCrossoverConfig>(
+    "/api/simple-crossover/config",
     undefined,
-    `Failed to load ${symbol} candles`,
+    "Failed to load Simple Cross Over config",
   );
 }
 
-export interface CryptoSwingTrailSettings {
-  arm: number;
-  multiple: number;
-  flipConfirmWindow?: number;
-}
-
-export async function getCryptoSwingTrades(
-  trail?: CryptoSwingTrailSettings,
-): Promise<{ trades: CryptoSwingTrade[]; trailArm: number; trailMultiple: number; flipConfirmWindow: number }> {
-  const query = new URLSearchParams();
-  if (trail) {
-    query.set("trailArm", String(trail.arm));
-    query.set("trailMultiple", String(trail.multiple));
-    if (trail.flipConfirmWindow !== undefined) query.set("flipConfirmWindow", String(trail.flipConfirmWindow));
-  }
-  const qs = query.toString();
-  return apiJson<{ trades: CryptoSwingTrade[]; trailArm: number; trailMultiple: number; flipConfirmWindow: number }>(
-    `/api/crypto-swing/trades${qs ? `?${qs}` : ""}`,
-    undefined,
-    "Failed to load crypto-swing paper trades",
+export async function updateSimpleCrossoverConfig(
+  updates: Partial<SimpleCrossoverConfig>,
+): Promise<SimpleCrossoverConfig> {
+  return apiJson<SimpleCrossoverConfig>(
+    "/api/simple-crossover/config",
+    { method: "PUT", body: JSON.stringify(updates) },
+    "Failed to update Simple Cross Over config",
   );
 }
 
-export interface RsiExitSettings {
-  longExit: number;
-  shortExit: number;
-}
-
-export async function getPstrategyCandles(
-  resolution: PstrategyResolution,
-  ema: EmaSettings,
-  paperCapitalInr?: number,
-  rsiExit?: RsiExitSettings,
-): Promise<PstrategyData> {
-  const query = new URLSearchParams({
-    resolution,
-    emaEnabled: String(ema.enabled),
-    emaFast: String(ema.fast),
-    emaSlow: String(ema.slow),
-  });
-  if (paperCapitalInr) query.set("paperCapital", String(paperCapitalInr));
-  if (rsiExit) {
-    query.set("rsiLongExit", String(rsiExit.longExit));
-    query.set("rsiShortExit", String(rsiExit.shortExit));
-  }
-  return apiJson<PstrategyData>(`/api/pstrategy/candles?${query.toString()}`, undefined, "Failed to load XAUTUSD candles");
-}
-
-export async function getNiftySwingCandles(resolution: NiftySwingResolution = "30m"): Promise<NiftySwingIndicators> {
-  return apiJson<NiftySwingIndicators>(
-    `/api/nifty-swing/candles?resolution=${resolution}`,
+export async function getSimpleCrossoverData(side: SimpleCrossoverSide): Promise<SimpleCrossoverData> {
+  return apiJson<SimpleCrossoverData>(
+    `/api/simple-crossover/data?side=${side}`,
     undefined,
-    "Failed to load NIFTYBEES candles",
+    "Failed to load Simple Cross Over data",
   );
 }
 
-export async function getNiftySwingTrades(
-  resolution: NiftySwingResolution,
-  trail?: CryptoSwingTrailSettings,
-  quantity?: number,
-): Promise<{ trades: NiftySwingTrade[]; trailArm: number; trailMultiple: number; quantity: number }> {
-  const query = new URLSearchParams({ resolution });
-  if (trail) {
-    query.set("trailArm", String(trail.arm));
-    query.set("trailMultiple", String(trail.multiple));
-    if (trail.flipConfirmWindow !== undefined) query.set("flipConfirmWindow", String(trail.flipConfirmWindow));
-  }
-  if (quantity) query.set("quantity", String(quantity));
-  return apiJson<{ trades: NiftySwingTrade[]; trailArm: number; trailMultiple: number; quantity: number }>(
-    `/api/nifty-swing/trades?${query.toString()}`,
+export async function getSimpleCrossoverTrades(): Promise<{ trades: SimpleCrossoverTrade[] }> {
+  return apiJson<{ trades: SimpleCrossoverTrade[] }>(
+    "/api/simple-crossover/trades",
     undefined,
-    "Failed to load Nifty-Swing paper trades",
+    "Failed to load Simple Cross Over trades",
   );
 }
 
-export async function getNiftySwingLiveStatus(): Promise<NiftySwingLiveStatus> {
-  return apiJson<NiftySwingLiveStatus>("/api/nifty-swing/live-status", undefined, "Failed to load live trading status");
-}
-
-export async function getPstrategyNiftyCandles(resolution: PstrategyNiftyResolution): Promise<PstrategyNiftyCandlesData> {
-  return apiJson<PstrategyNiftyCandlesData>(
-    `/api/pstrategy-nifty/candles?resolution=${resolution}`,
-    undefined,
-    "Failed to load NIFTY candles",
-  );
-}
-
-export async function getPstrategyNiftyTrades(
-  resolution: PstrategyNiftyResolution,
-): Promise<{ trades: PstrategyNiftyTrade[]; resolution: PstrategyNiftyResolution }> {
-  return apiJson<{ trades: PstrategyNiftyTrade[]; resolution: PstrategyNiftyResolution }>(
-    `/api/pstrategy-nifty/trades?resolution=${resolution}`,
-    undefined,
-    "Failed to load pStrategy-Nifty paper trades",
-  );
-}
-
-export async function getPeCeCrossoverCandles(underlying: PeCeUnderlying, side: PeCeSide): Promise<PeCeCandlesData> {
-  return apiJson<PeCeCandlesData>(
-    `/api/pe-ce-crossover/candles?underlying=${underlying}&side=${side}`,
-    undefined,
-    `Failed to load ${underlying} ${side} candles`,
-  );
-}
-
-export async function getPeCeCrossoverTrades(underlying: PeCeUnderlying): Promise<{ trades: PeCeTrade[]; underlying: PeCeUnderlying }> {
-  return apiJson<{ trades: PeCeTrade[]; underlying: PeCeUnderlying }>(
-    `/api/pe-ce-crossover/trades?underlying=${underlying}`,
-    undefined,
-    "Failed to load PE-CE Crossover trades",
-  );
-}
-
-export async function getPeCeCrossoverSignalLog(
-  underlying: PeCeUnderlying,
-): Promise<{ log: PeCeSignalLogEntry[]; sessionDate: string }> {
-  return apiJson<{ log: PeCeSignalLogEntry[]; sessionDate: string }>(
-    `/api/pe-ce-crossover/signal-log?underlying=${underlying}`,
-    undefined,
-    "Failed to load PE-CE Crossover signal log",
-  );
-}
-
-export async function getPeCeCrossoverStatus(): Promise<PeCeStatus> {
-  return apiJson<PeCeStatus>("/api/pe-ce-crossover/status", undefined, "Failed to load PE-CE Crossover status");
-}
-
-export async function runPeCeCrossoverBacktest(
-  underlying: PeCeUnderlying,
-  side: PeCeSide,
-  fromDate: string,
-  toDate: string,
-): Promise<PeCeBacktestResult> {
-  const query = new URLSearchParams({ underlying, side, fromDate, toDate });
-  return apiJson<PeCeBacktestResult>(
-    `/api/pe-ce-crossover/backtest?${query.toString()}`,
-    undefined,
-    "Failed to run backtest",
+export async function updateSimpleCrossoverTradeComment(tradeId: number, comment: string): Promise<SimpleCrossoverTrade> {
+  return apiJson<SimpleCrossoverTrade>(
+    `/api/simple-crossover/trades/${tradeId}/comment`,
+    { method: "PUT", body: JSON.stringify({ comment }) },
+    "Failed to save comment",
   );
 }
 
@@ -585,4 +491,221 @@ export async function askAssistant(question: string, history: ChatMessage[]): Pr
     { method: "POST", body: JSON.stringify({ question, history }) },
     "Failed to reach the assistant",
   );
+}
+
+// The first Equity load of the day is cold: /portfolio fans out per holding
+// (holdings -> quotes -> ~25 Screener scrapes + ~25 Dhan historical calls),
+// which measured ~90s locally. 30000ms (the rest of this app's implicit
+// browser default) aborted those first loads; 100000ms comfortably covers a
+// cold fan-out while still failing fast if the backend is actually down.
+const EQUITY_FETCH_TIMEOUT_MS = 100000;
+
+async function fetchEquity(url: URL, label: string, init: RequestInit = {}): Promise<Response> {
+  const token = getAuthToken();
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), EQUITY_FETCH_TIMEOUT_MS);
+  try {
+    const response = await fetch(url, {
+      cache: "no-store",
+      ...init,
+      signal: controller.signal,
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(init.headers ?? {}),
+      },
+    });
+    if (response.status === 401) clearAuthToken();
+    return response;
+  } catch (exc) {
+    if (exc instanceof DOMException && exc.name === "AbortError") {
+      throw new Error(`Timed out loading ${label} from ${API_BASE}. The page will keep working with the data that arrived.`);
+    }
+    if (exc instanceof TypeError) {
+      throw new Error(`Failed to reach backend for ${label} at ${API_BASE}.`);
+    }
+    throw exc;
+  } finally {
+    window.clearTimeout(timeout);
+  }
+}
+
+export async function getEquityPortfolio(refresh = false): Promise<EquityPortfolioPayload> {
+  const url = new URL("/api/equity/portfolio", API_BASE);
+  if (refresh) url.searchParams.set("refresh", "true");
+  const response = await fetchEquity(url, "equity portfolio");
+  if (!response.ok) {
+    throw new Error(`Failed to load equity portfolio: ${response.status}`);
+  }
+  return response.json();
+}
+
+export async function getEquityTransactions(options: {
+  fromDate?: string;
+  toDate?: string;
+  refresh?: boolean;
+} = {}): Promise<EquityTransactionsPayload> {
+  const url = new URL("/api/equity/transactions", API_BASE);
+  if (options.fromDate) url.searchParams.set("fromDate", options.fromDate);
+  if (options.toDate) url.searchParams.set("toDate", options.toDate);
+  if (options.refresh) url.searchParams.set("refresh", "true");
+  const response = await fetchEquity(url, "equity transactions");
+  if (!response.ok) {
+    throw new Error(`Failed to load equity transactions: ${response.status}`);
+  }
+  return response.json();
+}
+
+export async function getEquityNews(refresh = false): Promise<EquityNewsPayload> {
+  const url = new URL("/api/equity/news", API_BASE);
+  if (refresh) url.searchParams.set("refresh", "true");
+  const response = await fetchEquity(url, "equity news");
+  if (!response.ok) {
+    throw new Error(`Failed to load equity news: ${response.status}`);
+  }
+  return response.json();
+}
+
+export async function refreshEquity(payload: {
+  scope: "portfolio" | "transactions" | "news" | "all";
+  fromDate?: string;
+  toDate?: string;
+}): Promise<Record<string, unknown>> {
+  const response = await fetchEquity(new URL("/api/equity/refresh", API_BASE), "equity refresh", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) {
+    throw new Error(`Failed to refresh equity data: ${response.status}`);
+  }
+  return response.json();
+}
+
+export async function getEquityOptionsReport(): Promise<EquityOptionsReportPayload> {
+  return apiJson<EquityOptionsReportPayload>(
+    "/api/equity/options-report",
+    undefined,
+    "Failed to load options report",
+  );
+}
+
+export async function getLowestPriceOverrides(): Promise<Record<string, number>> {
+  return apiJson<Record<string, number>>(
+    "/api/equity/lowest-price-overrides",
+    undefined,
+    "Failed to load lowest-price overrides",
+  );
+}
+
+export async function setLowestPriceOverride(securityId: string, price: number | null): Promise<{ securityId: string; price: number | null }> {
+  return apiJson<{ securityId: string; price: number | null }>(
+    `/api/equity/lowest-price-overrides/${encodeURIComponent(securityId)}`,
+    { method: "PUT", body: JSON.stringify({ price }) },
+    "Failed to save lowest-price override",
+  );
+}
+
+export async function getVarahaLatest(): Promise<VarahaLatestPayload> {
+  return apiJson<VarahaLatestPayload>("/api/varaha/latest", undefined, "Failed to load Varaha recommendation");
+}
+
+export async function runVaraha(): Promise<VarahaLatestPayload> {
+  return apiJson<VarahaLatestPayload>("/api/varaha/run", { method: "POST" }, "Failed to run Varaha");
+}
+
+export async function setVarahaOverride(value: VarahaOverride): Promise<VarahaLatestPayload> {
+  return apiJson<VarahaLatestPayload>(
+    "/api/varaha/override",
+    { method: "PUT", body: JSON.stringify({ value }) },
+    "Failed to set direction override",
+  );
+}
+
+export async function updateVarahaConfig(updates: Partial<Pick<VarahaConfig, "lots" | "maxLossInr">>): Promise<VarahaConfig> {
+  return apiJson<VarahaConfig>(
+    "/api/varaha/config",
+    { method: "PUT", body: JSON.stringify(updates) },
+    "Failed to update Varaha settings",
+  );
+}
+
+export async function getVarahaHistory(): Promise<{ items: VarahaHistoryItem[] }> {
+  return apiJson<{ items: VarahaHistoryItem[] }>("/api/varaha/history", undefined, "Failed to load Varaha history");
+}
+
+export async function scanFullButterfly(filters: FullButterflyFilters): Promise<FullButterflyScan> {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(filters)) {
+    if (value === undefined || value === null || value === "") continue;
+    params.set(key, String(value));
+  }
+  return apiJson<FullButterflyScan>(`/api/varaha/full-butterfly?${params}`, undefined, "Full Butterfly scan failed");
+}
+
+export async function getBtcStrangleConfig(): Promise<BtcStrangleConfig> {
+  return apiJson<BtcStrangleConfig>("/api/btc-strangle/config", undefined, "Failed to load BTC Strangle settings");
+}
+
+export async function updateBtcStrangleConfig(updates: Partial<BtcStrangleConfig>): Promise<BtcStrangleConfig> {
+  return apiJson<BtcStrangleConfig>(
+    "/api/btc-strangle/config",
+    { method: "PUT", body: JSON.stringify(updates) },
+    "Failed to save BTC Strangle settings",
+  );
+}
+
+export async function getBtcStranglePreview(): Promise<BtcStranglePreview> {
+  return apiJson<BtcStranglePreview>("/api/btc-strangle/preview", undefined, "Failed to load tonight's plan");
+}
+
+export async function getBtcStrangleTrades(): Promise<{ trades: BtcStrangleTrade[] }> {
+  return apiJson<{ trades: BtcStrangleTrade[] }>("/api/btc-strangle/trades", undefined, "Failed to load BTC Strangle trades");
+}
+
+export async function enterBtcStrangleNow(): Promise<{ status: string; message?: string; trade?: BtcStrangleTrade }> {
+  return apiJson("/api/btc-strangle/enter", { method: "POST" }, "Failed to enter BTC Strangle");
+}
+
+export async function closeBtcStrangleLeg(legId: number): Promise<{ status: string; message?: string; price?: number }> {
+  return apiJson(`/api/btc-strangle/legs/${legId}/close`, { method: "POST" }, "Failed to close leg");
+}
+
+export async function getBtcStrangleChart(tradeId: number, resolution: string): Promise<BtcStrangleChart> {
+  return apiJson<BtcStrangleChart>(
+    `/api/btc-strangle/trades/${tradeId}/chart?resolution=${resolution}`,
+    undefined,
+    "Failed to load strategy chart",
+  );
+}
+
+export async function getBtcSpotChart(resolution: string): Promise<BtcSpotChart> {
+  return apiJson<BtcSpotChart>(`/api/btc-strangle/spot-chart?resolution=${resolution}`, undefined, "Failed to load BTC spot chart");
+}
+
+export async function getBatmanConfig(mode: BatmanMode): Promise<BatmanConfig> {
+  return apiJson<BatmanConfig>(`/api/batman/${mode}/config`, undefined, "Failed to load Batman settings");
+}
+
+export async function updateBatmanConfig(mode: BatmanMode, updates: Record<string, unknown>): Promise<BatmanConfig> {
+  return apiJson<BatmanConfig>(`/api/batman/${mode}/config`, { method: "PUT", body: JSON.stringify(updates) }, "Failed to save Batman settings");
+}
+
+export async function getBatmanPreview(mode: BatmanMode): Promise<BatmanPreview> {
+  return apiJson<BatmanPreview>(`/api/batman/${mode}/preview`, undefined, "Failed to load Batman plan");
+}
+
+export async function enterBatmanNow(mode: BatmanMode): Promise<{ status: string; message?: string; trade?: BatmanTrade }> {
+  return apiJson(`/api/batman/${mode}/enter`, { method: "POST" }, "Batman entry failed");
+}
+
+export async function getBatmanTrades(): Promise<{ trades: BatmanTrade[] }> {
+  return apiJson<{ trades: BatmanTrade[] }>("/api/batman/trades", undefined, "Failed to load Batman trades");
+}
+
+export async function getBatmanTrade(id: number): Promise<BatmanTrade> {
+  return apiJson<BatmanTrade>(`/api/batman/trades/${id}`, undefined, "Failed to load Batman trade");
+}
+
+export async function closeBatmanTrade(id: number): Promise<{ status: string; message?: string }> {
+  return apiJson(`/api/batman/trades/${id}/close`, { method: "POST" }, "Failed to close Batman trade");
 }

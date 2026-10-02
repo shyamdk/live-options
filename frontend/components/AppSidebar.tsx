@@ -3,36 +3,42 @@
 import {
   Bitcoin,
   BookOpenText,
+  Moon,
   BriefcaseBusiness,
   ChevronLeft,
   ChevronRight,
   Lightbulb,
-  LineChart,
-  PenTool,
   RadioTower,
-  SplitSquareHorizontal,
-  TrendingUp,
+  Shapes,
+  WalletCards,
+  Waypoints,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 
-// Gamma Blast, ema5, animesh-scalping, BN Credit Spread, Theta Book, and OI
-// Analysis are archived -- their pages/background monitors still exist (see
-// .env's *_MONITOR_ENABLED flags -- OI Analysis has none of its own, since
-// its pcr_oi data feed is shared with OI Upgraded/OI Improvements, which
-// stay active) but are intentionally kept off the nav around the current
-// active strategy. Re-add the entry + flip the flag to unarchive.
+// Two different kinds of "archived" have accumulated here:
+// 1. Gamma Blast, ema5, animesh-scalping, BN Credit Spread, Theta Book, and
+//    OI Analysis: nav-hidden only -- pages/routes/background monitors still
+//    exist and run (see .env's *_MONITOR_ENABLED flags; OI Analysis has none
+//    of its own, since its pcr_oi feed is shared with OI Upgraded/OI
+//    Improvements, which stay active). Re-add the entry + flip the flag to
+//    unarchive.
+// 2. Crypto-Swing, pStrategy, Nifty-Swing, pStrategy-Nifty, PE-CE Crossover:
+//    physically moved to /archive at the repo root -- no page, no route, no
+//    background monitor exists in the running app at all. Unarchiving means
+//    moving the files back (see archive/README.md), not just adding a nav
+//    entry.
 const navItems = [
   { href: "/manage-trades", label: "Manage Trades", short: "MT", icon: BriefcaseBusiness },
+  { href: "/equity", label: "Equity", short: "EQ", icon: WalletCards },
   { href: "/trade-journals", label: "Trade Journals", short: "TJ", icon: BookOpenText },
   { href: "/oi-upgraded", label: "OI - Upgraded", short: "OU", icon: RadioTower },
   { href: "/oi-improvements", label: "OI Improvements", short: "IM", icon: Lightbulb },
-  { href: "/crypto-swing", label: "Crypto-Swing", short: "CS", icon: Bitcoin },
-  { href: "/pstrategy", label: "pStrategy", short: "PS", icon: PenTool },
-  { href: "/nifty-swing", label: "Nifty-Swing", short: "NS", icon: LineChart },
-  { href: "/pstrategy-nifty", label: "pStrategy-Nifty", short: "PN", icon: TrendingUp },
-  { href: "/pe-ce-crossover", label: "PE-CE Crossover", short: "PC", icon: SplitSquareHorizontal },
+  { href: "/simple-crossover", label: "Simple Cross Over", short: "SC", icon: Waypoints },
+  { href: "/varaha", label: "Varaha", short: "VA", icon: Shapes },
+  { href: "/btc-strangle", label: "BTC Strangle", short: "BS", icon: Bitcoin },
+  { href: "/batman", label: "Batman", short: "BM", icon: Moon },
 ];
 
 const STORAGE_KEY = "live-options-sidebar-collapsed";
@@ -65,7 +71,7 @@ export default function AppSidebar() {
       <nav className="nav-tabs" aria-label="Primary navigation">
         {navItems.map((item) => {
           const Icon = item.icon;
-          const active = pathname === item.href;
+          const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
           return (
             <Link key={item.href} href={item.href} title={item.label} className={active ? "active" : ""}>
               <span className="nav-icon">

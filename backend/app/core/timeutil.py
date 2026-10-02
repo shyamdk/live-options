@@ -38,6 +38,20 @@ def today_ist() -> str:
     return now_ist().date().isoformat()
 
 
+def start_of_today_ist_epoch() -> int:
+    """True Unix epoch for the start (00:00:00) of the current IST calendar
+    day. Built from an aware datetime (tzinfo kept, not stripped) so
+    .timestamp() is computed from the embedded UTC offset -- correct
+    regardless of the host's own system timezone. Do NOT replicate this by
+    taking now_ist()'s naive return value and calling .timestamp() on it;
+    see that function's docstring for why that's silently wrong on a
+    non-IST host.
+    """
+    now = datetime.now(_IST)
+    start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    return int(start.timestamp())
+
+
 def in_time_window(now: time, start: str, end: str) -> bool:
     return _parse_time(start) <= now <= _parse_time(end)
 

@@ -14,9 +14,19 @@ import {
 } from "lucide-react";
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 
-import { approveRiskExit, closeTrade, getDhanSession, getLiveTrades, getTradeCandles, loginDhan, saveTradeLevels } from "@/lib/api";
+import {
+  approveRiskExit,
+  closeTrade,
+  exitTag,
+  getDhanSession,
+  getLiveTrades,
+  getTradeCandles,
+  loginDhan,
+  saveTagLevels,
+  saveTradeLevels,
+} from "@/lib/api";
 import { isMarketHoursNow } from "@/lib/marketHours";
-import type { DhanSession, LiveTrade, LiveTradeSnapshot, MarketCandle } from "@/types/live";
+import type { DhanSession, LiveTrade, LiveTradeSnapshot, MarketCandle, TagSummary } from "@/types/live";
 import PcrOiPanel from "@/components/PcrOiPanel";
 
 type DraftLevels = {
@@ -30,6 +40,7 @@ type TagGroup = {
   tag: string;
   openTrades: LiveTrade[];
   closedTrades: LiveTrade[];
+  summary?: TagSummary;
 };
 
 const moneyFormat = new Intl.NumberFormat("en-IN", { maximumFractionDigits: 2, minimumFractionDigits: 2 });
@@ -192,6 +203,36 @@ export default function ManageTradesPage() {
     }
   }
 
+  async function handleSaveTagLevels(tag: string, target: number | null, stopLoss: number | null) {
+    setMessage(null);
+    setError(null);
+    try {
+      await saveTagLevels(tag, { target, stopLoss });
+      setMessage(
+        target === null && stopLoss === null
+          ? `${tag}: tag levels cleared.`
+          : `${tag}: armed -- all open legs close automatically when Net P&L reaches the level.`,
+      );
+      await loadTrades();
+    } catch (exc) {
+      setError(exc instanceof Error ? exc.message : "Failed to save tag levels.");
+    }
+  }
+
+  async function handleExitTag(group: TagGroup) {
+    const legs = group.openTrades.map(tradeLabel).join(", ");
+    if (!window.confirm(`Close ALL open legs in "${group.tag}" with market orders?\n\n${legs}\n\nShorts are bought back first, then longs are sold.`)) return;
+    setMessage(null);
+    setError(null);
+    try {
+      const result = await exitTag(group.tag);
+      setMessage(`${group.tag}: close all ${String(result.status ?? "submitted")}${result.message ? ` -- ${result.message}` : ""}.`);
+      await loadTrades();
+    } catch (exc) {
+      setError(exc instanceof Error ? exc.message : "Failed to close tag.");
+    }
+  }
+
   function updateDraft(tradeId: string, key: keyof DraftLevels, value: string) {
     setDrafts((current) => ({ ...current, [tradeId]: { ...(current[tradeId] ?? emptyDraft()), [key]: value } }));
   }
@@ -202,7 +243,10 @@ export default function ManageTradesPage() {
   const closedTrades = snapshot?.groups.closed ?? [];
   const closedEquity = closedTrades.filter((trade) => trade.assetClass === "EQUITY");
   const closedOptions = closedTrades.filter((trade) => trade.assetClass === "OPTION");
-  const groupsByTag = useMemo(() => groupOptionsByTag(optionTrades, closedOptions), [optionTrades, closedOptions]);
+  const groupsByTag = useMemo(
+    () => groupOptionsByTag(optionTrades, closedOptions, snapshot?.tagGroups ?? []),
+    [optionTrades, closedOptions, snapshot?.tagGroups],
+  );
 
   return (
     <section className="page">
@@ -274,20 +318,22 @@ export default function ManageTradesPage() {
           onSave={handleSave}
           onClose={handleClose}
           onApprove={handleApprove}
+          onSaveTagLevels={handleSaveTagLevels}
+          onExitTag={handleExitTag}
           expandedIds={expandedIds}
           onToggleExpand={toggleExpand}
         />
       ))}
 
-      {groupsByTag.some((group) => group.openTrades.length > 0) ? (
+      {groupsByTag.some((group) => group.openTrades.length > 0 && isStrangleTag(group.tag)) ? (
         <div className="pcr-oi-section">
           <h3>Strategy Charts</h3>
           <p className="pcr-oi-caption" style={{ margin: 0 }}>
-            One combined chart per label -- Strategy Price is the sum of each open leg's LTP, Strategy VWAP is the
-            same series volume-weighted (each leg's own traded volume, combined) since session start.
+            Short strangles only (tags ending in _ss) -- Strategy Price is the sum of each open leg's LTP, Strategy VWAP is
+            the same series volume-weighted (each leg's own traded volume, combined) since session start.
           </p>
           {groupsByTag
-            .filter((group) => group.openTrades.length > 0)
+            .filter((group) => group.openTrades.length > 0 && isStrangleTag(group.tag))
             .map((group) => (
               <StrategyChartCard key={group.tag} group={group} />
             ))}
@@ -310,12 +356,27 @@ function Metric({ label, value, tone: metricTone }: { label: string; value: stri
 
 function TradeTable({ title, trades, closedTrades, loading }: { title: string; trades: LiveTrade[]; closedTrades: LiveTrade[]; loading: boolean }) {
   const totalRows = trades.length + closedTrades.length;
+  const totalQty = trades.reduce((sum, trade) => sum + trade.qty, 0);
+  const totalPnl = sumField([...trades, ...closedTrades], "dayPnl");
+  const totalInvested =
+    trades.reduce((sum, trade) => sum + (trade.avgPrice ?? 0) * trade.qty, 0) +
+    closedTrades.reduce(
+      (sum, trade) => sum + (trade.entryAvgPrice ?? trade.avgPrice ?? 0) * (trade.closedQty ?? trade.absQty ?? 0),
+      0,
+    );
+  const totalPercent = totalInvested ? (totalPnl / totalInvested) * 100 : null;
+  const [expanded, toggleExpanded] = useSectionExpanded(`equity:${title}`);
   return (
     <section className="table-section">
-      <div className="section-title">
-        <h2>{title}</h2>
-        <span>{totalRows}</span>
-      </div>
+      <SectionToggleTitle title={title} count={totalRows} expanded={expanded} onToggle={toggleExpanded}>
+        {!expanded ? (
+          <div style={{ fontSize: 13, color: "var(--muted)", whiteSpace: "nowrap", marginLeft: 6 }}>
+            P&amp;L <strong className={tone(totalPnl)}>{money(totalPnl)}</strong>
+            {totalPercent !== null ? ` (${percent(totalPercent)})` : ""}
+          </div>
+        ) : null}
+      </SectionToggleTitle>
+      {expanded ? (
       <div className="table-wrap">
         <table>
           <thead>
@@ -324,6 +385,7 @@ function TradeTable({ title, trades, closedTrades, loading }: { title: string; t
               <th>Side</th>
               <th>Qty</th>
               <th>Avg</th>
+              <th>Invested</th>
               <th>LTP</th>
               <th>P&L</th>
               <th>%</th>
@@ -340,36 +402,56 @@ function TradeTable({ title, trades, closedTrades, loading }: { title: string; t
                 <td><Badge tone={trade.side === "BUY" ? "buy" : "sell"}>{trade.side}</Badge></td>
                 <td>{trade.qty}</td>
                 <td>{money(trade.avgPrice)}</td>
+                <td>{money((trade.avgPrice ?? 0) * trade.qty)}</td>
                 <td><PriceCell trade={trade} /></td>
                 <td className={tone(trade.dayPnl)}>{money(trade.dayPnl)}</td>
                 <td className={tone(trade.percentChange)}>{percent(trade.percentChange)}</td>
                 <td>{trade.productType || "-"}</td>
               </tr>
             ))}
-            {closedTrades.length ? <ClosedSubsectionRow colSpan={8} count={closedTrades.length} /> : null}
-            {closedTrades.map((trade) => (
-              <tr className="closed-row" key={trade.id}>
-                <td>
-                  <strong>{trade.tradingSymbol}</strong>
-                  <span className="subtext">{trade.exchangeSegment || "-"}</span>
-                </td>
-                <td><Badge tone={trade.side === "BUY" ? "buy" : "sell"}>{trade.side}</Badge></td>
-                <td>{trade.closedQty ?? trade.absQty}</td>
-                <td>{money(trade.entryAvgPrice ?? trade.avgPrice)}</td>
-                <td>{money(trade.exitAvgPrice ?? trade.ltp)}</td>
-                <td className={tone(trade.dayPnl)}>{money(trade.dayPnl)}</td>
-                <td className={tone(trade.percentChange)}>{percent(trade.percentChange)}</td>
-                <td>{trade.productType || "-"}</td>
-              </tr>
-            ))}
+            {closedTrades.length ? <ClosedSubsectionRow colSpan={9} count={closedTrades.length} /> : null}
+            {closedTrades.map((trade) => {
+              const closedQty = trade.closedQty ?? trade.absQty ?? 0;
+              const entryPrice = trade.entryAvgPrice ?? trade.avgPrice ?? 0;
+              return (
+                <tr className="closed-row" key={trade.id}>
+                  <td>
+                    <strong>{trade.tradingSymbol}</strong>
+                    <span className="subtext">{trade.exchangeSegment || "-"}</span>
+                  </td>
+                  <td><Badge tone={trade.side === "BUY" ? "buy" : "sell"}>{trade.side}</Badge></td>
+                  <td>{closedQty}</td>
+                  <td>{money(entryPrice)}</td>
+                  <td>{money(entryPrice * closedQty)}</td>
+                  <td>{money(trade.exitAvgPrice ?? trade.ltp)}</td>
+                  <td className={tone(trade.dayPnl)}>{money(trade.dayPnl)}</td>
+                  <td className={tone(trade.percentChange)}>{percent(trade.percentChange)}</td>
+                  <td>{trade.productType || "-"}</td>
+                </tr>
+              );
+            })}
             {!totalRows ? (
               <tr>
-                <td colSpan={8}>{loading ? "Loading" : "No equity positions"}</td>
+                <td colSpan={9}>{loading ? "Loading" : "No equity positions"}</td>
+              </tr>
+            ) : null}
+            {totalRows ? (
+              <tr className="totals-row">
+                <td>Total</td>
+                <td />
+                <td>{totalQty}</td>
+                <td />
+                <td>{money(totalInvested)}</td>
+                <td />
+                <td className={tone(totalPnl)}>{money(totalPnl)}</td>
+                <td className={tone(totalPercent)}>{percent(totalPercent)}</td>
+                <td />
               </tr>
             ) : null}
           </tbody>
         </table>
       </div>
+      ) : null}
     </section>
   );
 }
@@ -382,6 +464,8 @@ function TagGroupTable({
   onSave,
   onClose,
   onApprove,
+  onSaveTagLevels,
+  onExitTag,
   expandedIds,
   onToggleExpand,
 }: {
@@ -392,23 +476,23 @@ function TagGroupTable({
   onSave: (trade: LiveTrade) => void;
   onClose: (trade: LiveTrade) => void;
   onApprove: (trade: LiveTrade) => void;
+  onSaveTagLevels: (tag: string, target: number | null, stopLoss: number | null) => Promise<void>;
+  onExitTag: (group: TagGroup) => Promise<void>;
   expandedIds: Set<string>;
   onToggleExpand: (tradeId: string) => void;
 }) {
   const columnCount = 17;
   const allRows = [...group.openTrades, ...group.closedTrades];
   const totalRows = allRows.length;
-  const groupDayPnl = sumField(allRows, "dayPnl");
-  const groupCharges = sumField(allRows, "estimatedCharges");
-  const groupNetPnl = sumField(allRows, "estimatedNetPnl");
-  const groupRemaining = sumField(allRows, "profitRemaining");
+  const groupDayPnl = group.summary?.dayPnl ?? sumField(allRows, "dayPnl");
+  const groupCharges = group.summary?.charges ?? sumField(allRows, "estimatedCharges");
+  const groupNetPnl = group.summary?.netPnl ?? sumField(allRows, "estimatedNetPnl");
+  const groupRemaining = group.summary?.remainingPremium ?? sumField(allRows, "profitRemaining");
 
+  const [expanded, toggleExpanded] = useSectionExpanded(`tag:${group.tag}`);
   return (
     <section className="table-section">
-      <div className="section-title">
-        <h2>{group.tag}</h2>
-        <span>{totalRows}</span>
-      </div>
+      <SectionToggleTitle title={group.tag} count={totalRows} expanded={expanded} onToggle={toggleExpanded} />
       <div className="gb-status-row">
         <span>
           Day P&amp;L: <strong className={tone(groupDayPnl)}>{money(groupDayPnl)}</strong>
@@ -419,6 +503,10 @@ function TagGroupTable({
         </span>
         <span>Remaining Premium: {money(groupRemaining)}</span>
       </div>
+      {group.summary ? (
+        <TagLevelsBar group={group} summary={group.summary} onSave={onSaveTagLevels} onExit={onExitTag} />
+      ) : null}
+      {expanded ? (
       <div className="table-wrap">
         <table className="wide-table">
           <thead>
@@ -454,7 +542,7 @@ function TagGroupTable({
                     <input
                       className="level-input"
                       inputMode="text"
-                      placeholder="tag"
+                      placeholder={trade.defaultTag ?? "tag"}
                       value={draft.tag}
                       onChange={(event) => onDraft(trade.id, "tag", event.target.value)}
                     />
@@ -560,7 +648,170 @@ function TagGroupTable({
           </tbody>
         </table>
       </div>
+      ) : null}
     </section>
+  );
+}
+
+function TagLevelsBar({
+  group,
+  summary,
+  onSave,
+  onExit,
+}: {
+  group: TagGroup;
+  summary: TagSummary;
+  onSave: (tag: string, target: number | null, stopLoss: number | null) => Promise<void>;
+  onExit: (group: TagGroup) => Promise<void>;
+}) {
+  const levels = summary.levels;
+  const [target, setTarget] = useState(valueText(levels.target));
+  const [stopLoss, setStopLoss] = useState(valueText(levels.stopLoss));
+  const [busy, setBusy] = useState(false);
+
+  // Re-seed the inputs only when the saved levels change, not on every 3s
+  // refresh, so typing isn't overwritten.
+  useEffect(() => {
+    setTarget(valueText(levels.target));
+    setStopLoss(valueText(levels.stopLoss));
+  }, [levels.updatedAt, levels.target, levels.stopLoss]);
+
+  async function save(clear = false) {
+    const targetValue = clear ? null : draftNumber(target);
+    const stopValue = clear ? null : draftNumber(stopLoss);
+    if (!clear && targetValue === null && stopValue === null) return;
+    if (
+      !clear &&
+      !window.confirm(
+        `Arm "${summary.tag}"?\n\nWhen its Net P&L reaches ${targetValue !== null ? `+${money(targetValue)}` : "-"} (target)` +
+          ` or ${stopValue !== null ? `-${money(Math.abs(stopValue))}` : "-"} (stop loss), ALL open legs in this tag are closed` +
+          " automatically with market orders -- no approval step.",
+      )
+    )
+      return;
+    setBusy(true);
+    try {
+      await onSave(summary.tag, targetValue, stopValue);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function closeAll() {
+    setBusy(true);
+    try {
+      await onExit(group);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const status = levels.status;
+  const statusText =
+    status === "ARMED"
+      ? `Armed · auto exit${summary.toTarget !== null ? ` · ${money(summary.toTarget)} to target` : ""}${summary.toStopLoss !== null ? ` · ${money(summary.toStopLoss)} above stop` : ""}`
+      : status === "TRIGGERING"
+        ? "Exiting…"
+        : status === "DONE"
+          ? `${levels.triggerKind === "stopLoss" ? "Stop loss" : levels.triggerKind === "manual" ? "Closed manually" : "Target"} hit · all legs closed${levels.triggeredAt ? ` at ${levels.triggeredAt.slice(11, 16)}` : ""} (net ${money(levels.triggerNet)})`
+          : status === "PARTIAL" || status === "FAILED"
+            ? `Exit ${status.toLowerCase()} -- ${(levels.result?.legs ?? []).filter((leg) => !leg.ok).map((leg) => `${leg.label}: ${leg.message ?? leg.status}`).join("; ")}`
+            : "No tag target / stop loss";
+  const statusTone = status === "ARMED" ? "on" : status === "PARTIAL" || status === "FAILED" ? "warn" : "";
+
+  return (
+    <div className="gb-status-row" style={{ flexWrap: "wrap", alignItems: "center", gap: 10 }}>
+      <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
+        Tag target (Net) ₹
+        <input
+          className="level-input"
+          inputMode="decimal"
+          placeholder="e.g. 5000"
+          value={target}
+          onChange={(event) => setTarget(event.target.value)}
+          style={{ width: 90 }}
+        />
+      </span>
+      <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
+        Stop loss (Net) −₹
+        <input
+          className="level-input"
+          inputMode="decimal"
+          placeholder="e.g. 3000"
+          value={stopLoss}
+          onChange={(event) => setStopLoss(event.target.value)}
+          style={{ width: 90 }}
+        />
+      </span>
+      <button className="icon-button" type="button" title="Save & arm tag levels" onClick={() => save(false)} disabled={busy}>
+        <Save size={15} />
+      </button>
+      {levels.target !== null || levels.stopLoss !== null ? (
+        <button className="button secondary" type="button" onClick={() => save(true)} disabled={busy}>
+          Clear
+        </button>
+      ) : null}
+      {group.openTrades.length ? (
+        <button className="button secondary" type="button" onClick={closeAll} disabled={busy} title="Close every open leg in this tag now">
+          <SquareArrowOutUpRight size={14} /> Close all
+        </button>
+      ) : null}
+      <span className={`status-live ${statusTone}`} title={levels.result ? JSON.stringify(levels.result.legs) : undefined}>
+        {statusText}
+      </span>
+    </div>
+  );
+}
+
+// Sections start collapsed; the choice is remembered per section in this
+// browser (localStorage can throw in private windows -- then it just
+// isn't remembered).
+function useSectionExpanded(key: string): [boolean, () => void] {
+  const storageKey = `manage-trades:expanded:${key}`;
+  const [expanded, setExpanded] = useState(false);
+  useEffect(() => {
+    try {
+      setExpanded(window.localStorage.getItem(storageKey) === "1");
+    } catch {
+      // ignore
+    }
+  }, [storageKey]);
+  function toggle() {
+    setExpanded((current) => {
+      const next = !current;
+      try {
+        window.localStorage.setItem(storageKey, next ? "1" : "0");
+      } catch {
+        // ignore
+      }
+      return next;
+    });
+  }
+  return [expanded, toggle];
+}
+
+function SectionToggleTitle({
+  title,
+  count,
+  expanded,
+  onToggle,
+  children,
+}: {
+  title: string;
+  count: number;
+  expanded: boolean;
+  onToggle: () => void;
+  children?: React.ReactNode;
+}) {
+  return (
+    <div className="section-title" style={{ cursor: "pointer" }} onClick={onToggle}>
+      <button className="icon-button" type="button" title={expanded ? "Collapse" : "Expand"} aria-expanded={expanded}>
+        {expanded ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
+      </button>
+      <h2>{title}</h2>
+      <span>{count}</span>
+      {children}
+    </div>
   );
 }
 
@@ -599,7 +850,7 @@ function ClosedOptionRow({
           <input
             className="level-input"
             inputMode="text"
-            placeholder="tag"
+            placeholder={trade.defaultTag ?? "tag"}
             value={draft.tag}
             onChange={(event) => onDraft(trade.id, "tag", event.target.value)}
           />
@@ -918,6 +1169,7 @@ function StrategyChartCard({ group }: { group: TagGroup }) {
           {legs.length} open leg{legs.length === 1 ? "" : "s"} — {legs.map((trade) => tradeLabel(trade)).join(", ")}
         </span>
       </div>
+      <StrikeMap tag={group.tag} legs={group.openTrades} />
       {expanded ? (
         <div onClick={(event) => event.stopPropagation()}>
           {!legs.length ? (
@@ -947,6 +1199,86 @@ function StrategyChartCard({ group }: { group: TagGroup }) {
           )}
         </div>
       ) : null}
+    </div>
+  );
+}
+
+// Compact number line of the tag's open strikes around spot: green guide
+// marks every 0.5% out to 2.5% either side (above the line), each strike
+// labelled with its distance from spot (below the line).
+const STRIKE_MAP_PERCENT_MARKS = [0.5, 1, 1.5, 2, 2.5];
+
+function StrikeMap({ tag, legs }: { tag: string; legs: LiveTrade[] }) {
+  const spot = legs.find((leg) => leg.spotPrice)?.spotPrice ?? null;
+  if (!spot) return null;
+  const strikes = legs
+    .filter((leg) => leg.strikePrice != null)
+    .map((leg) => {
+      const strike = Number(leg.strikePrice);
+      const distance = (Math.abs(strike - spot) / spot) * 100;
+      return {
+        key: leg.id,
+        strike,
+        text: `${strike.toLocaleString("en-IN")} ${leg.optionSide ?? ""} (${distance.toFixed(2)}%)`,
+        color: leg.qty < 0 ? "var(--red)" : "var(--green)",
+      };
+    });
+  if (!strikes.length) return null;
+
+  const width = 900;
+  const maxMark = Math.max(...STRIKE_MAP_PERCENT_MARKS) / 100;
+  const values = [spot * (1 - maxMark), spot * (1 + maxMark), ...strikes.map((s) => s.strike)];
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const pad = (max - min) * 0.04;
+  const x = (value: number) => 16 + ((value - (min - pad)) / (max - min + 2 * pad)) * (width - 32);
+
+  // Below-line labels: drop to a second row when one would collide with the
+  // previous label (close strikes).
+  const labelMinGap = 110;
+  let lastAt = -Infinity;
+  let lastRow = 1;
+  const labels = strikes
+    .map((s) => ({ ...s, at: x(s.strike) }))
+    .sort((a, b) => a.at - b.at)
+    .map((item) => {
+      const row = item.at - lastAt < labelMinGap && lastRow === 0 ? 1 : 0;
+      lastAt = item.at;
+      lastRow = row;
+      return { ...item, row };
+    });
+  const axisY = 26;
+  const labelsY = axisY + 17;
+  const height = labelsY + (labels.some((l) => l.row === 1) ? 14 : 0) + 6;
+
+  return (
+    <div style={{ margin: "2px 0 8px", maxWidth: 980 }}>
+      <svg viewBox={`0 0 ${width} ${height}`} style={{ width: "100%", height: "auto", display: "block" }} role="img" aria-label={`${tag} strikes relative to spot`}>
+        <line x1={8} x2={width - 8} y1={axisY} y2={axisY} stroke="var(--text)" strokeWidth={1} />
+        {STRIKE_MAP_PERCENT_MARKS.flatMap((mark) => [-1, 1].map((sign) => {
+          const at = x(spot * (1 + (sign * mark) / 100));
+          return (
+            <g key={`mark-${sign}-${mark}`}>
+              <line x1={at} x2={at} y1={axisY - 5} y2={axisY} stroke="var(--green)" strokeWidth={1} />
+              <text x={at} y={axisY - 8} textAnchor="middle" fontSize={9} fill="var(--green)">
+                {mark}%
+              </text>
+            </g>
+          );
+        }))}
+        <line x1={x(spot)} x2={x(spot)} y1={axisY - 9} y2={axisY + 6} stroke="var(--blue)" strokeWidth={2.5} />
+        <text x={x(spot)} y={axisY - 12} textAnchor="middle" fontSize={10} fontWeight={700} fill="var(--blue)">
+          SPOT {Math.round(spot).toLocaleString("en-IN")}
+        </text>
+        {labels.map((item) => (
+          <g key={`strike-${item.key}`}>
+            <line x1={item.at} x2={item.at} y1={axisY - 5} y2={axisY + 5} stroke={item.color} strokeWidth={2} />
+            <text x={item.at} y={labelsY + item.row * 14} textAnchor="middle" fontSize={10} fill={item.color}>
+              {item.text}
+            </text>
+          </g>
+        ))}
+      </svg>
     </div>
   );
 }
@@ -981,11 +1313,18 @@ function emptyDraft(): DraftLevels {
 
 const UNTAGGED = "Untagged";
 
+// The backend assigns every option position an effective tag: the one typed
+// in, else the underlying ("nifty" / "sensex"), with "_ss" for a detected
+// short strangle. Older payloads without it fall back to the saved tag.
 function tagOf(trade: LiveTrade): string {
-  return trade.levels?.tag?.trim() || UNTAGGED;
+  return trade.tag?.trim() || trade.levels?.tag?.trim() || UNTAGGED;
 }
 
-function groupOptionsByTag(openTrades: LiveTrade[], closedTrades: LiveTrade[]): TagGroup[] {
+function isStrangleTag(tag: string): boolean {
+  return tag.toLowerCase().endsWith("_ss");
+}
+
+function groupOptionsByTag(openTrades: LiveTrade[], closedTrades: LiveTrade[], summaries: TagSummary[]): TagGroup[] {
   const map = new Map<string, TagGroup>();
   function ensure(tag: string): TagGroup {
     let group = map.get(tag);
@@ -997,6 +1336,10 @@ function groupOptionsByTag(openTrades: LiveTrade[], closedTrades: LiveTrade[]): 
   }
   for (const trade of openTrades) ensure(tagOf(trade)).openTrades.push(trade);
   for (const trade of closedTrades) ensure(tagOf(trade)).closedTrades.push(trade);
+  for (const summary of summaries) {
+    const group = map.get(summary.tag);
+    if (group) group.summary = summary;
+  }
 
   const groups = Array.from(map.values());
   groups.sort((a, b) => {

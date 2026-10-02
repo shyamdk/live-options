@@ -160,6 +160,59 @@ def atr(candles: list[dict[str, Any]], period: int = 14) -> list[float | None]:
     return result
 
 
+def adx(candles: list[dict[str, Any]], period: int = 14) -> list[float | None]:
+    """Standard Wilder ADX: +DM/-DM/TR are each Wilder-smoothed (same
+    recursion as atr() above) into +DI/-DI, whose normalized difference
+    (DX) is itself Wilder-smoothed into ADX -- so ADX only becomes defined
+    once 2*period bars of history exist (period to seed +DI/-DI, another
+    period to seed the DX average).
+    """
+    n = len(candles)
+    result: list[float | None] = [None] * n
+    if n <= period:
+        return result
+
+    tr = _true_range(candles)
+    plus_dm = [0.0] * n
+    minus_dm = [0.0] * n
+    for i in range(1, n):
+        up_move = float(candles[i]["high"]) - float(candles[i - 1]["high"])
+        down_move = float(candles[i - 1]["low"]) - float(candles[i]["low"])
+        plus_dm[i] = up_move if (up_move > down_move and up_move > 0) else 0.0
+        minus_dm[i] = down_move if (down_move > up_move and down_move > 0) else 0.0
+
+    smoothed_tr = sum(tr[1 : period + 1])
+    smoothed_plus_dm = sum(plus_dm[1 : period + 1])
+    smoothed_minus_dm = sum(minus_dm[1 : period + 1])
+
+    dx_values: list[float | None] = [None] * n
+    for i in range(period, n):
+        if i > period:
+            smoothed_tr = smoothed_tr - smoothed_tr / period + tr[i]
+            smoothed_plus_dm = smoothed_plus_dm - smoothed_plus_dm / period + plus_dm[i]
+            smoothed_minus_dm = smoothed_minus_dm - smoothed_minus_dm / period + minus_dm[i]
+        if smoothed_tr == 0:
+            continue
+        plus_di = 100 * smoothed_plus_dm / smoothed_tr
+        minus_di = 100 * smoothed_minus_dm / smoothed_tr
+        di_sum = plus_di + minus_di
+        dx_values[i] = 100 * abs(plus_di - minus_di) / di_sum if di_sum else 0.0
+
+    first_adx_index = period * 2 - 1
+    if n <= first_adx_index:
+        return result
+    seed = [v for v in dx_values[period : period * 2] if v is not None]
+    if len(seed) < period:
+        return result
+
+    adx_value = sum(seed) / period
+    result[first_adx_index] = adx_value
+    for i in range(first_adx_index + 1, n):
+        adx_value = (adx_value * (period - 1) + (dx_values[i] or 0.0)) / period
+        result[i] = adx_value
+    return result
+
+
 def supertrend(
     candles: list[dict[str, Any]], period: int = 13, multiplier: float = 4.0
 ) -> tuple[list[float | None], list[Direction | None]]:

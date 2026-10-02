@@ -3,6 +3,7 @@
 import { ChevronDown, ChevronRight, Save } from "lucide-react";
 import { useEffect, useState } from "react";
 
+import { DailyTotalsTable, groupDailyTotals } from "@/components/DailyTotals";
 import { getPaperTrades, getPaperTradingSettings, updatePaperTradingSettings } from "@/lib/api";
 import { isMarketHoursNow } from "@/lib/marketHours";
 import type { PaperTrade, PaperTradingSettings } from "@/types/live";
@@ -242,47 +243,57 @@ export default function PaperTradingPanel() {
             {closedTrades.length === 0 ? (
               <p className="pcr-oi-caption">No closed paper trades yet.</p>
             ) : (
-              <div style={{ overflowX: "auto" }}>
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Underlying</th>
-                      <th>Side</th>
-                      <th>Signal</th>
-                      <th>Strike</th>
-                      <th>Entry Time</th>
-                      <th>Entry Premium</th>
-                      <th>Exits</th>
-                      <th>Realized P&amp;L</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {closedTrades.map((trade) => (
-                      <tr key={trade.id}>
-                        <td>{trade.underlying}</td>
-                        <td>
-                          <span className={`badge ${trade.side === "CE" ? "buy" : "sell"}`}>{trade.side}</span>
-                        </td>
-                        <td>{SIGNAL_TYPE_LABEL[trade.signalType]}</td>
-                        <td>{trade.strike ?? "—"}</td>
-                        <td>{formatTime(trade.entryTime)}</td>
-                        <td>{moneyFormat.format(trade.entryPremium)}</td>
-                        <td>
-                          {trade.legs
-                            .map(
-                              (leg) =>
-                                `${EXIT_REASON_LABEL[leg.exitReason] ?? leg.exitReason} @ ${moneyFormat.format(leg.exitPremium)} (${formatTime(leg.exitTime)})`,
-                            )
-                            .join(", ")}
-                        </td>
-                        <td style={{ color: trade.realizedPnl >= 0 ? "var(--green)" : "var(--red)" }}>
-                          {moneyFormat.format(trade.realizedPnl)}
-                        </td>
+              <>
+                <DailyTotalsTable
+                  rows={groupDailyTotals(
+                    closedTrades,
+                    (t) => t.closedAt,
+                    (t) => t.realizedPnl,
+                    () => null,
+                  )}
+                />
+                <div style={{ overflowX: "auto" }}>
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Underlying</th>
+                        <th>Side</th>
+                        <th>Signal</th>
+                        <th>Strike</th>
+                        <th>Entry Time</th>
+                        <th>Entry Premium</th>
+                        <th>Exits</th>
+                        <th>Realized P&amp;L</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                    </thead>
+                    <tbody>
+                      {closedTrades.map((trade) => (
+                        <tr key={trade.id}>
+                          <td>{trade.underlying}</td>
+                          <td>
+                            <span className={`badge ${trade.side === "CE" ? "buy" : "sell"}`}>{trade.side}</span>
+                          </td>
+                          <td>{SIGNAL_TYPE_LABEL[trade.signalType]}</td>
+                          <td>{trade.strike ?? "—"}</td>
+                          <td>{formatTime(trade.entryTime)}</td>
+                          <td>{moneyFormat.format(trade.entryPremium)}</td>
+                          <td>
+                            {trade.legs
+                              .map(
+                                (leg) =>
+                                  `${EXIT_REASON_LABEL[leg.exitReason] ?? leg.exitReason} @ ${moneyFormat.format(leg.exitPremium)} (${formatTime(leg.exitTime)})`,
+                              )
+                              .join(", ")}
+                          </td>
+                          <td style={{ color: trade.realizedPnl >= 0 ? "var(--green)" : "var(--red)" }}>
+                            {moneyFormat.format(trade.realizedPnl)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
             )}
           </div>
         </>

@@ -33,6 +33,7 @@ from app.services.crypto_indicators import ema
 from app.services.dhan import DhanService
 from app.services.pe_ce_crossover import EMA_FAST_PERIOD, EMA_SLOW_PERIOD, OPTION_SEGMENT, STRIKE_STEP
 from app.services.pe_ce_filters import premium_expansion_percent
+from app.services.pe_ce_metrics import compute_trade_metrics
 
 INDEX_SEGMENT = "IDX_I"
 
@@ -155,7 +156,7 @@ async def run_backtest(
             "target_percent": target_percent,
         }
 
-    metrics = _compute_metrics(trades)
+    metrics = compute_trade_metrics(trades)
     return {
         "underlying": underlying,
         "side": side,
@@ -221,39 +222,3 @@ def _close_trade(position: dict[str, Any], exit_time: int, exit_premium: float, 
     }
 
 
-def _compute_metrics(trades: list[dict[str, Any]]) -> dict[str, Any]:
-    if not trades:
-        return {
-            "tradeCount": 0, "netPnl": 0.0, "winRate": None, "profitFactor": None,
-            "expectancy": None, "maxDrawdown": 0.0, "avgWin": None, "avgLoss": None,
-            "longestLosingStreak": 0,
-        }
-    pnls = [t["netPnl"] for t in trades]
-    wins = [p for p in pnls if p > 0]
-    losses = [p for p in pnls if p <= 0]
-    gross_profit = sum(wins)
-    gross_loss = abs(sum(losses))
-
-    equity = 0.0
-    peak = 0.0
-    max_drawdown = 0.0
-    streak = 0
-    longest_losing_streak = 0
-    for p in pnls:
-        equity += p
-        peak = max(peak, equity)
-        max_drawdown = max(max_drawdown, peak - equity)
-        streak = streak + 1 if p <= 0 else 0
-        longest_losing_streak = max(longest_losing_streak, streak)
-
-    return {
-        "tradeCount": len(trades),
-        "netPnl": round(sum(pnls), 2),
-        "winRate": round(len(wins) / len(trades) * 100, 1),
-        "profitFactor": round(gross_profit / gross_loss, 2) if gross_loss else None,
-        "expectancy": round(sum(pnls) / len(trades), 2),
-        "maxDrawdown": round(max_drawdown, 2),
-        "avgWin": round(sum(wins) / len(wins), 2) if wins else None,
-        "avgLoss": round(sum(losses) / len(losses), 2) if losses else None,
-        "longestLosingStreak": longest_losing_streak,
-    }

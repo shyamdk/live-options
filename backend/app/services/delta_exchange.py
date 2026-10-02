@@ -163,6 +163,56 @@ class DeltaExchangeService:
         return result if isinstance(result, dict) else {}
 
 
+    # -- Options + order management (BTC Strangle) --
+
+    async def get_option_tickers(self, underlying: str = "BTC") -> list[dict[str, Any]]:
+        """Public: every live call/put ticker for an underlying, with
+        quotes (best bid/ask), mark price, greeks and spot."""
+        params = {"contract_types": "call_options,put_options", "underlying_asset_symbols": underlying}
+        async with httpx.AsyncClient(timeout=20) as client:
+            response = await client.get(f"{self._settings.delta_exchange_base_url}/v2/tickers", params=params)
+        payload = response.json()
+        if response.status_code >= 400 or not payload.get("success"):
+            raise DeltaExchangeError(f"Delta Exchange option tickers error ({response.status_code}): {payload}")
+        return payload.get("result") or []
+
+    async def place_stop_loss_order(
+        self,
+        product_id: int,
+        size: int,
+        side: str,
+        stop_price: str,
+        *,
+        trigger_method: str = "mark_price",
+        client_order_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Places a REAL exchange-side stop-market order (reduce-only) that
+        rests on Delta until the trigger price is crossed -- it keeps
+        protecting the position even if this server is down."""
+        body: dict[str, Any] = {
+            "product_id": product_id,
+            "size": size,
+            "side": side,
+            "order_type": "market_order",
+            "stop_order_type": "stop_loss_order",
+            "stop_price": stop_price,
+            "stop_trigger_method": trigger_method,
+            "reduce_only": True,
+        }
+        if client_order_id is not None:
+            body["client_order_id"] = client_order_id
+        result = await self._request("POST", "/v2/orders", json_body=body)
+        return result if isinstance(result, dict) else {}
+
+    async def get_order(self, order_id: int | str) -> dict[str, Any]:
+        result = await self._request("GET", f"/v2/orders/{order_id}")
+        return result if isinstance(result, dict) else {}
+
+    async def cancel_order(self, order_id: int | str, product_id: int) -> dict[str, Any]:
+        result = await self._request("DELETE", "/v2/orders", json_body={"id": int(order_id), "product_id": int(product_id)})
+        return result if isinstance(result, dict) else {}
+
+
 async def _check_connection() -> None:
     service = DeltaExchangeService()
     try:

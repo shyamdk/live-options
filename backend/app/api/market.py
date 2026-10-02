@@ -159,3 +159,20 @@ async def indices() -> dict:
                 {"name": "ETH/USD", "lastPrice": None, "change": None, "percentChange": None},
             ],
         }
+
+
+@router.get("/commodities", dependencies=[Depends(require_auth)])
+async def commodities() -> dict:
+    try:
+        return await MarketService().commodities()
+    except Exception as exc:
+        return {
+            "source": "fallback",
+            "stale": True,
+            "warning": str(exc),
+            "indices": [
+                {"name": "Gold (MCX)", "lastPrice": None, "change": None, "percentChange": None},
+                {"name": "Silver (MCX)", "lastPrice": None, "change": None, "percentChange": None},
+                {"name": "Crude Oil (MCX)", "lastPrice": None, "change": None, "percentChange": None},
+            ],
+        }

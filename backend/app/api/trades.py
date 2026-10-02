@@ -2,15 +2,17 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from app.services.app_auth import require_auth
 from app.services.trades import (
     approve_risk_exit,
     close_trade,
+    exit_tag_now,
     live_trade_snapshot,
     process_risk_order_check,
+    save_tag_levels,
     save_trade_levels,
 )
 
@@ -25,6 +27,11 @@ class TradeLevelsIn(BaseModel):
     tag: str | None = None
 
 
+class TagLevelsIn(BaseModel):
+    target: float | None = None
+    stopLoss: float | None = None
+
+
 class CloseTradeIn(BaseModel):
     quantity: int | None = None
 
@@ -37,6 +44,19 @@ async def live_trades() -> dict[str, Any]:
 @router.post("/risk/check", dependencies=[Depends(require_auth)])
 async def risk_check() -> dict[str, Any]:
     return await process_risk_order_check()
+
+
+@router.put("/tags/{tag}/levels", dependencies=[Depends(require_auth)])
+async def update_tag_levels(tag: str, payload: TagLevelsIn) -> dict[str, Any]:
+    try:
+        return {"levels": await save_tag_levels(tag, payload.target, payload.stopLoss)}
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.post("/tags/{tag}/exit", dependencies=[Depends(require_auth)])
+async def exit_tag(tag: str) -> dict[str, Any]:
+    return await exit_tag_now(tag)
 
 
 @router.put("/{trade_id}/levels", dependencies=[Depends(require_auth)])

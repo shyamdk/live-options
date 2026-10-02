@@ -1,18 +1,24 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timedelta
+import re
+from datetime import datetime, time as dtime, timedelta
 from typing import Any
 
 from app.core.config import get_settings
-from app.core.timeutil import today_ist
+from app.core.timeutil import now_ist, today_ist
 from app.db.sqlite import (
+    claim_tag_trigger,
+    finish_tag_trigger,
+    get_tag_levels,
     get_trade_actions,
     get_trade_levels,
+    has_armed_tag_levels,
     has_configured_trade_levels,
     record_alert_once,
     record_daily_trade_summary,
     record_trade_action,
+    upsert_tag_levels,
     upsert_trade_levels,
 )
 from app.services.charges import (
@@ -27,6 +33,11 @@ from app.services.telegram import TelegramNotifier
 
 
 _TRADE_LTP_CACHE: dict[str, float] = {}
+# Serialises tag-level exits (automatic and manual) so two paths can never
+# place closing orders for the same tag at the same time.
+_TAG_EXIT_LOCK = asyncio.Lock()
+_MARKET_OPEN = dtime(9, 15)
+_MARKET_CLOSE = dtime(15, 30)
 
 
 async def live_trade_snapshot() -> dict[str, Any]:
@@ -86,6 +97,9 @@ async def _live_trade_snapshot() -> dict[str, Any]:
             trade["estimatedCharges"] = None
             trade["estimatedNetPnl"] = trade.get("dayPnl")
 
+    _assign_tags(option_trades, closed_options)
+    tag_groups = _tag_groups(option_trades, closed_options, get_tag_levels(today_ist()))
+
     equity = [trade for trade in open_trades if trade["assetClass"] == "EQUITY"]
     await _notify_spot_distance_alerts([trade for trade in option_trades if trade["side"] == "SELL"])
     summary = _summary(closed, equity, option_trades)
@@ -94,6 +108,7 @@ async def _live_trade_snapshot() -> dict[str, Any]:
         "warning": None,
         "updatedAt": datetime.now().isoformat(timespec="seconds"),
         "summary": summary,
+        "tagGroups": tag_groups,
         "groups": {
             "closed": sorted(closed, key=_closed_sort_key),
             "equity": sorted(equity, key=lambda row: row["tradingSymbol"]),
@@ -165,17 +180,22 @@ async def process_risk_order_check() -> dict[str, Any]:
     settings = get_settings()
     if not settings.risk_order_monitor_enabled:
         return {"enabled": False, "checked": 0, "actions": []}
-    if not has_configured_trade_levels():
+    trade_levels_configured = has_configured_trade_levels()
+    tag_levels_armed = has_armed_tag_levels(today_ist())
+    if not trade_levels_configured and not tag_levels_armed:
         return {"enabled": True, "executionEnabled": settings.risk_order_execution_enabled, "checked": 0, "actions": []}
 
     snapshot = await _live_trade_snapshot()
     groups = snapshot.get("groups") or {}
     option_trades = groups.get("options") or []
     actions = []
-    for trade in option_trades:
-        action = await _maybe_alert_risk_exit(trade)
-        if action:
-            actions.append(action)
+    if trade_levels_configured:
+        for trade in option_trades:
+            action = await _maybe_alert_risk_exit(trade)
+            if action:
+                actions.append(action)
+    if tag_levels_armed:
+        actions.extend(await _check_tag_levels(snapshot))
     return {
         "enabled": True,
         "executionEnabled": settings.risk_order_execution_enabled,
@@ -352,7 +372,9 @@ def _normalize_position(row: dict[str, Any]) -> dict[str, Any] | None:
     strike = _number(_first(row, "drvStrikePrice", "strikePrice", "strike"))
     raw_option_type = str(_first(row, "drvOptionType", "optionType", "optionSide") or "").upper()
     option_side = _option_side(raw_option_type, trading_symbol)
-    is_option = bool(option_side and (strike is not None or "OPT" in instrument or "FNO" in exchange_segment.upper()))
+    # strike is not None alone isn't enough -- Dhan sends drvStrikePrice as 0
+    # for equity rows too, which is "not None" but not a real strike.
+    is_option = bool(option_side and (strike not in (None, 0) or "OPT" in instrument or "FNO" in exchange_segment.upper()))
     buy_avg = _number(_first(row, "buyAvg", "buyAvgPrice"))
     sell_avg = _number(_first(row, "sellAvg", "sellAvgPrice"))
     buy_qty = int(_number(_first(row, "buyQty", "dayBuyQty")) or 0)
@@ -945,8 +967,9 @@ def _trade_id(
     return ":".join(part for part in (asset_class, symbol, expiry or "NA", strike_text, option_side or "NA", product_type) if part)
 
 
-def _option_sort_key(trade: dict[str, Any]) -> tuple[str, str, float, str]:
+def _option_sort_key(trade: dict[str, Any]) -> tuple[str, str, str, float, str]:
     return (
+        str(trade.get("tag") or ""),
         str(trade.get("symbol") or ""),
         str(trade.get("expiry") or ""),
         float(trade.get("strikePrice") or 0),
@@ -954,8 +977,9 @@ def _option_sort_key(trade: dict[str, Any]) -> tuple[str, str, float, str]:
     )
 
 
-def _closed_sort_key(trade: dict[str, Any]) -> tuple[str, str, float, str, str]:
+def _closed_sort_key(trade: dict[str, Any]) -> tuple[str, str, str, float, str, str]:
     return (
+        str(trade.get("tag") or ""),
         str(trade.get("symbol") or ""),
         str(trade.get("expiry") or ""),
         float(trade.get("strikePrice") or 0),
@@ -969,10 +993,15 @@ def _option_side(raw_option_type: str, trading_symbol: str) -> str | None:
         return "CE"
     if raw_option_type in {"PUT", "PE"}:
         return "PE"
+    # Dhan's option trading symbols are hyphen-delimited
+    # (<Symbol>-<Expiry>-<Strike>-<CE/PE>, see _underlying_symbol's own
+    # "-" split below) -- require that hyphen, not just a bare suffix match,
+    # which false-positived on equity symbols that happen to end in those
+    # two letters as part of an English word (BAJFINANCE, RELIANCE).
     upper = trading_symbol.upper()
-    if upper.endswith("CE"):
+    if upper.endswith("-CE"):
         return "CE"
-    if upper.endswith("PE"):
+    if upper.endswith("-PE"):
         return "PE"
     return None
 
@@ -1070,3 +1099,228 @@ def _number(value: Any) -> float | None:
 def _int(value: Any) -> int | None:
     number = _number(value)
     return int(number) if number is not None else None
+
+
+# ---------------------------------------------------------------- tag levels
+#
+# Every option position gets an effective tag: the one the user typed, or a
+# default of the lower-cased underlying ("nifty", "sensex"), with "_ss"
+# appended when that underlying+expiry is a short strangle (only SELL legs,
+# on both CE and PE). A tag can carry a Net P&L target and stop loss for the
+# day; when either is hit the risk monitor squares off every open leg in the
+# tag automatically -- shorts are bought back first, and longs are only sold
+# once every short is flat, so a partial failure never leaves naked shorts.
+
+
+def normalize_tag(value: Any) -> str | None:
+    text = re.sub(r"\s+", "_", str(value or "").strip().lower())
+    return text or None
+
+
+def _assign_tags(open_options: list[dict[str, Any]], closed_options: list[dict[str, Any]]) -> None:
+    by_book: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    for trade in [*open_options, *closed_options]:
+        by_book.setdefault((str(trade.get("symbol") or "option"), str(trade.get("expiry") or "")), []).append(trade)
+    for (symbol, _expiry), legs in by_book.items():
+        sides = {str(leg.get("entrySide") or leg.get("side") or "") for leg in legs}
+        option_types = {leg.get("optionSide") for leg in legs}
+        is_strangle = sides == {"SELL"} and {"CE", "PE"} <= option_types
+        default_tag = f"{symbol.lower()}{'_ss' if is_strangle else ''}"
+        for leg in legs:
+            leg["defaultTag"] = default_tag
+            leg["tag"] = normalize_tag((leg.get("levels") or {}).get("tag")) or default_tag
+
+
+def _empty_tag_levels(tag: str) -> dict[str, Any]:
+    return {
+        "tag": tag, "target": None, "stopLoss": None, "status": "NONE", "triggerKind": None,
+        "triggerNet": None, "triggeredAt": None, "result": None, "updatedAt": None,
+    }
+
+
+def _tag_groups(
+    open_options: list[dict[str, Any]], closed_options: list[dict[str, Any]], levels_by_tag: dict[str, dict[str, Any]]
+) -> list[dict[str, Any]]:
+    groups: dict[str, dict[str, list[dict[str, Any]]]] = {}
+    for trade in open_options:
+        groups.setdefault(trade["tag"], {"open": [], "closed": []})["open"].append(trade)
+    for trade in closed_options:
+        groups.setdefault(trade["tag"], {"open": [], "closed": []})["closed"].append(trade)
+    result = []
+    for tag in sorted(groups):
+        rows = [*groups[tag]["open"], *groups[tag]["closed"]]
+        net = round(sum(_number(row.get("estimatedNetPnl")) or 0 for row in rows), 2)
+        levels = levels_by_tag.get(tag) or _empty_tag_levels(tag)
+        target, stop_loss = _number(levels.get("target")), _number(levels.get("stopLoss"))
+        result.append({
+            "tag": tag,
+            "isStrangle": tag.endswith("_ss"),
+            "openCount": len(groups[tag]["open"]),
+            "closedCount": len(groups[tag]["closed"]),
+            "dayPnl": round(sum(_number(row.get("dayPnl")) or 0 for row in rows), 2),
+            "charges": round(sum(_number(row.get("estimatedCharges")) or 0 for row in rows), 2),
+            "netPnl": net,
+            "remainingPremium": round(sum(_number(row.get("profitRemaining")) or 0 for row in rows), 2),
+            "toTarget": round(target - net, 2) if target is not None else None,
+            "toStopLoss": round(net + stop_loss, 2) if stop_loss is not None else None,
+            "levels": levels,
+        })
+    return result
+
+
+def _market_open_now() -> bool:
+    now = now_ist()
+    return now.weekday() < 5 and _MARKET_OPEN <= now.time() <= _MARKET_CLOSE
+
+
+async def save_tag_levels(tag: str, target: float | None, stop_loss: float | None) -> dict[str, Any]:
+    normalized = normalize_tag(tag)
+    if not normalized:
+        raise ValueError("Tag is required.")
+    if target is not None and target <= 0:
+        raise ValueError("Target must be a positive Net P&L amount.")
+    stop = abs(stop_loss) if stop_loss is not None else None
+    if stop is not None and stop <= 0:
+        raise ValueError("Stop loss must be a non-zero loss amount.")
+    return upsert_tag_levels(today_ist(), normalized, target=target, stop_loss=stop)
+
+
+async def _check_tag_levels(snapshot: dict[str, Any]) -> list[dict[str, Any]]:
+    if not _market_open_now():
+        return []
+    settings = get_settings()
+    today = today_ist()
+    options = (snapshot.get("groups") or {}).get("options") or []
+    actions = []
+    for group in snapshot.get("tagGroups") or []:
+        levels = group.get("levels") or {}
+        if levels.get("status") != "ARMED":
+            continue
+        open_legs = [trade for trade in options if trade.get("tag") == group["tag"]]
+        if not open_legs:
+            continue
+        net = float(group["netPnl"])
+        target, stop_loss = _number(levels.get("target")), _number(levels.get("stopLoss"))
+        kind = None
+        if target is not None and net >= target:
+            kind = "target"
+        elif stop_loss is not None and net <= -abs(stop_loss):
+            kind = "stopLoss"
+        if not kind:
+            continue
+        if any(trade.get("ltpStale") for trade in open_legs) and not settings.risk_order_allow_stale_ltp:
+            actions.append({"tag": group["tag"], "kind": kind, "status": "skipped", "reason": "stale LTP", "net": net})
+            continue
+        async with _TAG_EXIT_LOCK:
+            if not claim_tag_trigger(today, group["tag"], kind=kind, net=net):
+                continue
+            outcome = await _exit_tag_legs(group["tag"], open_legs, reason=kind)
+            finish_tag_trigger(today, group["tag"], status=outcome["status"], result=outcome)
+        await _notify_tag_exit(group["tag"], kind, net, levels, outcome)
+        actions.append({"tag": group["tag"], "kind": kind, "net": net, **outcome})
+    return actions
+
+
+async def exit_tag_now(tag: str) -> dict[str, Any]:
+    """User-initiated 'close every open leg in this tag' (also the retry
+    path after a failed automatic exit)."""
+    normalized = normalize_tag(tag)
+    snapshot = await _live_trade_snapshot()
+    open_legs = [trade for trade in (snapshot.get("groups") or {}).get("options") or [] if trade.get("tag") == normalized]
+    if not open_legs:
+        return {"tag": normalized, "status": "blocked", "message": "No open positions in this tag."}
+    net = next((g["netPnl"] for g in snapshot.get("tagGroups") or [] if g["tag"] == normalized), None)
+    async with _TAG_EXIT_LOCK:
+        outcome = await _exit_tag_legs(normalized, open_legs, reason="manual")
+        if normalized in get_tag_levels(today_ist()):
+            finish_tag_trigger(today_ist(), normalized, status=outcome["status"], result={**outcome, "manual": True})
+    await _notify_tag_exit(normalized, "manual", net, {}, outcome)
+    return {"tag": normalized, **outcome}
+
+
+async def _exit_tag_legs(tag: str, legs: list[dict[str, Any]], *, reason: str) -> dict[str, Any]:
+    settings = get_settings()
+    order_service = DhanOrderService(settings)
+    shorts = [leg for leg in legs if int(leg.get("qty") or 0) < 0]
+    longs = [leg for leg in legs if int(leg.get("qty") or 0) > 0]
+    results: list[dict[str, Any]] = []
+
+    async def close(leg: dict[str, Any]) -> bool:
+        qty = int(leg.get("qty") or 0)
+        side = "BUY" if qty < 0 else "SELL"
+        entry = {"tradeId": leg.get("id"), "label": _risk_trade_label(leg), "side": side, "quantity": abs(qty)}
+        if not leg.get("securityId") or not leg.get("exchangeSegment"):
+            results.append({**entry, "status": "failed", "ok": False, "message": "missing Dhan security id / segment"})
+            return False
+        correlation_id = f"TAG-{reason}-{leg.get('symbol')}-{int(datetime.now().timestamp())}"
+        if not settings.risk_order_execution_enabled:
+            result: dict[str, Any] = {
+                "status": "blocked",
+                "message": "RISK_ORDER_EXECUTION_ENABLED is false. Tag exit order was not sent to Dhan.",
+                "request": None,
+                "order": None,
+            }
+        else:
+            try:
+                result = await order_service.place_market_order(
+                    transaction_type=side,
+                    exchange_segment=str(leg["exchangeSegment"]),
+                    security_id=leg["securityId"],
+                    quantity=abs(qty),
+                    correlation_id=correlation_id,
+                    product_type=leg.get("productType"),
+                )
+            except Exception as exc:
+                result = {"status": "failed", "message": str(exc), "request": None, "order": None}
+        ok = _is_successful_order_result(result)
+        record_trade_action(
+            str(leg.get("id")), f"TAG_EXIT_{reason.upper()}", str(result.get("status") or "unknown"),
+            result.get("request"), {**result, "tag": tag, "orderSuccess": ok},
+        )
+        results.append({
+            **entry, "status": str(result.get("status") or "unknown"), "ok": ok,
+            "message": result.get("message"), "orderId": _order_id_from_payload(result.get("order")),
+        })
+        return ok
+
+    shorts_ok = True
+    for leg in shorts:
+        shorts_ok = await close(leg) and shorts_ok
+    skipped_longs = []
+    if shorts_ok:
+        for leg in longs:
+            await close(leg)
+    else:
+        # Selling the hedges while a short is still open would leave it naked.
+        skipped_longs = [_risk_trade_label(leg) for leg in longs]
+        for leg in longs:
+            results.append({
+                "tradeId": leg.get("id"), "label": _risk_trade_label(leg), "side": "SELL",
+                "quantity": abs(int(leg.get("qty") or 0)), "status": "skipped", "ok": False,
+                "message": "kept open because a short leg failed to close",
+            })
+
+    sent = sum(1 for row in results if row["ok"])
+    status = "DONE" if sent == len(results) else "PARTIAL" if sent else "FAILED"
+    return {
+        "status": status,
+        "legs": results,
+        "skippedLongs": skipped_longs,
+        "mode": "live" if settings.risk_order_execution_enabled and settings.live_order_enabled else "dry-run",
+        "at": datetime.now().isoformat(timespec="seconds"),
+    }
+
+
+async def _notify_tag_exit(tag: str, kind: str, net: float | None, levels: dict[str, Any], outcome: dict[str, Any]) -> None:
+    title = {"target": "🎯 Tag target hit", "stopLoss": "🛑 Tag stop loss hit", "manual": "Tag closed manually"}.get(kind, kind)
+    level = levels.get("target") if kind == "target" else levels.get("stopLoss")
+    lines = [
+        f"{title}: {tag}",
+        f"Net P&L: {_text_number(net)}" + (f" (level {_text_number(level)})" if level is not None else ""),
+        f"Exit status: {outcome['status']} ({outcome.get('mode')})",
+    ]
+    for row in outcome.get("legs") or []:
+        lines.append(f"{row['side']} {row['quantity']} {row['label']}: {row['status']}" + (f" -- {row['message']}" if row.get("message") and not row["ok"] else ""))
+    if outcome.get("status") != "DONE":
+        lines.append("Open Manage Trades to review; use 'Close all' on the tag to retry.")
+    await TelegramNotifier().send("\n".join(lines))

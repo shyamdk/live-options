@@ -111,6 +111,45 @@ class DhanService:
             for i in range(len(timestamps))
         ]
 
+    async def historical_daily_candles(
+        self,
+        security_id: str,
+        exchange_segment: str,
+        instrument: str,
+        from_date: str,
+        to_date: str,
+    ) -> list[dict[str, Any]]:
+        """POST /charts/historical -- daily OHLC. to_date is exclusive on
+        Dhan's side, so pass tomorrow to include today's (partial) bar when
+        Dhan has published it."""
+        body = {
+            "securityId": str(security_id),
+            "exchangeSegment": exchange_segment,
+            "instrument": instrument,
+            "expiryCode": 0,
+            "oi": False,
+            "fromDate": from_date,
+            "toDate": to_date,
+        }
+        payload = await self._request("POST", "/charts/historical", require_client_id=True, json_body=body)
+        if not isinstance(payload, dict):
+            return []
+        opens = payload.get("open") or []
+        highs = payload.get("high") or []
+        lows = payload.get("low") or []
+        closes = payload.get("close") or []
+        timestamps = payload.get("timestamp") or []
+        return [
+            {
+                "time": int(timestamps[i]),
+                "open": float(opens[i]),
+                "high": float(highs[i]),
+                "low": float(lows[i]),
+                "close": float(closes[i]),
+            }
+            for i in range(min(len(timestamps), len(opens), len(highs), len(lows), len(closes)))
+        ]
+
     async def trade_book(self) -> list[dict[str, Any]]:
         global _TRADE_BOOK_CACHE
         now = time.monotonic()

@@ -1,22 +1,56 @@
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, Query
+from pydantic import BaseModel
 
 from app.core.config import get_settings
 from app.core.timeutil import now_ist
 from app.db import sqlite as db
 from app.services.app_auth import require_auth
-from app.services.crypto_indicators import ema
+from app.services.crypto_indicators import adx, ema, rsi
 from app.services.dhan import DhanService
 from app.services.dhan_scrip_master import ScripMasterError, resolve_lot_size_by_security_id
 from app.services.ema5_instruments import resolve_atm_option
 from app.services.pe_ce_backtest import run_backtest
-from app.services.pe_ce_crossover import EMA_FAST_PERIOD, EMA_SLOW_PERIOD, OPTION_SEGMENT, STRIKE_STEP, underlying_security_id
+from app.services.pe_ce_crossover import (
+    ADX_PERIOD,
+    EMA_FAST_PERIOD,
+    EMA_SLOW_PERIOD,
+    OPTION_SEGMENT,
+    RSI_PERIOD,
+    STRIKE_STEP,
+    current_mode,
+    get_runtime_config,
+    set_premium_expansion_filter_enabled,
+    set_spread_filter_enabled,
+    underlying_security_id,
+)
 from app.services.pe_ce_expiry import resolve_expiry_with_dte_policy
+from app.services.pe_ce_metrics import compute_trade_metrics
 
 router = APIRouter(prefix="/pe-ce-crossover", tags=["pe-ce-crossover"])
+
+
+class PeCeConfigIn(BaseModel):
+    premiumExpansionFilterEnabled: bool | None = None
+    spreadFilterEnabled: bool | None = None
+
+
+@router.get("/config", dependencies=[Depends(require_auth)])
+async def config() -> dict[str, Any]:
+    return get_runtime_config()
+
+
+@router.put("/config", dependencies=[Depends(require_auth)])
+async def update_config(body: PeCeConfigIn) -> dict[str, Any]:
+    if body.premiumExpansionFilterEnabled is not None:
+        set_premium_expansion_filter_enabled(body.premiumExpansionFilterEnabled)
+    if body.spreadFilterEnabled is not None:
+        set_spread_filter_enabled(body.spreadFilterEnabled)
+    return get_runtime_config()
 
 
 @router.get("/candles", dependencies=[Depends(require_auth)])
@@ -26,19 +60,25 @@ async def candles(underlying: str = Query(default="NIFTY"), side: str = Query(de
 
     settings = get_settings()
     dhan = DhanService()
-    expiry_info = await resolve_expiry_with_dte_policy(
-        dhan, underlying_security_id(settings, underlying), override=settings.pe_ce_crossover_expiry_policy_override
-    )
+    try:
+        expiry_info = await resolve_expiry_with_dte_policy(
+            dhan, underlying_security_id(settings, underlying), override=settings.pe_ce_crossover_expiry_policy_override
+        )
+    except Exception as exc:
+        return {"error": f"expiry lookup failed: {exc}", "candles": []}
     if not expiry_info:
         return {"error": "no valid expiry available", "candles": []}
 
-    option = await resolve_atm_option(
-        dhan,
-        underlying_scrip=underlying_security_id(settings, underlying),
-        expiry=expiry_info["expiry"],
-        side=side,
-        strike_step=STRIKE_STEP.get(underlying, 50.0),
-    )
+    try:
+        option = await resolve_atm_option(
+            dhan,
+            underlying_scrip=underlying_security_id(settings, underlying),
+            expiry=expiry_info["expiry"],
+            side=side,
+            strike_step=STRIKE_STEP.get(underlying, 50.0),
+        )
+    except Exception as exc:
+        return {"error": f"option chain lookup failed: {exc}", "candles": []}
     if not option:
         return {"error": "ATM option chain data unavailable", "candles": []}
 
@@ -52,6 +92,8 @@ async def candles(underlying: str = Query(default="NIFTY"), side: str = Query(de
     closes = [float(c["close"]) for c in ordered]
     ema_fast = ema(closes, EMA_FAST_PERIOD)
     ema_slow = ema(closes, EMA_SLOW_PERIOD)
+    rsi_values = rsi(closes, RSI_PERIOD)
+    adx_values = adx(ordered, ADX_PERIOD)
 
     trades = db.list_pe_ce_crossover_trades(underlying)
     trades = [t for t in trades if t["side"] == side]
@@ -71,6 +113,8 @@ async def candles(underlying: str = Query(default="NIFTY"), side: str = Query(de
         ],
         "emaFastValues": ema_fast,
         "emaSlowValues": ema_slow,
+        "rsiValues": rsi_values,
+        "adxValues": adx_values,
         "trades": trades,
     }
 
@@ -91,6 +135,7 @@ async def status() -> dict[str, Any]:
     settings = get_settings()
     now = now_ist()
     start_of_day = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    mode = current_mode(settings)
     return {
         "monitorEnabled": settings.pe_ce_crossover_monitor_enabled,
         "underlyings": [u.strip().upper() for u in settings.pe_ce_crossover_underlyings.split(",") if u.strip()],
@@ -104,9 +149,51 @@ async def status() -> dict[str, Any]:
         "maxTradesPerDay": settings.pe_ce_crossover_max_trades_per_day,
         "cooldownMinutes": settings.pe_ce_crossover_cooldown_minutes,
         "positionMode": settings.pe_ce_crossover_position_mode,
-        "openPositions": len(db.list_open_pe_ce_crossover_trades()),
-        "todayRealizedPnl": db.get_today_realized_pnl_pe_ce_crossover(int(start_of_day.timestamp())),
+        # Phase 2: the current decision mode -- "paper" unless liveEnabled is
+        # on, in which case shadowMode picks "shadow" (logged, no order sent)
+        # or "live" (real orders). A real order additionally still requires
+        # the global liveOrderEnabled kill switch -- see orders.py.
+        "currentMode": mode,
+        "liveEnabled": settings.pe_ce_crossover_live_enabled,
+        "shadowMode": settings.pe_ce_crossover_shadow_mode,
+        "globalLiveOrderEnabled": settings.live_order_enabled,
+        "telegramAlertsEnabled": settings.pe_ce_crossover_telegram_alerts_enabled,
+        "openPositions": len(db.list_open_pe_ce_crossover_trades(mode)),
+        "todayRealizedPnl": db.get_today_realized_pnl_pe_ce_crossover(int(start_of_day.timestamp()), mode),
         "trades": db.list_pe_ce_crossover_trades(),
+    }
+
+
+@router.get("/report", dependencies=[Depends(require_auth)])
+async def report(
+    mode: str = Query(default="paper"),
+    from_date: str = Query(alias="fromDate"),
+    to_date: str = Query(alias="toDate"),
+) -> dict[str, Any]:
+    if mode not in ("paper", "shadow", "live"):
+        return {"error": f"Unsupported mode {mode!r}"}
+    try:
+        from_epoch = int(datetime.fromisoformat(from_date).replace(hour=0, minute=0, second=0).timestamp())
+        to_epoch = int(datetime.fromisoformat(to_date).replace(hour=23, minute=59, second=59).timestamp())
+    except ValueError:
+        return {"error": "fromDate/toDate must be YYYY-MM-DD"}
+
+    trades = db.list_pe_ce_crossover_trades_for_report(mode, from_epoch, to_epoch)
+    metrics = compute_trade_metrics(trades, pnl_key="realizedPnl")
+    by_side: dict[str, list[dict[str, Any]]] = {"CE": [], "PE": []}
+    by_underlying: dict[str, list[dict[str, Any]]] = {}
+    for t in trades:
+        by_side.setdefault(t["side"], []).append(t)
+        by_underlying.setdefault(t["underlying"], []).append(t)
+
+    return {
+        "mode": mode,
+        "fromDate": from_date,
+        "toDate": to_date,
+        "metrics": metrics,
+        "metricsBySide": {side: compute_trade_metrics(rows, pnl_key="realizedPnl") for side, rows in by_side.items()},
+        "metricsByUnderlying": {u: compute_trade_metrics(rows, pnl_key="realizedPnl") for u, rows in by_underlying.items()},
+        "trades": trades,
     }
 
 

@@ -38,6 +38,28 @@ class DhanAuthError(RuntimeError):
 _AUTH_LOCK = asyncio.Lock()
 _last_refresh_attempt: float = 0.0
 
+INVALID_TOKEN_ERROR_CODES = {"DH-906"}
+
+
+def is_invalid_token_response(response: httpx.Response) -> bool:
+    """Dhan doesn't always use HTTP 401 for an invalid/expired access token --
+    it commonly returns HTTP 400 with {"errorCode": "DH-906", "errorMessage":
+    "Invalid Token", ...} instead. Callers should retry-with-refresh on this,
+    not just on a literal 401."""
+    if response.status_code == 401:
+        return True
+    if response.status_code != 400:
+        return False
+    try:
+        payload = response.json()
+    except ValueError:
+        return False
+    if not isinstance(payload, dict):
+        return False
+    error_code = str(payload.get("errorCode") or "").upper()
+    error_message = str(payload.get("errorMessage") or "").lower()
+    return error_code in INVALID_TOKEN_ERROR_CODES or "invalid token" in error_message
+
 
 def _generate_totp(secret: str, digits: int = 6, period: int = 30) -> str:
     normalized = secret.replace(" ", "").upper()
