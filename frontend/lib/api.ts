@@ -25,6 +25,7 @@ import type { AnimeshCandlesResponse, AnimeshSession, AnimeshSessionDetail, Anim
 import type { CreditSpreadState } from "@/types/credit-spread";
 import type { SimpleCrossoverConfig, SimpleCrossoverData, SimpleCrossoverSide, SimpleCrossoverTrade } from "@/types/simple-crossover";
 import type { ThetaRuntimeConfig, ThetaSession, ThetaSessionDetail, ThetaState } from "@/types/theta";
+import type { TurtleAlarm, TurtleConfig, TurtleState, TurtleTrade } from "@/types/turtle";
 import type { BatmanAnalysis, BatmanConfig, BatmanMode, BatmanPreview, BatmanTrade } from "@/types/batman";
 import type { BtcSpotChart, BtcStrangleChart, BtcStrangleConfig, BtcStranglePreview, BtcStrangleTrade } from "@/types/btc-strangle";
 import type {
@@ -717,4 +718,32 @@ export async function analyzeBatman(params: Record<string, string | number | nul
     query.set(key, String(value));
   }
   return apiJson<BatmanAnalysis>(`/api/batman/analyze?${query}`, undefined, "Batman analysis failed");
+}
+
+export async function getTurtleState(): Promise<TurtleState> {
+  return apiJson<TurtleState>("/api/define-turtle/state", undefined, "Failed to load Define Turtle");
+}
+
+export async function getTurtleTrades(): Promise<{ trades: TurtleTrade[] }> {
+  return apiJson<{ trades: TurtleTrade[] }>("/api/define-turtle/trades", undefined, "Failed to load Define Turtle trades");
+}
+
+export async function updateTurtleConfig(updates: Partial<TurtleConfig>): Promise<TurtleConfig> {
+  return apiJson<TurtleConfig>("/api/define-turtle/config", { method: "PUT", body: JSON.stringify(updates) }, "Failed to save settings");
+}
+
+export async function enterTurtleNow(): Promise<{ status: string; message?: string; trade?: TurtleTrade }> {
+  return apiJson("/api/define-turtle/enter", { method: "POST" }, "Entry failed");
+}
+
+export async function closeTurtleTrade(id: number): Promise<{ status: string; message?: string }> {
+  return apiJson(`/api/define-turtle/trades/${id}/close`, { method: "POST" }, "Close failed");
+}
+
+export async function getTurtleAlarms(): Promise<{ alarms: TurtleAlarm[] }> {
+  return apiJson<{ alarms: TurtleAlarm[] }>("/api/define-turtle/alarms", undefined, "Failed to load alarms");
+}
+
+export async function acknowledgeTurtleAlarm(id: number): Promise<{ status: string }> {
+  return apiJson(`/api/define-turtle/alarms/${id}/ack`, { method: "POST" }, "Failed to acknowledge alarm");
 }

@@ -294,6 +294,10 @@ class Settings(BaseSettings):
     simple_crossover_xaut_min_entry_gap: float = 0.06
     simple_crossover_xaut_max_entry_gap: float = 0.25
 
+    # Define Turtle (define-turtle.md): NIFTY P&F RSI + Turtle Follow-Through
+    # -> next-week put credit spread. Paper only.
+    turtle_monitor_enabled: bool = True
+
     # Batman (batman-option-strategy-guide.pdf): NIFTY 1:3:2 double ratio
     # spread, monthly per the rulebook + a weekly variant. Paper only.
     batman_monitor_enabled: bool = True

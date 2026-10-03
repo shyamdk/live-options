@@ -4,6 +4,7 @@ import {
   Bitcoin,
   BookOpenText,
   Moon,
+  Turtle,
   BriefcaseBusiness,
   ChevronLeft,
   ChevronRight,
@@ -39,6 +40,7 @@ const navItems = [
   { href: "/varaha", label: "Varaha", short: "VA", icon: Shapes },
   { href: "/btc-strangle", label: "BTC Strangle", short: "BS", icon: Bitcoin },
   { href: "/batman", label: "Batman", short: "BM", icon: Moon },
+  { href: "/define-turtle", label: "Define Turtle", short: "DT", icon: Turtle },
 ];
 
 const STORAGE_KEY = "live-options-sidebar-collapsed";

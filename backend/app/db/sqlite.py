@@ -895,6 +895,61 @@ def init_db() -> None:
         )
         conn.execute(
             """
+            CREATE TABLE IF NOT EXISTS turtle_trades (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                status TEXT NOT NULL,
+                trigger TEXT NOT NULL,
+                signal_time INTEGER,
+                signal_rsi REAL,
+                entry_time INTEGER NOT NULL,
+                expiry TEXT NOT NULL,
+                spot REAL NOT NULL,
+                lots INTEGER NOT NULL,
+                lot_size INTEGER NOT NULL,
+                short_strike REAL NOT NULL,
+                long_strike REAL NOT NULL,
+                short_security_id TEXT,
+                long_security_id TEXT,
+                short_entry REAL NOT NULL,
+                long_entry REAL NOT NULL,
+                credit_points REAL NOT NULL,
+                short_exit REAL,
+                long_exit REAL,
+                exit_time INTEGER,
+                exit_reason TEXT,
+                realized_pnl REAL,
+                charges REAL,
+                last_cost REAL,
+                last_decay REAL,
+                last_rsi REAL,
+                last_update INTEGER
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS turtle_alarms (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                created_at INTEGER NOT NULL,
+                kind TEXT NOT NULL,
+                title TEXT NOT NULL,
+                message TEXT NOT NULL,
+                trade_id INTEGER,
+                acknowledged_at INTEGER
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS turtle_settings (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
             CREATE TABLE IF NOT EXISTS batman_trades (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 mode TEXT NOT NULL,
@@ -3623,6 +3678,96 @@ def set_batman_setting(key: str, value: str) -> None:
         conn.execute(
             """
             INSERT INTO batman_settings (key, value, updated_at) VALUES (?, ?, ?)
+            ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+            """,
+            (key, value, now),
+        )
+        conn.commit()
+
+
+# ---------------------------------------------------------------- Define Turtle
+
+_TURTLE_TRADE_FIELDS = {
+    "id": "id", "status": "status", "trigger": "trigger", "signal_time": "signalTime", "signal_rsi": "signalRsi",
+    "entry_time": "entryTime", "expiry": "expiry", "spot": "spot", "lots": "lots", "lot_size": "lotSize",
+    "short_strike": "shortStrike", "long_strike": "longStrike", "short_security_id": "shortSecurityId",
+    "long_security_id": "longSecurityId", "short_entry": "shortEntry", "long_entry": "longEntry",
+    "credit_points": "creditPoints", "short_exit": "shortExit", "long_exit": "longExit", "exit_time": "exitTime",
+    "exit_reason": "exitReason", "realized_pnl": "realizedPnl", "charges": "charges", "last_cost": "lastCost",
+    "last_decay": "lastDecay", "last_rsi": "lastRsi", "last_update": "lastUpdate",
+}
+
+
+def create_turtle_trade(**values: Any) -> int:
+    cols = ", ".join(values)
+    marks = ", ".join(f":{k}" for k in values)
+    with _DB_LOCK, _connect() as conn:
+        cursor = conn.execute(f"INSERT INTO turtle_trades ({cols}) VALUES ({marks})", values)
+        conn.commit()
+        return int(cursor.lastrowid)
+
+
+def update_turtle_trade(trade_id: int, **values: Any) -> None:
+    if not values:
+        return
+    sets = ", ".join(f"{k} = :{k}" for k in values)
+    with _DB_LOCK, _connect() as conn:
+        conn.execute(f"UPDATE turtle_trades SET {sets} WHERE id = :trade_id", {**values, "trade_id": trade_id})
+        conn.commit()
+
+
+def list_turtle_trades(*, status: str | None = None, limit: int = 300) -> list[dict[str, Any]]:
+    with _DB_LOCK, _connect() as conn:
+        if status:
+            rows = conn.execute("SELECT * FROM turtle_trades WHERE status = ? ORDER BY entry_time DESC LIMIT ?", (status, limit)).fetchall()
+        else:
+            rows = conn.execute("SELECT * FROM turtle_trades ORDER BY entry_time DESC LIMIT ?", (limit,)).fetchall()
+    return [{camel: row[col] for col, camel in _TURTLE_TRADE_FIELDS.items()} for row in rows]
+
+
+def create_turtle_alarm(*, kind: str, title: str, message: str, trade_id: int | None) -> int:
+    with _DB_LOCK, _connect() as conn:
+        cursor = conn.execute(
+            "INSERT INTO turtle_alarms (created_at, kind, title, message, trade_id) VALUES (?, ?, ?, ?, ?)",
+            (int(datetime.now().timestamp()), kind, title, message, trade_id),
+        )
+        conn.commit()
+        return int(cursor.lastrowid)
+
+
+def list_turtle_alarms(*, unacknowledged_only: bool = False, limit: int = 50) -> list[dict[str, Any]]:
+    where = "WHERE acknowledged_at IS NULL" if unacknowledged_only else ""
+    with _DB_LOCK, _connect() as conn:
+        rows = conn.execute(f"SELECT * FROM turtle_alarms {where} ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
+    return [
+        {"id": r["id"], "createdAt": r["created_at"], "kind": r["kind"], "title": r["title"], "message": r["message"],
+         "tradeId": r["trade_id"], "acknowledgedAt": r["acknowledged_at"]}
+        for r in rows
+    ]
+
+
+def acknowledge_turtle_alarm(alarm_id: int) -> bool:
+    with _DB_LOCK, _connect() as conn:
+        cursor = conn.execute(
+            "UPDATE turtle_alarms SET acknowledged_at = ? WHERE id = ? AND acknowledged_at IS NULL",
+            (int(datetime.now().timestamp()), alarm_id),
+        )
+        conn.commit()
+        return cursor.rowcount == 1
+
+
+def get_turtle_setting(key: str) -> str | None:
+    with _DB_LOCK, _connect() as conn:
+        row = conn.execute("SELECT value FROM turtle_settings WHERE key = ?", (key,)).fetchone()
+    return row["value"] if row else None
+
+
+def set_turtle_setting(key: str, value: str) -> None:
+    now = datetime.now().isoformat(timespec="seconds")
+    with _DB_LOCK, _connect() as conn:
+        conn.execute(
+            """
+            INSERT INTO turtle_settings (key, value, updated_at) VALUES (?, ?, ?)
             ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
             """,
             (key, value, now),
