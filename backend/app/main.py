@@ -13,6 +13,7 @@ from app.api.credit_spread import router as credit_spread_router
 from app.api.ema5 import router as ema5_router
 from app.api.gamma_blast import router as gamma_blast_router
 from app.api.journals import router as journals_router
+from app.api.mantra import router as mantra_router
 from app.api.market import router as market_router
 from app.api.paper_trading import router as paper_trading_router
 from app.api.equity import router as equity_router
@@ -40,6 +41,7 @@ from app.services.oi_upgraded import start_oi_upgraded_task, stop_oi_upgraded_ta
 from app.services.paper_trading import start_paper_trading_task, stop_paper_trading_task
 from app.services.pcr_oi import start_pcr_oi_task, stop_pcr_oi_task
 from app.services.simple_crossover import start_simple_crossover_task, stop_simple_crossover_task
+from app.services.mantra import start_mantra_task, stop_mantra_task
 from app.services.theta import start_theta_task, stop_theta_task
 from app.services.turtle import start_turtle_task, stop_turtle_task
 from app.services.varaha import start_varaha_task, stop_varaha_task
@@ -71,6 +73,7 @@ varaha_task = None
 btc_strangle_task = None
 batman_task = None
 turtle_task = None
+mantra_task = None
 
 app.add_middleware(
     CORSMiddleware,
@@ -83,7 +86,7 @@ app.add_middleware(
 
 @app.on_event("startup")
 async def startup() -> None:
-    global risk_order_monitor_task, spot_distance_monitor_task, gamma_blast_task, journal_insights_task, ema5_task, animesh_task, credit_spread_task, theta_task, market_news_task, market_calendar_task, pcr_oi_task, paper_trading_task, oi_upgraded_task, simple_crossover_task, varaha_task, btc_strangle_task, batman_task, turtle_task
+    global risk_order_monitor_task, spot_distance_monitor_task, gamma_blast_task, journal_insights_task, ema5_task, animesh_task, credit_spread_task, theta_task, market_news_task, market_calendar_task, pcr_oi_task, paper_trading_task, oi_upgraded_task, simple_crossover_task, varaha_task, btc_strangle_task, batman_task, turtle_task, mantra_task
     init_db()
     spot_distance_monitor_task = start_spot_distance_monitor_task()
     risk_order_monitor_task = start_risk_order_monitor_task()
@@ -103,6 +106,7 @@ async def startup() -> None:
     btc_strangle_task = start_btc_strangle_task()
     batman_task = start_batman_task()
     turtle_task = start_turtle_task()
+    mantra_task = start_mantra_task()
 
 
 @app.on_event("shutdown")
@@ -125,6 +129,7 @@ async def shutdown() -> None:
     await stop_btc_strangle_task(btc_strangle_task)
     await stop_batman_task(batman_task)
     await stop_turtle_task(turtle_task)
+    await stop_mantra_task(mantra_task)
 
 
 @app.get("/health")
@@ -147,6 +152,7 @@ app.include_router(varaha_router, prefix=settings.api_prefix)
 app.include_router(btc_strangle_router, prefix=settings.api_prefix)
 app.include_router(batman_router, prefix=settings.api_prefix)
 app.include_router(turtle_router, prefix=settings.api_prefix)
+app.include_router(mantra_router, prefix=settings.api_prefix)
 app.include_router(paper_trading_router, prefix=settings.api_prefix)
 app.include_router(simple_crossover_router, prefix=settings.api_prefix)
 app.include_router(equity_router, prefix=settings.api_prefix)

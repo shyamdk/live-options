@@ -895,6 +895,74 @@ def init_db() -> None:
         )
         conn.execute(
             """
+            CREATE TABLE IF NOT EXISTS mantra_trades (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                mode TEXT NOT NULL,
+                trigger TEXT NOT NULL,
+                status TEXT NOT NULL,
+                state TEXT NOT NULL,
+                expiry TEXT NOT NULL,
+                entry_time INTEGER NOT NULL,
+                spot REAL NOT NULL,
+                lots INTEGER NOT NULL,
+                lot_size INTEGER NOT NULL,
+                credit_points REAL NOT NULL,
+                booked REAL NOT NULL DEFAULT 0,
+                charges REAL NOT NULL DEFAULT 0,
+                rolls INTEGER NOT NULL DEFAULT 0,
+                exit_time INTEGER,
+                exit_reason TEXT,
+                gross REAL,
+                last_mtm REAL,
+                last_spot REAL,
+                last_update INTEGER
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS mantra_legs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                trade_id INTEGER NOT NULL,
+                option_type TEXT NOT NULL,
+                strike REAL NOT NULL,
+                security_id TEXT,
+                entry REAL NOT NULL,
+                exit REAL,
+                status TEXT NOT NULL,
+                opened_at INTEGER NOT NULL,
+                closed_at INTEGER,
+                roll_no INTEGER NOT NULL DEFAULT 0,
+                last_ltp REAL,
+                last_bid REAL,
+                last_ask REAL
+            )
+            """
+        )
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_mantra_legs_trade ON mantra_legs (trade_id)")
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS mantra_events (trade_id INTEGER NOT NULL, time INTEGER NOT NULL, kind TEXT NOT NULL, text TEXT NOT NULL)"
+        )
+        conn.execute("CREATE TABLE IF NOT EXISTS mantra_mtm (trade_id INTEGER NOT NULL, time INTEGER NOT NULL, mtm REAL NOT NULL, spot REAL)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_mantra_mtm_trade ON mantra_mtm (trade_id, time)")
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS mantra_alarms (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                created_at INTEGER NOT NULL,
+                kind TEXT NOT NULL,
+                title TEXT NOT NULL,
+                message TEXT NOT NULL,
+                trade_id INTEGER,
+                acknowledged_at INTEGER
+            )
+            """
+        )
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS mantra_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL)"
+        )
+        conn.execute(
+            """
             CREATE TABLE IF NOT EXISTS turtle_trades (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 status TEXT NOT NULL,
@@ -3768,6 +3836,141 @@ def set_turtle_setting(key: str, value: str) -> None:
         conn.execute(
             """
             INSERT INTO turtle_settings (key, value, updated_at) VALUES (?, ?, ?)
+            ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+            """,
+            (key, value, now),
+        )
+        conn.commit()
+
+
+# ---------------------------------------------------------------- Mantra
+
+_MANTRA_TRADE_FIELDS = {
+    "id": "id", "mode": "mode", "trigger": "trigger", "status": "status", "state": "state", "expiry": "expiry",
+    "entry_time": "entryTime", "spot": "spot", "lots": "lots", "lot_size": "lotSize", "credit_points": "creditPoints",
+    "booked": "booked", "charges": "charges", "rolls": "rolls", "exit_time": "exitTime", "exit_reason": "exitReason",
+    "gross": "gross", "last_mtm": "lastMtm", "last_spot": "lastSpot", "last_update": "lastUpdate",
+}
+_MANTRA_LEG_FIELDS = {
+    "id": "id", "trade_id": "tradeId", "option_type": "optionType", "strike": "strike", "security_id": "securityId",
+    "entry": "entry", "exit": "exit", "status": "status", "opened_at": "openedAt", "closed_at": "closedAt",
+    "roll_no": "rollNo", "last_ltp": "lastLtp", "last_bid": "lastBid", "last_ask": "lastAsk",
+}
+
+
+def _mantra_insert(table: str, values: dict[str, Any]) -> int:
+    cols = ", ".join(values)
+    marks = ", ".join(f":{k}" for k in values)
+    with _DB_LOCK, _connect() as conn:
+        cursor = conn.execute(f"INSERT INTO {table} ({cols}) VALUES ({marks})", values)
+        conn.commit()
+        return int(cursor.lastrowid)
+
+
+def _mantra_update(table: str, row_id: int, values: dict[str, Any]) -> None:
+    if not values:
+        return
+    sets = ", ".join(f"{k} = :{k}" for k in values)
+    with _DB_LOCK, _connect() as conn:
+        conn.execute(f"UPDATE {table} SET {sets} WHERE id = :row_id", {**values, "row_id": row_id})
+        conn.commit()
+
+
+def create_mantra_trade(**values: Any) -> int:
+    return _mantra_insert("mantra_trades", values)
+
+
+def update_mantra_trade(trade_id: int, **values: Any) -> None:
+    _mantra_update("mantra_trades", trade_id, values)
+
+
+def create_mantra_leg(**values: Any) -> int:
+    return _mantra_insert("mantra_legs", values)
+
+
+def update_mantra_leg(leg_id: int, **values: Any) -> None:
+    _mantra_update("mantra_legs", leg_id, values)
+
+
+def list_mantra_trades(*, mode: str | None = None, status: str | None = None, limit: int = 300) -> list[dict[str, Any]]:
+    clauses, params = [], []
+    if mode:
+        clauses.append("mode = ?"); params.append(mode)
+    if status:
+        clauses.append("status = ?"); params.append(status)
+    where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+    with _DB_LOCK, _connect() as conn:
+        rows = conn.execute(f"SELECT * FROM mantra_trades {where} ORDER BY entry_time DESC, id DESC LIMIT ?", (*params, limit)).fetchall()
+        trades = [{camel: r[col] for col, camel in _MANTRA_TRADE_FIELDS.items()} for r in rows]
+        for trade in trades:
+            trade["legs"] = [
+                {camel: leg[col] for col, camel in _MANTRA_LEG_FIELDS.items()}
+                for leg in conn.execute("SELECT * FROM mantra_legs WHERE trade_id = ? ORDER BY id", (trade["id"],))
+            ]
+            trade["events"] = [
+                {"time": e["time"], "kind": e["kind"], "text": e["text"]}
+                for e in conn.execute("SELECT * FROM mantra_events WHERE trade_id = ? ORDER BY time", (trade["id"],))
+            ]
+    return trades
+
+
+def add_mantra_event(trade_id: int, time_epoch: int, kind: str, text: str) -> None:
+    with _DB_LOCK, _connect() as conn:
+        conn.execute("INSERT INTO mantra_events (trade_id, time, kind, text) VALUES (?, ?, ?, ?)", (trade_id, time_epoch, kind, text))
+        conn.commit()
+
+
+def record_mantra_mtm(trade_id: int, time_epoch: int, mtm: float, spot: float | None) -> None:
+    with _DB_LOCK, _connect() as conn:
+        conn.execute("INSERT INTO mantra_mtm (trade_id, time, mtm, spot) VALUES (?, ?, ?, ?)", (trade_id, time_epoch, mtm, spot))
+        conn.commit()
+
+
+def list_mantra_mtm(trade_id: int) -> list[dict[str, Any]]:
+    with _DB_LOCK, _connect() as conn:
+        rows = conn.execute("SELECT time, mtm, spot FROM mantra_mtm WHERE trade_id = ? ORDER BY time", (trade_id,)).fetchall()
+    return [{"time": r["time"], "mtm": r["mtm"], "spot": r["spot"]} for r in rows]
+
+
+def create_mantra_alarm(*, kind: str, title: str, message: str, trade_id: int | None) -> int:
+    return _mantra_insert("mantra_alarms", {
+        "created_at": int(datetime.now().timestamp()), "kind": kind, "title": title, "message": message, "trade_id": trade_id,
+    })
+
+
+def list_mantra_alarms(*, unacknowledged_only: bool = False, limit: int = 50) -> list[dict[str, Any]]:
+    where = "WHERE acknowledged_at IS NULL" if unacknowledged_only else ""
+    with _DB_LOCK, _connect() as conn:
+        rows = conn.execute(f"SELECT * FROM mantra_alarms {where} ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
+    return [
+        {"id": r["id"], "createdAt": r["created_at"], "kind": r["kind"], "title": r["title"], "message": r["message"],
+         "tradeId": r["trade_id"], "acknowledgedAt": r["acknowledged_at"]}
+        for r in rows
+    ]
+
+
+def acknowledge_mantra_alarm(alarm_id: int) -> bool:
+    with _DB_LOCK, _connect() as conn:
+        cursor = conn.execute(
+            "UPDATE mantra_alarms SET acknowledged_at = ? WHERE id = ? AND acknowledged_at IS NULL",
+            (int(datetime.now().timestamp()), alarm_id),
+        )
+        conn.commit()
+        return cursor.rowcount == 1
+
+
+def get_mantra_setting(key: str) -> str | None:
+    with _DB_LOCK, _connect() as conn:
+        row = conn.execute("SELECT value FROM mantra_settings WHERE key = ?", (key,)).fetchone()
+    return row["value"] if row else None
+
+
+def set_mantra_setting(key: str, value: str) -> None:
+    now = datetime.now().isoformat(timespec="seconds")
+    with _DB_LOCK, _connect() as conn:
+        conn.execute(
+            """
+            INSERT INTO mantra_settings (key, value, updated_at) VALUES (?, ?, ?)
             ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
             """,
             (key, value, now),

@@ -25,6 +25,7 @@ import type { AnimeshCandlesResponse, AnimeshSession, AnimeshSessionDetail, Anim
 import type { CreditSpreadState } from "@/types/credit-spread";
 import type { SimpleCrossoverConfig, SimpleCrossoverData, SimpleCrossoverSide, SimpleCrossoverTrade } from "@/types/simple-crossover";
 import type { ThetaRuntimeConfig, ThetaSession, ThetaSessionDetail, ThetaState } from "@/types/theta";
+import type { MantraAlarm, MantraConfig, MantraMode, MantraPlan, MantraTrade } from "@/types/mantra";
 import type { TurtleAlarm, TurtleConfig, TurtleState, TurtleTrade } from "@/types/turtle";
 import type { BatmanAnalysis, BatmanConfig, BatmanMode, BatmanPreview, BatmanTrade } from "@/types/batman";
 import type { BtcSpotChart, BtcStrangleChart, BtcStrangleConfig, BtcStranglePreview, BtcStrangleTrade } from "@/types/btc-strangle";
@@ -746,4 +747,40 @@ export async function getTurtleAlarms(): Promise<{ alarms: TurtleAlarm[] }> {
 
 export async function acknowledgeTurtleAlarm(id: number): Promise<{ status: string }> {
   return apiJson(`/api/define-turtle/alarms/${id}/ack`, { method: "POST" }, "Failed to acknowledge alarm");
+}
+
+export async function getMantraConfig(mode: MantraMode): Promise<MantraConfig> {
+  return apiJson<MantraConfig>(`/api/mantra/${mode}/config`, undefined, "Failed to load Mantra settings");
+}
+
+export async function updateMantraConfig(mode: MantraMode, updates: Record<string, unknown>): Promise<MantraConfig> {
+  return apiJson<MantraConfig>(`/api/mantra/${mode}/config`, { method: "PUT", body: JSON.stringify(updates) }, "Failed to save Mantra settings");
+}
+
+export async function getMantraPlan(mode: MantraMode): Promise<MantraPlan> {
+  return apiJson<MantraPlan>(`/api/mantra/${mode}/plan`, undefined, "Failed to load Mantra plan");
+}
+
+export async function enterMantraNow(mode: MantraMode): Promise<{ status: string; message?: string; tradeId?: number }> {
+  return apiJson(`/api/mantra/${mode}/enter`, { method: "POST" }, "Mantra entry failed");
+}
+
+export async function getMantraTrades(): Promise<{ trades: MantraTrade[]; alarms: MantraAlarm[] }> {
+  return apiJson<{ trades: MantraTrade[]; alarms: MantraAlarm[] }>("/api/mantra/trades", undefined, "Failed to load Mantra trades");
+}
+
+export async function getMantraTrade(id: number): Promise<MantraTrade> {
+  return apiJson<MantraTrade>(`/api/mantra/trades/${id}`, undefined, "Failed to load Mantra trade");
+}
+
+export async function closeMantraTrade(id: number): Promise<{ status: string; message?: string }> {
+  return apiJson(`/api/mantra/trades/${id}/close`, { method: "POST" }, "Failed to close Mantra trade");
+}
+
+export async function getMantraAlarms(): Promise<{ alarms: MantraAlarm[] }> {
+  return apiJson<{ alarms: MantraAlarm[] }>("/api/mantra/alarms", undefined, "Failed to load Mantra alarms");
+}
+
+export async function acknowledgeMantraAlarm(id: number): Promise<{ status: string }> {
+  return apiJson(`/api/mantra/alarms/${id}/ack`, { method: "POST" }, "Failed to acknowledge alarm");
 }

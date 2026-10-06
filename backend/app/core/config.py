@@ -294,6 +294,10 @@ class Settings(BaseSettings):
     simple_crossover_xaut_min_entry_gap: float = 0.06
     simple_crossover_xaut_max_entry_gap: float = 0.25
 
+    # Mantra (mantra.md): NIFTY naked short strangle with roll-in
+    # adjustments, monthly + weekly. Paper only.
+    mantra_monitor_enabled: bool = True
+
     # Define Turtle (define-turtle.md): NIFTY P&F RSI + Turtle Follow-Through
     # -> next-week put credit spread. Paper only.
     turtle_monitor_enabled: bool = True
