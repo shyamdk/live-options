@@ -1,4 +1,4 @@
-"""Mantra -- NIFTY naked short strangle with roll-in adjustments (mantra.md).
+"""Mantra - Theta Gainers -- NIFTY naked short strangle with roll-in adjustments (mantra.md).
 
 Monthly: the first Monday with the monthly expiry 43-50 days out; weekly:
 every Monday on the next-week expiry. 15:00-15:15 IST (holiday Monday ->
@@ -298,7 +298,7 @@ async def enter(mode: str, trigger: str, monday: date | None = None, *, check_li
             entry=leg["fill"], status="OPEN", opened_at=now, roll_no=0, last_ltp=leg["ltp"], last_bid=leg["bid"], last_ask=leg["ask"],
         )
     text = (
-        f"🕉 Mantra {mode} #{trade_id} entered (paper, {trigger}) -- exp {p['series']}\n"
+        f"🕉 Mantra - Theta Gainers {mode} #{trade_id} entered (paper, {trigger}) -- exp {p['series']}\n"
         f"SELL {config['lots']}L {p['legs']['CE']['strike']:.0f} CE @ {p['legs']['CE']['fill']} + "
         f"{p['legs']['PE']['strike']:.0f} PE @ {p['legs']['PE']['fill']}\n"
         f"Credit ₹{p['credit']:,.0f} · target ₹{p['target']:,.0f} · stop −₹{p['stop']:,.0f}"
@@ -387,7 +387,7 @@ async def _roll(trade, quotes, ltps, open_legs, spot, stamp) -> None:
         + (" -- now a STRADDLE" if state == "STRADDLE" else "")
     )
     db.add_mantra_event(trade["id"], stamp, "roll", text)
-    await _notify(f"🕉 Mantra {trade['mode']} #{trade['id']} {text}")
+    await _notify(f"🕉 Mantra - Theta Gainers {trade['mode']} #{trade['id']} {text}")
 
 
 async def _close(trade, quotes, reason: str, stamp: int) -> None:
@@ -404,12 +404,12 @@ async def _close(trade, quotes, reason: str, stamp: int) -> None:
     label = {"target": "80% target", "stop_loss": "GLOBAL STOP LOSS", "pre_expiry": "day-before-expiry exit",
              "unstable_straddle": "unstable straddle", "manual": "closed manually"}.get(reason, reason)
     text = (
-        f"🕉 Mantra {trade['mode']} #{trade['id']} closed -- {label}\n"
+        f"🕉 Mantra - Theta Gainers {trade['mode']} #{trade['id']} closed -- {label}\n"
         f"exp {trade['expiry']}, {trade['rolls']} roll(s): gross ₹{gross:,.0f}, charges ₹{charges:,.0f}, net ₹{gross - charges:,.0f}"
     )
     db.add_mantra_event(trade["id"], stamp, "exit", text.replace("\n", " · "))
     if reason in ("stop_loss", "unstable_straddle"):
-        db.create_mantra_alarm(kind=reason, trade_id=trade["id"], title=f"Mantra {trade['mode']} -- {label}", message=text)
+        db.create_mantra_alarm(kind=reason, trade_id=trade["id"], title=f"Mantra - Theta Gainers {trade['mode']} -- {label}", message=text)
         text = "⏰ ALARM\n" + text
     await _notify(text)
 
@@ -467,11 +467,11 @@ async def _scheduled_entry(dhan: DhanService, mode: str, now: datetime) -> None:
     if result["status"] == "waiting":
         if not fallback and now.time() >= dtime(15, 14):
             db.set_mantra_setting(key, "deferred")
-            await _notify(f"🕉 Mantra {mode}: entry deferred to Tuesday 09:20 -- {result['message']}")
+            await _notify(f"🕉 Mantra - Theta Gainers {mode}: entry deferred to Tuesday 09:20 -- {result['message']}")
         return
     db.set_mantra_setting(key, result["status"])
     if result["status"] != "entered":
-        await _notify(f"🕉 Mantra {mode}: no entry for {monday:%d %b} -- {result.get('message')}")
+        await _notify(f"🕉 Mantra - Theta Gainers {mode}: no entry for {monday:%d %b} -- {result.get('message')}")
 
 
 async def close_now(trade_id: int) -> dict[str, Any]:

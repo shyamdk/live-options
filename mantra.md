@@ -1,6 +1,6 @@
-# Mantra — NIFTY Short Strangle (monthly + weekly), paper trading
+# Mantra - Theta Gainers — NIFTY Short Strangle (monthly + weekly), paper trading
 
-Spec for the "Mantra" page, from `mantra.docx` ("Algorithmic Specification: Nifty Short
+Spec for the "Mantra - Theta Gainers" page (`/mantra-theta-gainers`), from `mantra.docx` ("Algorithmic Specification: Nifty Short
 Strangle Strategy"). Review date: 6 Oct 2026. Paper trading only.
 
 ## 1. What the document says
