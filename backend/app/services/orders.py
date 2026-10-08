@@ -59,6 +59,20 @@ class DhanOrderService:
             return {"status": "failed", "message": _payload_message(payload), "request": body, "order": payload}
         return {"status": "sent", "request": body, "order": payload}
 
+    async def get_order(self, order_id: str) -> dict[str, Any] | None:
+        """GET /orders/{order-id} -- orderStatus, filledQty, averageTradedPrice."""
+        async with httpx.AsyncClient(timeout=12) as client:
+            response = await client.get(f"{self.settings.dhan_base_url}/orders/{order_id}", headers=await self._headers())
+        if response.is_error:
+            return None
+        payload = _response_json(response)
+        if isinstance(payload, list):
+            payload = payload[0] if payload else None
+        if isinstance(payload, dict) and isinstance(payload.get("data"), (dict, list)):
+            data = payload["data"]
+            payload = data[0] if isinstance(data, list) and data else data
+        return payload if isinstance(payload, dict) else None
+
     def build_market_order_request(
         self,
         *,

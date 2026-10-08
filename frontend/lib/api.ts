@@ -25,6 +25,7 @@ import type { AnimeshCandlesResponse, AnimeshSession, AnimeshSessionDetail, Anim
 import type { CreditSpreadState } from "@/types/credit-spread";
 import type { SimpleCrossoverConfig, SimpleCrossoverData, SimpleCrossoverSide, SimpleCrossoverTrade } from "@/types/simple-crossover";
 import type { ThetaRuntimeConfig, ThetaSession, ThetaSessionDetail, ThetaState } from "@/types/theta";
+import type { MeltingConfig, MeltingDaySummary, MeltingState, MeltingTag, MeltingTrade } from "@/types/melting";
 import type { MantraAlarm, MantraConfig, MantraMode, MantraPlan, MantraTrade } from "@/types/mantra";
 import type { TurtleAlarm, TurtleConfig, TurtleState, TurtleTrade } from "@/types/turtle";
 import type { BatmanAnalysis, BatmanConfig, BatmanMode, BatmanPreview, BatmanTrade } from "@/types/batman";
@@ -783,4 +784,36 @@ export async function getMantraAlarms(): Promise<{ alarms: MantraAlarm[] }> {
 
 export async function acknowledgeMantraAlarm(id: number): Promise<{ status: string }> {
   return apiJson(`/api/mantra/alarms/${id}/ack`, { method: "POST" }, "Failed to acknowledge alarm");
+}
+
+export async function getMeltingState(): Promise<MeltingState> {
+  return apiJson<MeltingState>("/api/melting/state", undefined, "Failed to load Melting Straddles");
+}
+
+export async function updateMeltingConfig(updates: Record<string, unknown>): Promise<MeltingConfig> {
+  return apiJson<MeltingConfig>("/api/melting/config", { method: "PUT", body: JSON.stringify(updates) }, "Failed to save Melting Straddles settings");
+}
+
+export async function getMeltingTrades(): Promise<{ trades: MeltingTrade[] }> {
+  return apiJson<{ trades: MeltingTrade[] }>("/api/melting/trades", undefined, "Failed to load Melting Straddles trades");
+}
+
+export async function getMeltingTrade(id: number): Promise<MeltingTrade> {
+  return apiJson<MeltingTrade>(`/api/melting/trades/${id}`, undefined, "Failed to load the trade");
+}
+
+export async function closeMeltingTrade(id: number): Promise<{ status: string; message?: string }> {
+  return apiJson(`/api/melting/trades/${id}/close`, { method: "POST" }, "Failed to close the straddle");
+}
+
+export async function squareOffMelting(): Promise<{ status: string; closed: number }> {
+  return apiJson("/api/melting/square-off", { method: "POST" }, "Square-off failed");
+}
+
+export async function enterMeltingNow(tag: MeltingTag): Promise<{ status: string; message?: string; tradeId?: number }> {
+  return apiJson(`/api/melting/enter/${tag}`, { method: "POST" }, "Entry failed");
+}
+
+export async function getMeltingDays(): Promise<{ days: MeltingDaySummary[] }> {
+  return apiJson<{ days: MeltingDaySummary[] }>("/api/melting/days", undefined, "Failed to load daily P&L");
 }

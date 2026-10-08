@@ -5,6 +5,7 @@ import {
   BookOpenText,
   Moon,
   Infinity as InfinityIcon,
+  Droplets,
   Turtle,
   BriefcaseBusiness,
   ChevronLeft,
@@ -42,7 +43,8 @@ const navItems = [
   { href: "/btc-strangle", label: "BTC Strangle", short: "BS", icon: Bitcoin },
   { href: "/batman", label: "Batman", short: "BM", icon: Moon },
   { href: "/define-turtle", label: "Define Turtle", short: "DT", icon: Turtle },
-  { href: "/mantra", label: "Mantra", short: "MN", icon: InfinityIcon },
+  { href: "/mantra-theta-gainers", label: "Mantra - Theta Gainers", short: "MT", icon: InfinityIcon },
+  { href: "/melting-straddles", label: "Melting Straddles", short: "MS", icon: Droplets },
 ];
 
 const STORAGE_KEY = "live-options-sidebar-collapsed";

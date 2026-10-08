@@ -298,6 +298,15 @@ class Settings(BaseSettings):
     # adjustments, monthly + weekly. Paper only.
     mantra_monitor_enabled: bool = True
 
+    # Melting Straddles (melting-straddles.md): intraday NIFTY (Fri/Mon/Tue)
+    # / Sensex (Wed/Thu) straddle decay on P&F combined-premium + VWAP.
+    # Paper by default; real Dhan orders need BOTH melting_live_order_enabled
+    # (env kill switch) AND the page's mode set to live, plus the global
+    # live_order_enabled switch (orders.py).
+    melting_monitor_enabled: bool = True
+    melting_live_order_enabled: bool = False
+    melting_live_order_product_type: str = "INTRADAY"
+
     # Define Turtle (define-turtle.md): NIFTY P&F RSI + Turtle Follow-Through
     # -> next-week put credit spread. Paper only.
     turtle_monitor_enabled: bool = True

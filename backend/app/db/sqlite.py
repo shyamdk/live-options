@@ -895,6 +895,138 @@ def init_db() -> None:
         )
         conn.execute(
             """
+            CREATE TABLE IF NOT EXISTS melting_days (
+                day TEXT PRIMARY KEY,
+                index_name TEXT NOT NULL,
+                expiry TEXT NOT NULL,
+                dte INTEGER NOT NULL,
+                spot_open REAL NOT NULL,
+                atm REAL NOT NULL,
+                straddles TEXT NOT NULL,
+                lot_size INTEGER NOT NULL,
+                exchange_segment TEXT NOT NULL,
+                stops INTEGER NOT NULL DEFAULT 0,
+                braked_at INTEGER,
+                brake_reason TEXT,
+                created_at INTEGER NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS melting_trades (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                day TEXT NOT NULL,
+                index_name TEXT NOT NULL,
+                expiry TEXT NOT NULL,
+                dte INTEGER NOT NULL,
+                tag TEXT NOT NULL,
+                strike REAL NOT NULL,
+                ce_security_id TEXT NOT NULL,
+                pe_security_id TEXT NOT NULL,
+                exchange_segment TEXT NOT NULL,
+                mode TEXT NOT NULL,
+                trigger TEXT NOT NULL,
+                signal TEXT NOT NULL,
+                signal_time INTEGER NOT NULL,
+                signal_price REAL NOT NULL,
+                signal_vwap REAL NOT NULL,
+                lot_size INTEGER NOT NULL,
+                lots INTEGER NOT NULL,
+                lots_open INTEGER NOT NULL,
+                entry_time INTEGER NOT NULL,
+                entry_ce REAL NOT NULL,
+                entry_pe REAL NOT NULL,
+                entry_price REAL NOT NULL,
+                initial_sl REAL NOT NULL,
+                sl REAL NOT NULL,
+                step REAL NOT NULL,
+                hits INTEGER NOT NULL DEFAULT 0,
+                status TEXT NOT NULL,
+                exit_time INTEGER,
+                exit_reason TEXT,
+                booked_points REAL NOT NULL DEFAULT 0,
+                charges REAL NOT NULL DEFAULT 0,
+                last_ce REAL,
+                last_pe REAL,
+                last_price REAL,
+                last_vwap REAL,
+                last_update INTEGER,
+                best_price REAL,
+                worst_price REAL,
+                needs_attention TEXT
+            )
+            """
+        )
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_melting_trades_day ON melting_trades(day)")
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS melting_fills (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                trade_id INTEGER NOT NULL,
+                time INTEGER NOT NULL,
+                action TEXT NOT NULL,
+                side TEXT NOT NULL,
+                lots INTEGER NOT NULL,
+                quantity INTEGER NOT NULL,
+                ce_price REAL NOT NULL,
+                pe_price REAL NOT NULL,
+                combined REAL NOT NULL,
+                ce_bid REAL, ce_ask REAL, ce_ltp REAL,
+                pe_bid REAL, pe_ask REAL, pe_ltp REAL,
+                reference_price REAL,
+                slippage REAL,
+                points REAL,
+                pnl REAL,
+                charges REAL NOT NULL,
+                reason TEXT NOT NULL,
+                mode TEXT NOT NULL,
+                ce_order_id TEXT,
+                pe_order_id TEXT,
+                order_status TEXT,
+                note TEXT
+            )
+            """
+        )
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_melting_fills_trade ON melting_fills(trade_id)")
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS melting_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                day TEXT NOT NULL,
+                trade_id INTEGER,
+                time INTEGER NOT NULL,
+                kind TEXT NOT NULL,
+                text TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_melting_events_day ON melting_events(day)")
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS melting_minutes (
+                day TEXT NOT NULL,
+                tag TEXT NOT NULL,
+                time INTEGER NOT NULL,
+                ce REAL NOT NULL,
+                pe REAL NOT NULL,
+                combined REAL NOT NULL,
+                vwap REAL,
+                PRIMARY KEY (day, tag, time)
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS melting_settings (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
             CREATE TABLE IF NOT EXISTS mantra_trades (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 mode TEXT NOT NULL,
@@ -3971,6 +4103,108 @@ def set_mantra_setting(key: str, value: str) -> None:
         conn.execute(
             """
             INSERT INTO mantra_settings (key, value, updated_at) VALUES (?, ?, ?)
+            ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+            """,
+            (key, value, now),
+        )
+        conn.commit()
+
+
+# ---------------------------------------------------------------- Melting Straddles (melting-straddles.md)
+
+
+def _melting_rows(sql: str, params: tuple = ()) -> list[dict[str, Any]]:
+    with _DB_LOCK, _connect() as conn:
+        return [dict(r) for r in conn.execute(sql, params).fetchall()]
+
+
+def melting_insert(table: str, values: dict[str, Any]) -> int:
+    return _mantra_insert(table, values)
+
+
+def melting_update_trade(trade_id: int, **values: Any) -> None:
+    _mantra_update("melting_trades", trade_id, values)
+
+
+def get_melting_day(day: str) -> dict[str, Any] | None:
+    rows = _melting_rows("SELECT * FROM melting_days WHERE day = ?", (day,))
+    return rows[0] if rows else None
+
+
+def list_melting_days(limit: int = 120) -> list[dict[str, Any]]:
+    return _melting_rows("SELECT * FROM melting_days ORDER BY day DESC LIMIT ?", (limit,))
+
+
+def upsert_melting_day(values: dict[str, Any]) -> None:
+    cols = ", ".join(values)
+    marks = ", ".join(f":{k}" for k in values)
+    updates = ", ".join(f"{k} = excluded.{k}" for k in values if k != "day")
+    with _DB_LOCK, _connect() as conn:
+        conn.execute(f"INSERT INTO melting_days ({cols}) VALUES ({marks}) ON CONFLICT(day) DO UPDATE SET {updates}", values)
+        conn.commit()
+
+
+def update_melting_day(day: str, **values: Any) -> None:
+    sets = ", ".join(f"{k} = :{k}" for k in values)
+    with _DB_LOCK, _connect() as conn:
+        conn.execute(f"UPDATE melting_days SET {sets} WHERE day = :day", {**values, "day": day})
+        conn.commit()
+
+
+def list_melting_trades(*, day: str | None = None, status: str | None = None, limit: int = 500) -> list[dict[str, Any]]:
+    clauses, params = [], []
+    if day:
+        clauses.append("day = ?"); params.append(day)
+    if status:
+        clauses.append("status = ?"); params.append(status)
+    where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+    return _melting_rows(f"SELECT * FROM melting_trades {where} ORDER BY entry_time DESC, id DESC LIMIT ?", (*params, limit))
+
+
+def get_melting_trade(trade_id: int) -> dict[str, Any] | None:
+    rows = _melting_rows("SELECT * FROM melting_trades WHERE id = ?", (trade_id,))
+    return rows[0] if rows else None
+
+
+def list_melting_fills(trade_ids: list[int]) -> list[dict[str, Any]]:
+    if not trade_ids:
+        return []
+    marks = ", ".join("?" for _ in trade_ids)
+    return _melting_rows(f"SELECT * FROM melting_fills WHERE trade_id IN ({marks}) ORDER BY time, id", tuple(trade_ids))
+
+
+def list_melting_events(*, day: str | None = None, trade_id: int | None = None, limit: int = 500) -> list[dict[str, Any]]:
+    if trade_id is not None:
+        return _melting_rows("SELECT * FROM melting_events WHERE trade_id = ? ORDER BY time, id", (trade_id,))
+    return _melting_rows("SELECT * FROM melting_events WHERE day = ? ORDER BY time DESC, id DESC LIMIT ?", (day, limit))
+
+
+def save_melting_minutes(rows: list[dict[str, Any]]) -> None:
+    if not rows:
+        return
+    with _DB_LOCK, _connect() as conn:
+        conn.executemany(
+            "INSERT OR REPLACE INTO melting_minutes (day, tag, time, ce, pe, combined, vwap) VALUES (:day, :tag, :time, :ce, :pe, :combined, :vwap)",
+            rows,
+        )
+        conn.commit()
+
+
+def list_melting_minutes(day: str) -> list[dict[str, Any]]:
+    return _melting_rows("SELECT * FROM melting_minutes WHERE day = ? ORDER BY tag, time", (day,))
+
+
+def get_melting_setting(key: str) -> str | None:
+    rows = _melting_rows("SELECT value FROM melting_settings WHERE key = ?", (key,))
+    return rows[0]["value"] if rows else None
+
+
+def set_melting_setting(key: str, value: str) -> None:
+    now = datetime.now().isoformat(timespec="seconds")
+    with _DB_LOCK, _connect() as conn:
+        conn.execute(
+            """
+            INSERT INTO melting_settings (key, value, updated_at) VALUES (?, ?, ?)
             ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
             """,
             (key, value, now),
