@@ -903,6 +903,73 @@ def init_db() -> None:
         )
         conn.execute(
             """
+            CREATE TABLE IF NOT EXISTS calm_strangle_trades (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                day TEXT NOT NULL,
+                expiry TEXT NOT NULL,
+                dte INTEGER NOT NULL,
+                mode TEXT NOT NULL,
+                trigger TEXT NOT NULL,
+                entry_time INTEGER NOT NULL,
+                entry_spot REAL NOT NULL,
+                straddle REAL NOT NULL,
+                calm_range REAL,
+                atm_strike REAL NOT NULL,
+                ce_strike REAL NOT NULL,
+                pe_strike REAL NOT NULL,
+                ce_security_id TEXT NOT NULL,
+                pe_security_id TEXT NOT NULL,
+                lots INTEGER NOT NULL,
+                lot_size INTEGER NOT NULL,
+                entry_ce REAL NOT NULL,
+                entry_pe REAL NOT NULL,
+                credit REAL NOT NULL,
+                entry_quotes TEXT,
+                stop_low REAL NOT NULL,
+                stop_high REAL NOT NULL,
+                backstop REAL NOT NULL,
+                status TEXT NOT NULL,
+                exit_time INTEGER,
+                exit_reason TEXT,
+                exit_ce REAL,
+                exit_pe REAL,
+                exit_spot REAL,
+                exit_quotes TEXT,
+                charges REAL NOT NULL DEFAULT 0,
+                last_ce REAL,
+                last_pe REAL,
+                last_spot REAL,
+                last_update INTEGER,
+                best REAL,
+                worst REAL,
+                order_ids TEXT,
+                notes TEXT
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS calm_strangle_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                day TEXT NOT NULL,
+                trade_id INTEGER,
+                time INTEGER NOT NULL,
+                kind TEXT NOT NULL,
+                text TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS calm_strangle_settings (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
             CREATE TABLE IF NOT EXISTS nifty_strangle_trades (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 mode TEXT NOT NULL,
@@ -4339,6 +4406,49 @@ def set_nifty_strangle_setting(key: str, value: str) -> None:
         conn.execute(
             """
             INSERT INTO nifty_strangle_settings (key, value, updated_at) VALUES (?, ?, ?)
+            ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+            """,
+            (key, value, now),
+        )
+        conn.commit()
+
+
+# ---------------------------------------------------------------- Calm Strangle (calm-strangle.md)
+
+
+def calm_insert(table: str, values: dict[str, Any]) -> int:
+    return _mantra_insert(table, values)
+
+
+def calm_update_trade(trade_id: int, **values: Any) -> None:
+    _mantra_update("calm_strangle_trades", trade_id, values)
+
+
+def list_calm_trades(*, day: str | None = None, status: str | None = None, limit: int = 1000) -> list[dict[str, Any]]:
+    clauses, params = [], []
+    if day:
+        clauses.append("day = ?"); params.append(day)
+    if status:
+        clauses.append("status = ?"); params.append(status)
+    where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+    return _melting_rows(f"SELECT * FROM calm_strangle_trades {where} ORDER BY entry_time DESC, id DESC LIMIT ?", (*params, limit))
+
+
+def list_calm_events(day: str, limit: int = 300) -> list[dict[str, Any]]:
+    return _melting_rows("SELECT * FROM calm_strangle_events WHERE day = ? ORDER BY time DESC, id DESC LIMIT ?", (day, limit))
+
+
+def get_calm_setting(key: str) -> str | None:
+    rows = _melting_rows("SELECT value FROM calm_strangle_settings WHERE key = ?", (key,))
+    return rows[0]["value"] if rows else None
+
+
+def set_calm_setting(key: str, value: str) -> None:
+    now = datetime.now().isoformat(timespec="seconds")
+    with _DB_LOCK, _connect() as conn:
+        conn.execute(
+            """
+            INSERT INTO calm_strangle_settings (key, value, updated_at) VALUES (?, ?, ?)
             ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
             """,
             (key, value, now),

@@ -298,6 +298,12 @@ class Settings(BaseSettings):
     # adjustments, monthly + weekly. Paper only.
     mantra_monitor_enabled: bool = True
 
+    # Calm Strangle (calm-strangle.md): intraday NIFTY short strangle sold
+    # only after the market settles. Paper by default; live needs
+    # calm_strangle_live_order_enabled AND page mode live (+ live_order_enabled).
+    calm_strangle_monitor_enabled: bool = True
+    calm_strangle_live_order_enabled: bool = False
+
     # NIFTY Strangle: BTC Strangle's rules on NIFTY weekly options -- sell an
     # OTM CE + PE at spot +- multiplier x ATM straddle at 15:15 the trading
     # day before expiry, per-leg stop, buy back or let expire on expiry day.

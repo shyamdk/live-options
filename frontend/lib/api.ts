@@ -25,6 +25,7 @@ import type { AnimeshCandlesResponse, AnimeshSession, AnimeshSessionDetail, Anim
 import type { CreditSpreadState } from "@/types/credit-spread";
 import type { SimpleCrossoverConfig, SimpleCrossoverData, SimpleCrossoverSide, SimpleCrossoverTrade } from "@/types/simple-crossover";
 import type { ThetaRuntimeConfig, ThetaSession, ThetaSessionDetail, ThetaState } from "@/types/theta";
+import type { CalmConfig, CalmState, CalmTrade } from "@/types/calm-strangle";
 import type { NiftyStrangleConfig, NiftyStranglePlan, NiftyStrangleTrade } from "@/types/nifty-strangle";
 import type { MeltingConfig, MeltingDaySummary, MeltingState, MeltingTag, MeltingTrade } from "@/types/melting";
 import type { MantraAlarm, MantraConfig, MantraMode, MantraPlan, MantraTrade } from "@/types/mantra";
@@ -845,4 +846,24 @@ export async function closeNiftyStrangleLeg(legId: number): Promise<{ status: st
 
 export async function getNiftyStrangleSpotChart(): Promise<{ candles: { time: number; close: number }[]; error?: string }> {
   return apiJson("/api/nifty-strangle/spot-chart", undefined, "Failed to load the NIFTY chart");
+}
+
+export async function getCalmState(): Promise<CalmState> {
+  return apiJson<CalmState>("/api/calm-strangle/state", undefined, "Failed to load Calm Strangle");
+}
+
+export async function updateCalmConfig(updates: Partial<CalmConfig>): Promise<CalmConfig> {
+  return apiJson<CalmConfig>("/api/calm-strangle/config", { method: "PUT", body: JSON.stringify(updates) }, "Failed to save Calm Strangle settings");
+}
+
+export async function getCalmTrades(): Promise<{ trades: CalmTrade[] }> {
+  return apiJson<{ trades: CalmTrade[] }>("/api/calm-strangle/trades", undefined, "Failed to load Calm Strangle trades");
+}
+
+export async function enterCalmNow(): Promise<{ status: string; message?: string; tradeId?: number }> {
+  return apiJson("/api/calm-strangle/enter", { method: "POST" }, "Calm Strangle entry failed");
+}
+
+export async function closeCalmTrade(id: number): Promise<{ status: string; message?: string }> {
+  return apiJson(`/api/calm-strangle/trades/${id}/close`, { method: "POST" }, "Failed to close the strangle");
 }
