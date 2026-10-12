@@ -836,6 +836,9 @@ def init_db() -> None:
         _add_column_if_missing(conn, "simple_crossover_trades", "signal_time", "INTEGER")
         _add_column_if_missing(conn, "simple_crossover_trades", "signal_close", "REAL")
         _add_column_if_missing(conn, "simple_crossover_trades", "signal_source", "TEXT")
+        # Plain cross over: entry on the cross-over, exit only on the
+        # cross-under (or the 15:30 square-off) -- no stop or targets.
+        _add_column_if_missing(conn, "simple_crossover_trades", "plain_crossover", "INTEGER NOT NULL DEFAULT 0")
         conn.execute(
             "UPDATE simple_crossover_trades SET remaining_lots = lots WHERE status = 'open' AND remaining_lots = 0"
         )
@@ -2703,6 +2706,7 @@ def create_simple_crossover_trade(
     signal_time: int | None = None,
     signal_close: float | None = None,
     signal_source: str | None = None,
+    plain_crossover: bool = False,
 ) -> int:
     now = datetime.now().isoformat(timespec="seconds")
     with _DB_LOCK, _connect() as conn:
@@ -2712,14 +2716,15 @@ def create_simple_crossover_trade(
                 underlying, side, strike, expiry, security_id, exchange_segment, lots, lot_size,
                 entry_time, entry_premium, entry_ema_gap, entry_pcr, entry_ce_oi_change, entry_pe_oi_change,
                 day_direction, status, current_premium, remaining_lots, peak_premium, created_at, updated_at,
-                timeframe_minutes, signal_time, signal_close, signal_source
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                timeframe_minutes, signal_time, signal_close, signal_source, plain_crossover, comment
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 underlying, side, strike, expiry, security_id, exchange_segment, lots, lot_size,
                 entry_time, entry_premium, entry_ema_gap, entry_pcr, entry_ce_oi_change, entry_pe_oi_change,
                 day_direction, entry_premium, lots, entry_premium, now, now, timeframe_minutes,
-                signal_time, signal_close, signal_source,
+                signal_time, signal_close, signal_source, 1 if plain_crossover else 0,
+                "Plain cross over" if plain_crossover else None,
             ),
         )
         conn.commit()
@@ -2875,6 +2880,7 @@ def _simple_crossover_trade_from_row(row: sqlite3.Row, exit_legs: list[dict[str,
         "signalTime": row["signal_time"],
         "signalClose": row["signal_close"],
         "signalSource": row["signal_source"],
+        "plainCrossover": bool(row["plain_crossover"]),
         "status": row["status"],
         "currentPremium": row["current_premium"],
         "remainingLots": row["remaining_lots"],

@@ -124,7 +124,7 @@ export default function SimpleCrossoverPage() {
   // With the day-direction filter off, the engine evaluates CE and PE
   // independently every poll (each enters only on its own up-crossover), so
   // show both sides next to each other instead of one toggled view.
-  const splitView = config !== null && !config.dayDirectionFilterEnabled;
+  const splitView = config !== null && (!config.dayDirectionFilterEnabled || config.plainCrossover);
 
   // Auto-picks the side that matches today's direction (bearish day -> PE,
   // bullish -> CE) the moment the direction is first known or changes --
@@ -379,6 +379,22 @@ function StrategyConditionsPanel({
       <h3 style={{ margin: "0 0 4px" }}>Entry &amp; exit conditions</h3>
       {shownError ? <div className="alert error">{shownError}</div> : null}
 
+      <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", fontWeight: 600 }}>
+        <input
+          type="checkbox"
+          checked={config?.plainCrossover ?? false}
+          disabled={!config || saving}
+          onChange={() => void save({ plainCrossover: !config?.plainCrossover })}
+        />
+        Plain cross over (enter on cross-over, exit on cross-under -- nothing else)
+      </label>
+      <p className="pcr-oi-caption" style={{ margin: "4px 0 10px" }}>
+        {config?.plainCrossover
+          ? "ON: CE and PE each enter on their own cross-over (no day-direction gate) and exit all lots only on the cross-under or the 15:30 square-off -- no stop loss, no targets, no trailing. These trades are commented \"Plain cross over\". The settings below are ignored for new entries."
+          : "OFF: the rules below apply."}
+      </p>
+
+      <div style={{ opacity: config?.plainCrossover ? 0.5 : 1 }}>
       <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
         <input
           type="checkbox"
@@ -403,6 +419,7 @@ function StrategyConditionsPanel({
         />
         Trade on Sideways days too
       </label>
+      </div>
 
       <h4 style={{ margin: "14px 0 6px", fontSize: 13 }}>Candle timeframe</h4>
       <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
@@ -528,8 +545,12 @@ function PaperTradesSection({
                     <td>{t.remainingLots} ({t.remainingQuantity})</td>
                     <td>{fmtNum(t.entryPremium)}</td>
                     <td>{fmtNum(t.currentPremium)}</td>
-                    <td>{stopPrice != null ? `${stopLabel} ${fmtNum(stopPrice)}` : "—"}</td>
-                    <td>{`${t.target1Hit ? "+5% sold" : "+5% pending"} · ${t.target2Hit ? "+10% sold" : "+10% pending"}`}</td>
+                    <td>{t.plainCrossover ? "none (plain)" : stopPrice != null ? `${stopLabel} ${fmtNum(stopPrice)}` : "—"}</td>
+                    <td>
+                      {t.plainCrossover
+                        ? "exit on cross-under"
+                        : `${t.target1Hit ? "+5% sold" : "+5% pending"} · ${t.target2Hit ? "+10% sold" : "+10% pending"}`}
+                    </td>
                     <td style={{ color: (t.realizedPnl ?? 0) >= 0 ? "var(--green)" : "var(--red)" }}>{fmtSigned(t.realizedPnl)}</td>
                     <td style={{ color: t.unrealizedPnl != null ? (t.unrealizedPnl >= 0 ? "var(--green)" : "var(--red)") : undefined }}>
                       {fmtSigned(t.unrealizedPnl)}

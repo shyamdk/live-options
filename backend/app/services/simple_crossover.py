@@ -72,6 +72,13 @@ TRADE_ON_SIDEWAYS_SETTING_KEY = "trade_on_sideways"
 
 STOP_LOSS_PERCENT_SETTING_KEY = "stop_loss_percent"
 
+# Plain cross over: when ON, both CE and PE enter on their own EMA8/EMA21
+# cross-over with no day-direction gate, and exit ONLY on the cross-under
+# (or the mandatory 15:30 square-off) -- no stop loss, no staged targets,
+# no trailing. Each trade stores the flag (and a "Plain cross over"
+# comment), so changing the setting never changes an open trade's rules.
+PLAIN_CROSSOVER_SETTING_KEY = "plain_crossover"
+
 # Candle timeframe for the EMA8/EMA21 crossover. Dhan's intraday API has no
 # 3-minute interval, so 3m candles are built from 1m candles, aligned to the
 # 09:15 IST session open (09:15-09:18, 09:18-09:21, ...). Each trade stores
@@ -155,6 +162,14 @@ def set_trade_on_sideways_enabled(value: bool) -> None:
     db.set_simple_crossover_setting(TRADE_ON_SIDEWAYS_SETTING_KEY, "1" if value else "0")
 
 
+def is_plain_crossover_enabled() -> bool:
+    return db.get_simple_crossover_setting(PLAIN_CROSSOVER_SETTING_KEY) == "1"
+
+
+def set_plain_crossover_enabled(value: bool) -> None:
+    db.set_simple_crossover_setting(PLAIN_CROSSOVER_SETTING_KEY, "1" if value else "0")
+
+
 def get_stop_loss_percent() -> float:
     raw = db.get_simple_crossover_setting(STOP_LOSS_PERCENT_SETTING_KEY)
     return float(raw) if raw is not None else get_settings().simple_crossover_stop_loss_percent
@@ -182,6 +197,7 @@ def get_runtime_config() -> dict[str, Any]:
         "tradeOnSideways": is_trade_on_sideways_enabled(),
         "stopLossPercent": get_stop_loss_percent(),
         "timeframeMinutes": get_timeframe_minutes(),
+        "plainCrossover": is_plain_crossover_enabled(),
     }
 
 
@@ -479,13 +495,15 @@ async def _poll_once(settings: Settings, now: Any) -> None:
 
     direction = await _day_direction(dhan, settings, today)
 
-    if is_day_direction_filter_enabled():
+    if is_plain_crossover_enabled():
+        sides_to_check: tuple[Side, ...] = SIDES
+    elif is_day_direction_filter_enabled():
         if not direction:
             return
         if direction["label"] == "Sideways":
             if not is_trade_on_sideways_enabled():
                 return
-            sides_to_check: tuple[Side, ...] = SIDES
+            sides_to_check = SIDES
         else:
             sides_to_check = ("CE",) if direction["label"] == "Up" else ("PE",)
     else:
@@ -582,6 +600,7 @@ async def _evaluate_entry(dhan: DhanService, settings: Settings, side: Side, now
         signal_time=crossover_time,
         signal_close=crossover["price"],
         signal_source="live" if live_minute is not None and crossover_time <= live_minute < crossover_time + timeframe * 60 else "dhan",
+        plain_crossover=is_plain_crossover_enabled(),
     )
     _handled_crossover_time[side] = crossover_time
     logger.warning(
@@ -626,6 +645,13 @@ async def _manage_open_trade(dhan: DhanService, trade: dict[str, Any], is_eod: b
     )
 
     remaining_lots = int(trade.get("remainingLots") or trade["lots"])
+    if trade.get("plainCrossover"):
+        # Plain cross over: only the 15:30 square-off and the cross-under exit apply.
+        if is_eod:
+            _close_remaining(trade, lots=remaining_lots, exit_time=now_epoch, exit_premium=current_premium, exit_reason="eod")
+            return
+        await _cross_under_exit(dhan, trade, remaining_lots, current_premium, now_epoch)
+        return
     fixed_stop = entry_premium * (1 - get_stop_loss_percent() / 100)
     active_stop = trailing_stop if target2_hit else fixed_stop
     if current_premium <= active_stop:
@@ -672,6 +698,10 @@ async def _manage_open_trade(dhan: DhanService, trade: dict[str, Any], is_eod: b
         _close_remaining(trade, lots=remaining_lots, exit_time=now_epoch, exit_premium=current_premium, exit_reason="eod")
         return
 
+    await _cross_under_exit(dhan, trade, remaining_lots, current_premium, now_epoch)
+
+
+async def _cross_under_exit(dhan: DhanService, trade: dict[str, Any], remaining_lots: int, current_premium: float, now_epoch: int) -> None:
     try:
         today = now_ist().date().isoformat()
         raw = await dhan.intraday_candles(trade["securityId"], trade["exchangeSegment"], "OPTIDX", "1", today, today)
@@ -688,10 +718,13 @@ async def _manage_open_trade(dhan: DhanService, trade: dict[str, Any], is_eod: b
     ema_slow = ema(closes, EMA_SLOW_PERIOD)
     rsi_values = rsi(closes, RSI_PERIOD)
     recent_crossovers = detect_crossovers(times, closes, ema_fast, ema_slow, rsi_values)
+    # Any cross-under on a candle after the crossover candle that triggered the
+    # entry (older trades without signalTime: candles starting after entry).
+    after = int(trade.get("signalTime") or trade["entryTime"])
     cross_under_after_entry = next(
         (
             cross for cross in reversed(recent_crossovers)
-            if cross["direction"] == "down" and cross["time"] > int(trade["entryTime"])
+            if cross["direction"] == "down" and cross["time"] > after
         ),
         None,
     )

@@ -12,6 +12,7 @@ from app.services.simple_crossover import (
     get_runtime_config,
     list_trades_with_charges,
     set_day_direction_filter_enabled,
+    set_plain_crossover_enabled,
     set_stop_loss_percent,
     set_timeframe_minutes,
     set_trade_on_sideways_enabled,
@@ -29,6 +30,7 @@ class ConfigIn(BaseModel):
     tradeOnSideways: bool | None = None
     stopLossPercent: float | None = Field(default=None, gt=0, lt=100)
     timeframeMinutes: int | None = Field(default=None, ge=1, le=3)
+    plainCrossover: bool | None = None
 
 
 @router.get("/config", dependencies=[Depends(require_auth)])
@@ -44,6 +46,8 @@ async def update_config(body: ConfigIn) -> dict[str, Any]:
         set_trade_on_sideways_enabled(body.tradeOnSideways)
     if body.stopLossPercent is not None:
         set_stop_loss_percent(body.stopLossPercent)
+    if body.plainCrossover is not None:
+        set_plain_crossover_enabled(body.plainCrossover)
     if body.timeframeMinutes is not None:
         try:
             set_timeframe_minutes(body.timeframeMinutes)

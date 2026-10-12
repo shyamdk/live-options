@@ -66,6 +66,7 @@ export interface SimpleCrossoverTrade {
   signalTime?: number | null;
   signalClose?: number | null;
   signalSource?: "live" | "dhan" | null;
+  plainCrossover?: boolean;
   status: "open" | "closed";
   currentPremium: number | null;
   remainingLots: number;
@@ -93,6 +94,7 @@ export interface SimpleCrossoverConfig {
   tradeOnSideways: boolean;
   stopLossPercent: number;
   timeframeMinutes: 1 | 3;
+  plainCrossover: boolean;
 }
 
 export interface SimpleCrossoverData {
