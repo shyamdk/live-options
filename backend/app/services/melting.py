@@ -264,7 +264,7 @@ def _day_payload(row: dict[str, Any]) -> dict[str, Any]:
 
 async def _quotes(dhan: DhanService, day: dict[str, Any]) -> dict[str, dict[str, Any]]:
     ids = [int(s[k]) for s in day["straddles"].values() for k in ("ceSecurityId", "peSecurityId")]
-    data = await dhan.market_quotes_by_segment({day["exchangeSegment"]: ids})
+    data = await dhan.market_quotes_by_segment({day["exchangeSegment"]: ids}, max_age_seconds=2)
     rows = data.get(day["exchangeSegment"]) or {}
     out = {}
     for sec, q in rows.items():

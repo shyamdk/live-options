@@ -63,6 +63,9 @@ export interface SimpleCrossoverTrade {
   entryPeOiChange: number | null;
   dayDirection: "Up" | "Down" | "Sideways" | null;
   timeframeMinutes?: number;
+  signalTime?: number | null;
+  signalClose?: number | null;
+  signalSource?: "live" | "dhan" | null;
   status: "open" | "closed";
   currentPremium: number | null;
   remainingLots: number;

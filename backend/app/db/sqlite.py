@@ -831,6 +831,11 @@ def init_db() -> None:
         _add_column_if_missing(conn, "simple_crossover_trades", "peak_premium", "REAL")
         _add_column_if_missing(conn, "simple_crossover_trades", "trailing_stop_price", "REAL")
         _add_column_if_missing(conn, "simple_crossover_trades", "timeframe_minutes", "INTEGER NOT NULL DEFAULT 1")
+        # The crossover candle that triggered the entry: its start time, close,
+        # and whether that close came from Dhan's candle or the live price.
+        _add_column_if_missing(conn, "simple_crossover_trades", "signal_time", "INTEGER")
+        _add_column_if_missing(conn, "simple_crossover_trades", "signal_close", "REAL")
+        _add_column_if_missing(conn, "simple_crossover_trades", "signal_source", "TEXT")
         conn.execute(
             "UPDATE simple_crossover_trades SET remaining_lots = lots WHERE status = 'open' AND remaining_lots = 0"
         )
@@ -2695,6 +2700,9 @@ def create_simple_crossover_trade(
     entry_pe_oi_change: int | None,
     day_direction: str | None,
     timeframe_minutes: int = 1,
+    signal_time: int | None = None,
+    signal_close: float | None = None,
+    signal_source: str | None = None,
 ) -> int:
     now = datetime.now().isoformat(timespec="seconds")
     with _DB_LOCK, _connect() as conn:
@@ -2704,13 +2712,14 @@ def create_simple_crossover_trade(
                 underlying, side, strike, expiry, security_id, exchange_segment, lots, lot_size,
                 entry_time, entry_premium, entry_ema_gap, entry_pcr, entry_ce_oi_change, entry_pe_oi_change,
                 day_direction, status, current_premium, remaining_lots, peak_premium, created_at, updated_at,
-                timeframe_minutes
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', ?, ?, ?, ?, ?, ?)
+                timeframe_minutes, signal_time, signal_close, signal_source
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 underlying, side, strike, expiry, security_id, exchange_segment, lots, lot_size,
                 entry_time, entry_premium, entry_ema_gap, entry_pcr, entry_ce_oi_change, entry_pe_oi_change,
                 day_direction, entry_premium, lots, entry_premium, now, now, timeframe_minutes,
+                signal_time, signal_close, signal_source,
             ),
         )
         conn.commit()
@@ -2863,6 +2872,9 @@ def _simple_crossover_trade_from_row(row: sqlite3.Row, exit_legs: list[dict[str,
         "entryPeOiChange": row["entry_pe_oi_change"],
         "dayDirection": row["day_direction"],
         "timeframeMinutes": row["timeframe_minutes"],
+        "signalTime": row["signal_time"],
+        "signalClose": row["signal_close"],
+        "signalSource": row["signal_source"],
         "status": row["status"],
         "currentPremium": row["current_premium"],
         "remainingLots": row["remaining_lots"],

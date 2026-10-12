@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from datetime import time as dtime
 from typing import Any, Literal
 
@@ -83,6 +84,57 @@ IST_OFFSET_SECONDS = 19800
 
 _handled_crossover_time: dict[Side, int | None] = {}
 _handled_date: str | None = None
+
+# Timing: checks run a couple of seconds after each minute closes (and every
+# 15 s after that for stops/targets) instead of a free-running 30 s loop.
+# The just-closed minute is taken from the live price when Dhan's 1-min
+# candle hasn't been published yet, so a crossover is acted on within
+# seconds of the candle close rather than one or two candles later.
+POLL_OFFSETS_SECONDS = (2, 17, 32, 47)
+LIVE_CLOSE_MAX_AGE_SECONDS = 20
+QUOTE_MAX_AGE_SECONDS = 2.0
+OPTION_CACHE_SECONDS = 60
+EXPIRY_CACHE_SECONDS = 1800
+_expiry_cache: dict[str, Any] = {"at": 0.0, "expiry": None}
+_option_cache: dict[str, tuple[float, dict[str, Any]]] = {}
+
+
+async def _cached_expiry(dhan: DhanService, settings: Settings) -> str | None:
+    if _expiry_cache["expiry"] and time.monotonic() - _expiry_cache["at"] < EXPIRY_CACHE_SECONDS:
+        return _expiry_cache["expiry"]
+    expiry = await resolve_next_expiry(dhan, settings.dhan_nifty_security_id)
+    if expiry:
+        _expiry_cache.update(at=time.monotonic(), expiry=expiry)
+    return expiry
+
+
+async def _cached_atm_option(dhan: DhanService, settings: Settings, expiry: str, side: Side) -> dict[str, Any] | None:
+    """The ATM option per side, re-read from the (rate-limited) chain at most
+    once a minute -- shared by the monitor and the chart."""
+    key = f"{expiry}:{side}"
+    cached = _option_cache.get(key)
+    if cached and time.monotonic() - cached[0] < OPTION_CACHE_SECONDS:
+        return cached[1]
+    option = await resolve_atm_option(
+        dhan, underlying_scrip=settings.dhan_nifty_security_id, expiry=expiry, side=side, strike_step=STRIKE_STEP
+    )
+    if option:
+        _option_cache[key] = (time.monotonic(), option)
+    return option
+
+
+async def _live_price(dhan: DhanService, security_id: str) -> float | None:
+    quotes = await dhan.market_quotes_by_segment({OPTION_SEGMENT: [int(security_id)]}, max_age_seconds=QUOTE_MAX_AGE_SECONDS)
+    value = (quotes.get(OPTION_SEGMENT) or {}).get(str(security_id), {}).get("last_price")
+    return float(value) if value else None
+
+
+def _seconds_to_next_poll(now_epoch: float) -> float:
+    second = now_epoch % 60
+    for offset in POLL_OFFSETS_SECONDS:
+        if second < offset - 0.05:
+            return offset - second
+    return 60 - second + POLL_OFFSETS_SECONDS[0]
 
 
 def is_day_direction_filter_enabled() -> bool:
@@ -306,13 +358,11 @@ async def get_data(side: Side) -> dict[str, Any]:
     settings = get_settings()
     dhan = DhanService()
 
-    expiry = await resolve_next_expiry(dhan, settings.dhan_nifty_security_id)
+    expiry = await _cached_expiry(dhan, settings)
     if not expiry:
         return {"error": "no valid expiry available", "candles": []}
 
-    option = await resolve_atm_option(
-        dhan, underlying_scrip=settings.dhan_nifty_security_id, expiry=expiry, side=side, strike_step=STRIKE_STEP
-    )
+    option = await _cached_atm_option(dhan, settings, expiry, side)
     if not option:
         return {"error": "ATM option chain data unavailable", "candles": []}
 
@@ -385,8 +435,6 @@ async def stop_simple_crossover_task(task: asyncio.Task | None) -> None:
 
 
 async def _loop() -> None:
-    settings = get_settings()
-    interval = max(settings.simple_crossover_poll_interval_seconds, 15)
     while True:
         try:
             settings = get_settings()
@@ -404,7 +452,7 @@ async def _loop() -> None:
             raise
         except Exception:
             logger.exception("simple_crossover: poll iteration failed")
-        await asyncio.sleep(interval)
+        await asyncio.sleep(_seconds_to_next_poll(time.time()))
 
 
 async def _poll_once(settings: Settings, now: Any) -> None:
@@ -465,13 +513,18 @@ async def _evaluate_entry(dhan: DhanService, settings: Settings, side: Side, now
     now_epoch = now_ist_epoch()
     today = now.date().isoformat()
 
-    expiry = await resolve_next_expiry(dhan, settings.dhan_nifty_security_id)
+    expiry = await _cached_expiry(dhan, settings)
     if not expiry:
         return
-    option = await resolve_atm_option(
-        dhan, underlying_scrip=settings.dhan_nifty_security_id, expiry=expiry, side=side, strike_step=STRIKE_STEP
-    )
-    if not option or not option.get("ltp"):
+    option = await _cached_atm_option(dhan, settings, expiry, side)
+    if not option:
+        return
+    try:
+        ltp = await _live_price(dhan, option["securityId"])
+    except Exception as exc:
+        logger.warning("simple_crossover: live quote failed for %s entry check: %s", side, exc)
+        ltp = None
+    if not ltp:
         return
 
     try:
@@ -480,7 +533,7 @@ async def _evaluate_entry(dhan: DhanService, settings: Settings, side: Side, now
         logger.warning("simple_crossover: candle fetch failed for %s entry check, skipping this poll: %s", side, exc)
         return
     timeframe = get_timeframe_minutes()
-    ordered = _completed_candles(raw, now_ist_epoch(), timeframe)
+    ordered, live_minute = _closed_candles(raw, now_ist_epoch(), timeframe, ltp)
     closes = [float(c["close"]) for c in ordered]
     if len(closes) < EMA_SLOW_PERIOD + 2:
         return
@@ -518,25 +571,31 @@ async def _evaluate_entry(dhan: DhanService, settings: Settings, side: Side, now
         exchange_segment=OPTION_SEGMENT,
         lots=PAPER_LOTS,
         lot_size=NIFTY_LOT_SIZE,
-        entry_time=now_epoch,
-        entry_premium=option["ltp"],
+        entry_time=now_ist_epoch(),
+        entry_premium=ltp,
         entry_ema_gap=entry_gap,
         entry_pcr=pcr_snapshot.get("pcr") if pcr_snapshot else None,
         entry_ce_oi_change=pcr_snapshot.get("ceOiChange") if pcr_snapshot else None,
         entry_pe_oi_change=pcr_snapshot.get("peOiChange") if pcr_snapshot else None,
         day_direction=direction["label"] if direction else None,
         timeframe_minutes=timeframe,
+        signal_time=crossover_time,
+        signal_close=crossover["price"],
+        signal_source="live" if live_minute is not None and crossover_time <= live_minute < crossover_time + timeframe * 60 else "dhan",
     )
     _handled_crossover_time[side] = crossover_time
-    logger.info(
-        "simple_crossover: entered %s x %s lots @ %s (strike %s, expiry %s, trade #%s)",
-        side, PAPER_LOTS, option["ltp"], option["strike"], expiry, trade_id,
+    logger.warning(
+        "simple_crossover: entered %s x %s lots @ %s (strike %s, expiry %s, trade #%s) -- crossover candle %s close %s, %ss after it closed",
+        side, PAPER_LOTS, ltp, option["strike"], expiry, trade_id, crossover_time, crossover["price"],
+        now_ist_epoch() - (crossover_time + timeframe * 60),
     )
 
 
 async def _manage_open_trade(dhan: DhanService, trade: dict[str, Any], is_eod: bool) -> None:
     try:
-        quotes = await dhan.market_quotes_by_segment({trade["exchangeSegment"]: [int(trade["securityId"])]})
+        quotes = await dhan.market_quotes_by_segment(
+            {trade["exchangeSegment"]: [int(trade["securityId"])]}, max_age_seconds=QUOTE_MAX_AGE_SECONDS
+        )
         current_premium = float(
             (quotes.get(trade["exchangeSegment"]) or {}).get(str(trade["securityId"]), {}).get("last_price") or 0
         )
@@ -619,7 +678,7 @@ async def _manage_open_trade(dhan: DhanService, trade: dict[str, Any], is_eod: b
     except Exception as exc:
         logger.warning("simple_crossover: candle fetch failed for trade #%s, skipping exit check this tick: %s", trade["id"], exc)
         return
-    ordered = _completed_candles(raw, now_epoch, int(trade.get("timeframeMinutes") or 1))
+    ordered, _ = _closed_candles(raw, now_epoch, int(trade.get("timeframeMinutes") or 1), current_premium)
     closes = [float(c["close"]) for c in ordered]
     if len(closes) < EMA_SLOW_PERIOD + 2:
         return
@@ -664,6 +723,24 @@ def _close_remaining(
             "simple_crossover: exit %s %s x %s lots @ %s (%s)",
             trade["underlying"], trade["side"], lots, exit_premium, exit_reason,
         )
+
+
+def _closed_candles(
+    candles: list[dict[str, Any]], now_epoch: int, timeframe: int, live_close: float | None
+) -> tuple[list[dict[str, Any]], int | None]:
+    """Completed candles, with the minute that just closed filled from the
+    live price when Dhan hasn't published it yet (only within the first
+    LIVE_CLOSE_MAX_AGE_SECONDS after the close, while the live price still
+    is that minute's close). Returns the candles and the start time of the
+    filled-in minute (None if Dhan's own candle was used)."""
+    just_closed = (now_epoch // 60) * 60 - 60
+    minutes = [c for c in candles if int(c["time"]) <= just_closed]
+    filled = None
+    has_minute = any(int(c["time"]) == just_closed for c in minutes)
+    if not has_minute and live_close and now_epoch - (just_closed + 60) <= LIVE_CLOSE_MAX_AGE_SECONDS:
+        minutes.append({"time": just_closed, "open": live_close, "high": live_close, "low": live_close, "close": live_close, "volume": 0})
+        filled = just_closed
+    return _completed_candles(minutes, now_epoch, timeframe), filled
 
 
 def _completed_candles(candles: list[dict[str, Any]], now_epoch: int, timeframe: int = 1) -> list[dict[str, Any]]:

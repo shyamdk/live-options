@@ -515,7 +515,9 @@ function PaperTradesSection({
                 return (
                   <tr key={t.id}>
                     <td>{fmtDateOnly(t.entryTime)}</td>
-                    <td>{fmtTimeOnly(t.entryTime)}</td>
+                    <td>
+                      <EntryTimeCell trade={t} />
+                    </td>
                     <td>{t.timeframeMinutes ?? 1}m</td>
                     {showSide ? (
                       <td>
@@ -575,7 +577,9 @@ function PaperTradesSection({
               {closed.map((t) => (
                 <tr key={t.id}>
                   <td>{fmtDateOnly(t.entryTime)}</td>
-                  <td>{fmtTimeOnly(t.entryTime)}</td>
+                  <td>
+                      <EntryTimeCell trade={t} />
+                    </td>
                   <td>{t.exitTime != null ? fmtTimeOnly(t.exitTime) : "—"}</td>
                   <td>{t.timeframeMinutes ?? 1}m</td>
                   {showSide ? (
@@ -607,6 +611,21 @@ function PaperTradesSection({
         </div>
       )}
     </div>
+  );
+}
+
+// Entry time plus the crossover candle that triggered it and how many
+// seconds after that candle closed the entry went in.
+function EntryTimeCell({ trade: t }: { trade: SimpleCrossoverTrade }) {
+  if (!t.signalTime) return <>{fmtTimeOnly(t.entryTime)}</>;
+  const lag = t.entryTime - (t.signalTime + (t.timeframeMinutes ?? 1) * 60);
+  return (
+    <>
+      {fmtTimeOnly(t.entryTime)}
+      <span className="subtext" title={`Crossover candle ${fmtTimeOnly(t.signalTime)} closed at ${fmtNum(t.signalClose)} (${t.signalSource === "live" ? "live price" : "Dhan candle"})`}>
+        cross {fmtTimeOnly(t.signalTime)} @ {fmtNum(t.signalClose)} · +{lag}s
+      </span>
+    </>
   );
 }
 

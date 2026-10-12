@@ -161,7 +161,11 @@ class DhanService:
         _TRADE_BOOK_CACHE = (now, result)
         return copy.deepcopy(result)
 
-    async def market_quotes_by_segment(self, securities_by_segment: dict[str, list[int]]) -> dict[str, Any]:
+    async def market_quotes_by_segment(
+        self, securities_by_segment: dict[str, list[int]], *, max_age_seconds: float | None = None
+    ) -> dict[str, Any]:
+        """max_age_seconds overrides the global quote cache for callers that
+        act on the price (stops, entries) and need it fresh."""
         body = {segment: sorted(set(ids)) for segment, ids in securities_by_segment.items() if ids}
         if not body:
             return {}
@@ -169,7 +173,8 @@ class DhanService:
         now = time.monotonic()
         cached = _QUOTE_CACHE.get(cache_key)
         backoff_until = _QUOTE_BACKOFF_UNTIL.get(cache_key, 0)
-        if cached and now - cached[0] < self.settings.dhan_market_quote_cache_seconds:
+        max_age = self.settings.dhan_market_quote_cache_seconds if max_age_seconds is None else max_age_seconds
+        if cached and now - cached[0] < max_age:
             return copy.deepcopy(cached[1])
         if now < backoff_until:
             if cached:
