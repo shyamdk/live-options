@@ -298,6 +298,14 @@ class Settings(BaseSettings):
     # adjustments, monthly + weekly. Paper only.
     mantra_monitor_enabled: bool = True
 
+    # NIFTY Strangle: BTC Strangle's rules on NIFTY weekly options -- sell an
+    # OTM CE + PE at spot +- multiplier x ATM straddle at 15:15 the trading
+    # day before expiry, per-leg stop, buy back or let expire on expiry day.
+    # Paper by default; real orders need nifty_strangle_live_order_enabled
+    # AND the page's mode set to live (plus the global live_order_enabled).
+    nifty_strangle_monitor_enabled: bool = True
+    nifty_strangle_live_order_enabled: bool = False
+
     # Melting Straddles (melting-straddles.md): intraday NIFTY (Fri/Mon/Tue)
     # / Sensex (Wed/Thu) straddle decay on P&F combined-premium + VWAP.
     # Paper by default; real Dhan orders need BOTH melting_live_order_enabled

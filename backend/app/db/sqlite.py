@@ -903,6 +903,68 @@ def init_db() -> None:
         )
         conn.execute(
             """
+            CREATE TABLE IF NOT EXISTS nifty_strangle_trades (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                mode TEXT NOT NULL,
+                trigger TEXT NOT NULL,
+                entry_date TEXT NOT NULL,
+                expiry TEXT NOT NULL,
+                entry_time INTEGER NOT NULL,
+                spot REAL NOT NULL,
+                atm_strike REAL NOT NULL,
+                straddle REAL NOT NULL,
+                multiplier REAL NOT NULL,
+                distance REAL NOT NULL,
+                stop_loss_percent REAL NOT NULL,
+                lots INTEGER NOT NULL,
+                lot_size INTEGER NOT NULL,
+                status TEXT NOT NULL,
+                notes TEXT,
+                closed_at INTEGER
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS nifty_strangle_legs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                trade_id INTEGER NOT NULL,
+                option_type TEXT NOT NULL,
+                strike REAL NOT NULL,
+                security_id TEXT NOT NULL,
+                formula_strike REAL,
+                quantity INTEGER NOT NULL,
+                entry_price REAL,
+                entry_bid REAL,
+                entry_ask REAL,
+                sl_price REAL,
+                status TEXT NOT NULL,
+                exit_price REAL,
+                exit_time INTEGER,
+                exit_reason TEXT,
+                entry_order_id TEXT,
+                exit_order_id TEXT,
+                entry_charges REAL NOT NULL DEFAULT 0,
+                exit_charges REAL NOT NULL DEFAULT 0,
+                last_ltp REAL,
+                last_bid REAL,
+                last_ask REAL,
+                last_update INTEGER,
+                error TEXT
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS nifty_strangle_settings (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
             CREATE TABLE IF NOT EXISTS melting_days (
                 day TEXT PRIMARY KEY,
                 index_name TEXT NOT NULL,
@@ -4224,6 +4286,59 @@ def set_melting_setting(key: str, value: str) -> None:
         conn.execute(
             """
             INSERT INTO melting_settings (key, value, updated_at) VALUES (?, ?, ?)
+            ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+            """,
+            (key, value, now),
+        )
+        conn.commit()
+
+
+# ---------------------------------------------------------------- NIFTY Strangle
+
+
+def nifty_strangle_insert(table: str, values: dict[str, Any]) -> int:
+    return _mantra_insert(table, values)
+
+
+def nifty_strangle_update(table: str, row_id: int, **values: Any) -> None:
+    _mantra_update(table, row_id, values)
+
+
+def list_nifty_strangle_trades(*, status: str | None = None, limit: int = 300) -> list[dict[str, Any]]:
+    where = "WHERE status = ?" if status else ""
+    params: tuple = (status, limit) if status else (limit,)
+    with _DB_LOCK, _connect() as conn:
+        trades = [dict(r) for r in conn.execute(
+            f"SELECT * FROM nifty_strangle_trades {where} ORDER BY entry_time DESC, id DESC LIMIT ?", params
+        ).fetchall()]
+        for trade in trades:
+            trade["legs"] = [dict(r) for r in conn.execute(
+                "SELECT * FROM nifty_strangle_legs WHERE trade_id = ? ORDER BY id", (trade["id"],)
+            ).fetchall()]
+    return trades
+
+
+def has_nifty_strangle_trade(entry_date: str, mode: str) -> bool:
+    with _DB_LOCK, _connect() as conn:
+        row = conn.execute(
+            "SELECT 1 FROM nifty_strangle_trades WHERE entry_date = ? AND mode = ? AND trigger = 'scheduled' LIMIT 1",
+            (entry_date, mode),
+        ).fetchone()
+    return row is not None
+
+
+def get_nifty_strangle_setting(key: str) -> str | None:
+    with _DB_LOCK, _connect() as conn:
+        row = conn.execute("SELECT value FROM nifty_strangle_settings WHERE key = ?", (key,)).fetchone()
+    return row["value"] if row else None
+
+
+def set_nifty_strangle_setting(key: str, value: str) -> None:
+    now = datetime.now().isoformat(timespec="seconds")
+    with _DB_LOCK, _connect() as conn:
+        conn.execute(
+            """
+            INSERT INTO nifty_strangle_settings (key, value, updated_at) VALUES (?, ?, ?)
             ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
             """,
             (key, value, now),
