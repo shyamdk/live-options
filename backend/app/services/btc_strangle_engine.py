@@ -125,6 +125,39 @@ def plan_strangle(expiry: dict[str, Any], spot: float, multiplier: float) -> dic
     }
 
 
+def plan_one_side(expiry: dict[str, Any], spot: float, multiplier: float) -> dict[str, Any]:
+    """Like plan_strangle, but when only one side's formula strike is listed,
+    plan just that leg (the other side is skipped, not moved closer)."""
+    base = plan_strangle(expiry, spot, 0.0)
+    if "error" in base:
+        return base
+    strikes = expiry["strikes"]
+    distance = multiplier * base["straddle"]
+    call_target, put_target = spot + distance, spot - distance
+    calls = sorted(k for k, sides in strikes.items() if "CE" in sides and k >= call_target)
+    puts = sorted((k for k, sides in strikes.items() if "PE" in sides and k <= put_target), reverse=True)
+    legs = {}
+    if calls:
+        legs["CE"] = strikes[calls[0]]["CE"]
+    if puts:
+        legs["PE"] = strikes[puts[0]]["PE"]
+    if not legs:
+        return {"error": "Neither side's formula strike is listed -- multiplier too high for this chain."}
+    missing = "PE" if "PE" not in legs else "CE" if "CE" not in legs else None
+    listed = sorted(k for k, sides in strikes.items() if (missing or "CE") in sides)
+    return {
+        **base,
+        "multiplier": multiplier,
+        "distance": round(distance, 2),
+        "callTarget": round(call_target, 2),
+        "putTarget": round(put_target, 2),
+        "legs": legs,
+        "missingSide": missing,
+        "missingTarget": round(put_target if missing == "PE" else call_target, 2) if missing else None,
+        "missingFarthestListed": (listed[0] if missing == "PE" else listed[-1]) if missing and listed else None,
+    }
+
+
 def round_to_tick(price: float, tick: float = 0.1) -> float:
     return round(round(price / tick) * tick, 4)
 

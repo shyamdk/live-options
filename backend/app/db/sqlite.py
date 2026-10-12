@@ -1247,6 +1247,7 @@ def init_db() -> None:
             )
             """
         )
+        _add_column_if_missing(conn, "btc_strangle_trades", "variant", "TEXT NOT NULL DEFAULT 'strangle'")
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS btc_strangle_legs (
@@ -3656,7 +3657,7 @@ _BTC_TRADE_FIELDS = {
     "settlement_time": "settlementTime", "entry_time": "entryTime", "spot": "spot", "atm_strike": "atmStrike",
     "straddle": "straddle", "multiplier": "multiplier", "distance": "distance",
     "stop_loss_percent": "stopLossPercent", "contracts": "contracts", "status": "status", "trigger": "trigger",
-    "notes": "notes", "closed_at": "closedAt", "created_at": "createdAt",
+    "notes": "notes", "closed_at": "closedAt", "created_at": "createdAt", "variant": "variant",
 }
 _BTC_LEG_FIELDS = {
     "id": "id", "trade_id": "tradeId", "option_type": "optionType", "symbol": "symbol", "product_id": "productId",

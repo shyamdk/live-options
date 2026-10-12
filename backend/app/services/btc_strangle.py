@@ -70,6 +70,8 @@ def get_runtime_config() -> dict[str, Any]:
     config["enabled"] = (db.get_btc_strangle_setting("enabled") or "1") == "1"
     config["mode"] = db.get_btc_strangle_setting("mode") or "paper"
     config["useFarthestStrike"] = (db.get_btc_strangle_setting("useFarthestStrike") or "0") == "1"
+    # skip | farthest | one_side -- what to do when a formula strike isn't listed
+    config["missingStrike"] = db.get_btc_strangle_setting("missingStrike") or ("farthest" if config["useFarthestStrike"] else "skip")
     config["liveOrdersAllowed"] = settings.btc_strangle_live_order_enabled
     config["deltaCredentials"] = bool(settings.delta_exchange_api_key and settings.delta_exchange_api_secret)
     return config
@@ -83,12 +85,16 @@ def update_runtime_config(updates: dict[str, Any]) -> dict[str, Any]:
     for key in ("entryTime", "entryWindowEnd", "expiryExitTime"):
         if key in updates:
             _parse_hhmm(str(updates[key]))
+    if "missingStrike" in updates:
+        if updates["missingStrike"] not in ("skip", "farthest", "one_side"):
+            raise ValueError("missingStrike must be skip, farthest or one_side")
+        updates = {**updates, "useFarthestStrike": updates["missingStrike"] == "farthest"}
     for key, value in updates.items():
         if value is None:
             continue
         if key in ("enabled", "useFarthestStrike"):
             db.set_btc_strangle_setting(key, "1" if value else "0")
-        elif key == "mode" or key in _RUNTIME_KEYS:
+        elif key in ("mode", "missingStrike") or key in _RUNTIME_KEYS:
             db.set_btc_strangle_setting(key, str(value))
     return get_runtime_config()
 
@@ -138,8 +144,15 @@ def _plan(chain: dict[str, Any], config: dict[str, Any], at_epoch: int) -> dict[
         target = (datetime.fromtimestamp(at_epoch, IST) + timedelta(days=int(config["expiryOffset"]))).strftime("%d %b")
         return {"error": f"Delta has no BTC option expiry listed for {target} (entry date + {config['expiryOffset']} days)."}
     plan = engine.plan_strangle(expiry, spot, float(config["multiplier"]))
-    if "error" in plan and config["useFarthestStrike"]:
-        plan = _plan_farthest(expiry, spot, float(config["multiplier"])) or plan
+    plan["variant"] = "strangle"
+    if "error" in plan and config["missingStrike"] == "farthest":
+        fallback = _plan_farthest(expiry, spot, float(config["multiplier"]))
+        if fallback:
+            plan = {**fallback, "variant": "farthest"}
+    elif "error" in plan and config["missingStrike"] == "one_side":
+        single = engine.plan_one_side(expiry, spot, float(config["multiplier"]))
+        if "error" not in single:
+            plan = {**single, "variant": "one_side"}
     if "error" in plan:
         plan["expiryCode"] = expiry["code"]
         return plan
@@ -156,6 +169,16 @@ def _plan(chain: dict[str, Any], config: dict[str, Any], at_epoch: int) -> dict[
     plan["estimatedCredit"] = round(credit * contracts * engine.CONTRACT_VALUE_BTC, 2)
     plan["hoursToSettlement"] = round((plan["settlement"] - at_epoch) / 3600, 1)
     return plan
+
+
+def _variant_note(plan: dict[str, Any]) -> str | None:
+    if plan.get("variant") == "farthest":
+        return "Formula strike not listed -- used farthest listed strike."
+    if plan.get("variant") == "one_side":
+        side, other = plan["missingSide"], "CE" if plan["missingSide"] == "PE" else "PE"
+        return (f"One-sided: {side} formula strike not listed (needed {'<=' if side == 'PE' else '>='} "
+                f"{plan['missingTarget']:.0f}, farthest listed {plan['missingFarthestListed'] or 0:.0f}) -- sold the {other} leg only.")
+    return None
 
 
 def _plan_farthest(expiry: dict[str, Any], spot: float, multiplier: float) -> dict[str, Any] | None:
@@ -286,12 +309,12 @@ async def enter_trade(trigger: str = "scheduled") -> dict[str, Any]:
             mode=mode, session_date=session_date, expiry_code=plan["expiryCode"], settlement_time=plan["settlement"],
             entry_time=now, spot=plan["spot"], atm_strike=plan["atmStrike"], straddle=plan["straddle"],
             multiplier=plan["multiplier"], distance=plan["distance"], stop_loss_percent=config["stopLossPercent"],
-            contracts=int(config["contracts"]), status="OPEN", trigger=trigger,
-            notes="Formula strike not listed -- used farthest listed strike." if plan.get("fallback") else None,
+            contracts=int(config["contracts"]), status="OPEN", trigger=trigger, variant=plan.get("variant", "strangle"),
+            notes=_variant_note(plan),
         )
         delta = DeltaExchangeService(settings)
         results = []
-        for option_type in ("PE", "CE"):
+        for option_type in [t for t in ("PE", "CE") if t in plan["legs"]]:
             quote = plan["legs"][option_type]
             leg_id = db.create_btc_strangle_leg(
                 trade_id=trade_id, option_type=option_type, symbol=quote["symbol"], product_id=quote["productId"],

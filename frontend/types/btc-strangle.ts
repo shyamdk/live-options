@@ -13,9 +13,13 @@ export interface BtcStrangleConfig {
   buybackThreshold: number;
   minAvailableBalance: number;
   useFarthestStrike: boolean;
+  missingStrike: BtcMissingStrike;
   liveOrdersAllowed: boolean;
   deltaCredentials: boolean;
 }
+
+export type BtcMissingStrike = "skip" | "farthest" | "one_side";
+export type BtcStrangleVariant = "strangle" | "farthest" | "one_side";
 
 export interface BtcOptionQuote {
   symbol: string;
@@ -46,8 +50,12 @@ export interface BtcStranglePreview {
   callTarget?: number;
   putTarget?: number;
   fallback?: boolean;
-  legs?: { CE: BtcOptionQuote; PE: BtcOptionQuote };
-  preview?: Record<"CE" | "PE", { entryPrice: number; slPrice: number | null; distancePercent: number }>;
+  variant?: BtcStrangleVariant;
+  missingSide?: "CE" | "PE" | null;
+  missingTarget?: number | null;
+  missingFarthestListed?: number | null;
+  legs?: Partial<Record<"CE" | "PE", BtcOptionQuote>>;
+  preview?: Partial<Record<"CE" | "PE", { entryPrice: number; slPrice: number | null; distancePercent: number }>>;
   contracts?: number;
   estimatedCredit?: number;
 }
@@ -98,6 +106,7 @@ export interface BtcStrangleTrade {
   status: "OPEN" | "CLOSED" | "FAILED";
   trigger: string;
   notes: string | null;
+  variant?: BtcStrangleVariant;
   closedAt: number | null;
   legs: BtcStrangleLeg[];
   credit: number;

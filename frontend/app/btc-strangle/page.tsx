@@ -396,15 +396,21 @@ function SettingsSection({
           <input type="checkbox" checked={config.enabled} onChange={(e) => onSave({ enabled: e.target.checked })} disabled={busy} />
           Automatic nightly entry
         </label>
-        <label style={{ display: "flex", gap: 6, alignItems: "center", cursor: "pointer" }}>
-          <input
-            type="checkbox"
-            checked={config.useFarthestStrike}
-            onChange={(e) => onSave({ useFarthestStrike: e.target.checked })}
-            disabled={busy}
-          />
-          If the formula strike isn&apos;t listed, use the farthest listed strike (otherwise skip that night)
-        </label>
+        <span style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+          <span style={{ color: "var(--muted)", fontWeight: 600 }}>If a formula strike isn&apos;t listed:</span>
+          {(
+            [
+              ["skip", "Skip that night"],
+              ["one_side", "Sell only the side that fits"],
+              ["farthest", "Use the farthest listed strike"],
+            ] as const
+          ).map(([value, label]) => (
+            <label key={value} style={{ display: "flex", gap: 4, alignItems: "center", cursor: "pointer" }}>
+              <input type="radio" name="missingStrike" checked={config.missingStrike === value} onChange={() => onSave({ missingStrike: value })} disabled={busy} />
+              {label}
+            </label>
+          ))}
+        </span>
       </div>
 
       <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap", alignItems: "center" }}>
@@ -465,6 +471,13 @@ function PlanSection({ preview }: { preview: BtcStranglePreview | null }) {
               </div>
             ))}
           </div>
+          {preview.variant === "one_side" && preview.missingSide ? (
+            <div className="alert warning" style={{ margin: "8px 0 0" }}>
+              One-sided: the {preview.missingSide} formula strike isn&apos;t listed (needs {preview.missingSide === "PE" ? "≤" : "≥"}{" "}
+              {num(preview.missingTarget, 0)}, farthest listed {num(preview.missingFarthestListed, 0)}) -- only the{" "}
+              {preview.missingSide === "PE" ? "CE" : "PE"} leg would be sold.
+            </div>
+          ) : null}
           {preview.fallback ? (
             <div className="alert warning" style={{ margin: "8px 0 0" }}>
               Formula strike isn&apos;t listed on Delta -- using the farthest listed strike (closer than the formula).
@@ -475,12 +488,14 @@ function PlanSection({ preview }: { preview: BtcStranglePreview | null }) {
               <StrikeDistanceMap
                 id="plan"
                 spot={preview.spot}
-                legs={(["PE", "CE"] as const).map((side) => ({
-                  key: side,
-                  strike: legs[side].strike,
-                  label: `${legs[side].strike.toLocaleString("en-US")} ${side}`,
-                  short: true,
-                }))}
+                legs={(["PE", "CE"] as const)
+                  .filter((side) => legs[side])
+                  .map((side) => ({
+                    key: side,
+                    strike: legs[side]!.strike,
+                    label: `${legs[side]!.strike.toLocaleString("en-US")} ${side}`,
+                    short: true,
+                  }))}
               />
               <div style={{ overflowX: "auto" }}>
                 <table>
@@ -500,6 +515,19 @@ function PlanSection({ preview }: { preview: BtcStranglePreview | null }) {
                   <tbody>
                     {(["PE", "CE"] as const).map((side) => {
                       const quote = legs[side];
+                      if (!quote) {
+                        return (
+                          <tr key={side}>
+                            <td>
+                              <span className="badge">{side}</span>
+                            </td>
+                            <td>{num(side === "CE" ? preview.callTarget : preview.putTarget, 0)}</td>
+                            <td colSpan={7} className="pcr-oi-caption">
+                              not listed on Delta -- skipped
+                            </td>
+                          </tr>
+                        );
+                      }
                       const p = preview.preview?.[side];
                       return (
                         <tr key={side}>
@@ -859,10 +887,36 @@ function istTime(time: Time): string {
   });
 }
 
+const VARIANT_LABEL: Record<string, string> = { strangle: "Full strangle", one_side: "One-sided", farthest: "Farthest strike" };
+
+function VariantSummary({ trades }: { trades: BtcStrangleTrade[] }) {
+  const closed = trades.filter((t) => t.status === "CLOSED");
+  const groups = (["strangle", "one_side", "farthest"] as const)
+    .map((v) => {
+      const rows = closed.filter((t) => (t.variant ?? "strangle") === v);
+      return { v, n: rows.length, wins: rows.filter((t) => t.netPnl > 0).length, net: rows.reduce((a, t) => a + t.netPnl, 0) };
+    })
+    .filter((g) => g.n || g.v === "strangle");
+  return (
+    <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 10 }}>
+      {groups.map((g) => (
+        <div key={g.v} className="metric metric-compact" style={{ flex: "0 1 220px" }}>
+          <span>{VARIANT_LABEL[g.v]}</span>
+          <strong style={{ color: tone(g.net) }}>{usd(g.net)}</strong>
+          <span className="pcr-oi-caption">
+            {g.n} closed · {g.n ? `${Math.round((g.wins / g.n) * 100)}% winners` : "—"}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function TradesTable({ trades }: { trades: BtcStrangleTrade[] }) {
   if (!trades.length) return <p className="pcr-oi-caption" style={{ margin: 0 }}>No trades yet.</p>;
   return (
     <div style={{ overflowX: "auto" }}>
+      <VariantSummary trades={trades} />
       <table>
         <thead>
           <tr>
@@ -897,6 +951,11 @@ function TradesTable({ trades }: { trades: BtcStrangleTrade[] }) {
                 </td>
                 <td className="pcr-oi-caption" style={{ fontStyle: "normal" }}>
                   {t.multiplier}× · SL {t.stopLossPercent}% · {t.contracts}
+                  {t.variant && t.variant !== "strangle" ? (
+                    <span className="badge" style={{ marginLeft: 6 }} title={t.notes ?? ""}>
+                      {VARIANT_LABEL[t.variant]}
+                    </span>
+                  ) : null}
                 </td>
                 <td>{usd(t.credit)}</td>
                 <td style={{ fontSize: 12 }}>
