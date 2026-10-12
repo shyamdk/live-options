@@ -24,6 +24,7 @@ class ConfigIn(BaseModel):
     buybackThreshold: float | None = Field(default=None, ge=0)
     minAvailableBalance: float | None = Field(default=None, ge=0)
     useFarthestStrike: bool | None = None
+    missingStrike: str | None = Field(default=None, pattern="^(skip|farthest|one_side)$")
 
 
 @router.get("/config", dependencies=[Depends(require_auth)])

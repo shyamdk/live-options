@@ -89,6 +89,8 @@ def update_runtime_config(updates: dict[str, Any]) -> dict[str, Any]:
         if updates["missingStrike"] not in ("skip", "farthest", "one_side"):
             raise ValueError("missingStrike must be skip, farthest or one_side")
         updates = {**updates, "useFarthestStrike": updates["missingStrike"] == "farthest"}
+    elif updates.get("useFarthestStrike") is not None:  # older clients still send the checkbox
+        updates = {**updates, "missingStrike": "farthest" if updates["useFarthestStrike"] else "skip"}
     for key, value in updates.items():
         if value is None:
             continue
