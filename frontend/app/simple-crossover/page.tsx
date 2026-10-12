@@ -189,7 +189,7 @@ export default function SimpleCrossoverPage() {
         >
           {(["CE", "PE"] as SimpleCrossoverSide[]).map((s) => (
             <div key={s} style={{ minWidth: 0 }}>
-              <SideMarketPanel side={s} />
+              <SideMarketPanel side={s} trades={trades.filter((t) => t.side === s)} />
               <PaperTradesSection
                 title={`${s} Paper Trades`}
                 trades={trades.filter((t) => t.side === s)}
@@ -201,7 +201,7 @@ export default function SimpleCrossoverPage() {
           ))}
         </div>
       ) : (
-        <SideMarketPanel side={side} onDayDirection={setDayDirectionLabel} />
+        <SideMarketPanel side={side} trades={trades.filter((t) => t.side === side)} onDayDirection={setDayDirectionLabel} />
       )}
 
       <StrategyConditionsPanel config={config} setConfig={setConfig} loadError={configError} />
@@ -212,7 +212,15 @@ export default function SimpleCrossoverPage() {
   );
 }
 
-function SideMarketPanel({ side, onDayDirection }: { side: SimpleCrossoverSide; onDayDirection?: (label: string | null) => void }) {
+function SideMarketPanel({
+  side,
+  trades,
+  onDayDirection,
+}: {
+  side: SimpleCrossoverSide;
+  trades: SimpleCrossoverTrade[];
+  onDayDirection?: (label: string | null) => void;
+}) {
   const [data, setData] = useState<SimpleCrossoverData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -322,7 +330,7 @@ function SideMarketPanel({ side, onDayDirection }: { side: SimpleCrossoverSide; 
       </div>
 
       <div style={{ marginTop: 12 }}>
-        <SimpleCrossoverChart data={data} />
+        <SimpleCrossoverChart data={data} trades={trades} />
       </div>
     </div>
   );
@@ -652,7 +660,7 @@ function CommentCell({ value, onSave }: { value: string | null; onSave: (v: stri
   );
 }
 
-function SimpleCrossoverChart({ data }: { data: SimpleCrossoverData | null }) {
+function SimpleCrossoverChart({ data, trades }: { data: SimpleCrossoverData | null; trades: SimpleCrossoverTrade[] }) {
   const wrapperRef = useRef<HTMLDivElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<IChartApi | null>(null);
@@ -802,16 +810,9 @@ function SimpleCrossoverChart({ data }: { data: SimpleCrossoverData | null }) {
     rsiOversoldBandRef.current?.setData(times.map((time) => ({ time, value: 30 })));
 
     if (markersRef.current) {
-      const markers: SeriesMarker<Time>[] = data.crossovers.map((c) => ({
-        time: c.time as UTCTimestamp,
-        position: c.direction === "up" ? "belowBar" : "aboveBar",
-        color: c.direction === "up" ? "#168448" : "#c93535",
-        shape: c.direction === "up" ? "arrowUp" : "arrowDown",
-        text: c.direction === "up" ? "Over" : "Under",
-      }));
-      markersRef.current.setMarkers(markers);
+      markersRef.current.setMarkers(tradeMarkers(data, trades));
     }
-  }, [data]);
+  }, [data, trades]);
 
   return (
     <div
@@ -830,6 +831,57 @@ function SimpleCrossoverChart({ data }: { data: SimpleCrossoverData | null }) {
       <div ref={containerRef} style={isFullscreen ? { width: "100%", flex: 1 } : { width: "100%", height: 320 }} />
     </div>
   );
+}
+
+// Paper-trade entries and every exit (staged targets included) on the
+// option this chart shows, each snapped to the candle it happened in.
+function tradeMarkers(data: SimpleCrossoverData, trades: SimpleCrossoverTrade[]): SeriesMarker<Time>[] {
+  const times = data.candles.map((c) => c.time);
+  if (!times.length) return [];
+  const first = times[0];
+  const last = times[times.length - 1] + 60 * (data.timeframeMinutes ?? 1);
+  const candleAt = (t: number): number | null => {
+    if (t < first || t >= last) return null;
+    let lo = 0;
+    let hi = times.length - 1;
+    while (lo < hi) {
+      const mid = Math.ceil((lo + hi) / 2);
+      if (times[mid] <= t) lo = mid;
+      else hi = mid - 1;
+    }
+    return times[lo];
+  };
+  const markers: SeriesMarker<Time>[] = [];
+  for (const t of trades) {
+    if (t.strike !== data.strike || t.expiry !== data.expiry) continue;
+    const entryAt = candleAt(t.entryTime);
+    if (entryAt != null) {
+      markers.push({
+        time: entryAt as UTCTimestamp,
+        position: "belowBar",
+        color: "#168448",
+        shape: "arrowUp",
+        text: `Entry @ ${fmtNum(t.entryPremium)}`,
+      });
+    }
+    const exits = t.exitLegs.length
+      ? t.exitLegs.map((l) => ({ time: l.exitTime, price: l.exitPremium }))
+      : t.exitTime && t.exitPremium != null
+        ? [{ time: t.exitTime, price: t.exitPremium }]
+        : [];
+    for (const e of exits) {
+      const exitAt = candleAt(e.time);
+      if (exitAt == null) continue;
+      markers.push({
+        time: exitAt as UTCTimestamp,
+        position: "aboveBar",
+        color: "#c93535",
+        shape: "arrowDown",
+        text: `Exit @ ${fmtNum(e.price)}`,
+      });
+    }
+  }
+  return markers.sort((a, b) => (a.time as number) - (b.time as number));
 }
 
 function numericSeries(times: UTCTimestamp[], values: (number | null)[]): { time: UTCTimestamp; value: number }[] {
