@@ -94,7 +94,8 @@ export default function CalmStranglePage() {
             Intraday NIFTY short strangle sold only after the market settles: when NIFTY&apos;s last {config?.calmWindow ?? 15} minutes move less than{" "}
             {config?.calmPercent ?? 15}% of the ATM straddle, sell CE/PE at ±{config?.strikeMultiple ?? 1}× straddle; exit if NIFTY moves{" "}
             {config?.stopMultiple ?? 0.6}× straddle or at {config?.exitTime ?? "15:15"}
-            {config?.earlyExit ? `, or as soon as the premium reaches its ${config.exitTime} value (then done for the day)` : ""}; re-enter after a stop when it
+            {config?.earlyExit ? `, or as soon as the premium reaches its ${config.exitTime} value (then done for the day)` : ""}
+            {config?.europeGuard ? `, or at ${config.europeGuardTime} if in profit (Europe-open guard)` : ""}; re-enter after a stop when it
             settles again. No trading on expiry day.
             See calm-strangle.md.
           </p>
@@ -493,12 +494,16 @@ function ExitPlan({ trade: t }: { trade: CalmTradeDetail }) {
                     ? "Premium backstop"
                     : sc.kind === "early"
                       ? "Profit booked early"
-                      : "Time exit"}
+                      : sc.kind === "guard"
+                        ? "Europe-open guard"
+                        : "Time exit"}
               </td>
               <td>{sc.label}</td>
               <td>
-                {sc.kind === "time"
-                  ? `in ${hhmm(sc.distance)}`
+                {sc.kind === "time" || sc.kind === "guard"
+                  ? sc.distance > 0
+                    ? `in ${hhmm(sc.distance)}`
+                    : "now (if in profit)"
                   : sc.kind === "backstop"
                     ? `${num(sc.distance)} pts (premium +${num((Number(sc.level) / t.current - 1) * 100, 0)}%)`
                     : sc.kind === "early"
@@ -508,7 +513,13 @@ function ExitPlan({ trade: t }: { trade: CalmTradeDetail }) {
                     : `${num(sc.distance, 0)} NIFTY pts (${num((sc.distance / (t.lastSpot ?? t.entrySpot)) * 100)}%)`}
               </td>
               <td style={{ color: tone(sc.estNet) }}>
-                {inr(sc.estNet)} {sc.kind === "time" ? <span className="pcr-oi-caption">(if prices stay where they are)</span> : null}
+                {sc.kind === "guard" && sc.estNet <= 0 ? (
+                  <span className="pcr-oi-caption">only fires if in profit -- holds otherwise</span>
+                ) : (
+                  <>
+                    {inr(sc.estNet)} {sc.kind === "time" || sc.kind === "guard" ? <span className="pcr-oi-caption">(if prices stay where they are)</span> : null}
+                  </>
+                )}
               </td>
             </tr>
           ))}
@@ -863,6 +874,17 @@ function SettingsSection({ config, onSaved }: { config: CalmConfig; onSaved: () 
         <label style={{ display: "flex", gap: 6, alignItems: "center", cursor: "pointer", opacity: config.earlyExit ? 1 : 0.5 }}>
           <input type="checkbox" checked={config.stopAfterEarlyExit} onChange={(e) => save({ stopAfterEarlyExit: e.target.checked })} disabled={saving || !config.earlyExit} />
           …then no more entries that day
+        </label>
+        <label style={{ display: "flex", gap: 6, alignItems: "center", cursor: "pointer" }}>
+          <input type="checkbox" checked={config.europeGuard} onChange={(e) => save({ europeGuard: e.target.checked })} disabled={saving} />
+          Europe-open guard: if still open and in profit at
+          <input
+            value={draft.europeGuardTime ?? config.europeGuardTime}
+            onChange={(e) => setDraft((d) => ({ ...d, europeGuardTime: e.target.value }))}
+            onBlur={(e) => e.target.value !== config.europeGuardTime && save({ europeGuardTime: e.target.value })}
+            style={{ width: 56, fontSize: 12, padding: "1px 4px" }}
+          />
+          , book it (then done for the day)
         </label>
         <button type="button" className="button" onClick={() => save()} disabled={saving}>
           <Save size={14} /> Save settings

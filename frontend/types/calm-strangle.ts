@@ -16,6 +16,8 @@ export interface CalmConfig {
   skipExpiryDay: boolean;
   earlyExit: boolean;
   stopAfterEarlyExit: boolean;
+  europeGuard: boolean;
+  europeGuardTime: string;
   lotSize: number;
   quantity: number;
   liveOrdersAllowed: boolean;
@@ -117,7 +119,7 @@ export interface CalmState {
 }
 
 export interface CalmScenario {
-  kind: "move_low" | "move_high" | "backstop" | "early" | "time";
+  kind: "move_low" | "move_high" | "backstop" | "early" | "guard" | "time";
   label: string;
   level: number | null;
   distance: number;

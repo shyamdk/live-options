@@ -66,6 +66,10 @@ DEFAULTS: dict[str, Any] = {
     # the exit time if NIFTY stayed put, then take no more entries that day
     "earlyExit": True,
     "stopAfterEarlyExit": True,
+    # Europe-open guard (optional): if still open at this time and in profit,
+    # book it before the European open swing, then no more entries that day.
+    "europeGuard": False,
+    "europeGuardTime": "12:15",
 }
 
 _lock = asyncio.Lock()
@@ -107,9 +111,9 @@ def update_config(updates: dict[str, Any]) -> dict[str, Any]:
             settings = get_settings()
             if value == "live" and not (settings.calm_strangle_live_order_enabled and settings.live_order_enabled):
                 raise ValueError("Live orders are locked on the server (CALM_STRANGLE_LIVE_ORDER_ENABLED=false).")
-        if key in ("entryStart", "lastEntry", "exitTime"):
+        if key in ("entryStart", "lastEntry", "exitTime", "europeGuardTime"):
             datetime.strptime(str(value), "%H:%M")
-        elif key not in ("enabled", "mode", "skipExpiryDay", "earlyExit", "stopAfterEarlyExit") and float(value) <= 0:
+        elif key not in ("enabled", "mode", "skipExpiryDay", "earlyExit", "stopAfterEarlyExit", "europeGuard") and float(value) <= 0:
             raise ValueError(f"{key} must be positive")
         default = DEFAULTS[key]
         db.set_calm_setting(key, ("1" if value else "0") if isinstance(default, bool) else str(value))
@@ -386,6 +390,9 @@ async def _monitor() -> None:
             reason = f"NIFTY move stop ({spot:,.2f})"
         elif ce and pe and ce + pe >= float(trade["backstop"]):
             reason = f"premium backstop ({ce + pe:.2f})"
+        elif (config["europeGuard"] and ce and pe and _hhmm(config["europeGuardTime"]) <= now.time() < dtime(13, 0)
+              and ce + pe < float(trade["credit"])):
+            reason = f"Europe-open guard: booked in profit at {config['europeGuardTime']} ({ce + pe:.2f} < {float(trade['credit']):.2f})"
         elif config["earlyExit"] and ce and pe:
             early = trade.get("early_target")
             if early is None:  # trades opened before this rule existed
@@ -412,6 +419,8 @@ async def _monitor() -> None:
     if len(today_trades) >= int(config["maxEntries"]) or stops >= int(config["maxStops"]):
         return
     if config["stopAfterEarlyExit"] and any("reached early" in (t["exit_reason"] or "") for t in today_trades):
+        return
+    if any("Europe-open guard" in (t["exit_reason"] or "") for t in today_trades):
         return
     if not snap["calm"] or len(snap["legs"]) < 2 or not snap["credit"] or snap["credit"] < float(config["minCredit"]):
         return
@@ -537,6 +546,10 @@ def analytics(summary: dict[str, Any]) -> dict[str, Any]:
              "level": summary["earlyTarget"], "distance": round(float(summary["current"]) - float(summary["earlyTarget"]), 2),
              "estNet": round((float(summary["credit"]) - float(summary["earlyTarget"])) * qty - float(summary["charges"]) * 2, 0)}]
            if summary.get("earlyTarget") is not None and get_config()["earlyExit"] else []),
+        *([{"kind": "guard", "label": f"Still open and in profit at {get_config()['europeGuardTime']} (Europe-open guard)",
+             "level": None, "distance": max(0, int((datetime.combine(now.date(), _hhmm(get_config()["europeGuardTime"]), tzinfo=IST) - now).total_seconds())),
+             "estNet": round(float(summary["grossPnl"]) - float(summary["charges"]) * 2, 0)}]
+           if get_config()["europeGuard"] and summary["status"] == "OPEN" and now.time() < dtime(13, 0) else []),
         {"kind": "time", "label": f"Time exit at {get_config()['exitTime']}", "level": None,
          "distance": max(0, int((exit_at - now).total_seconds())) if summary["status"] == "OPEN" else 0,
          "estNet": round(float(summary["grossPnl"]) - float(summary["charges"]) * 2, 0)},

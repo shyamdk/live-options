@@ -46,3 +46,17 @@ are on 1-min closes, the live monitor checks every few seconds.
 | Aug–Oct | +₹39,480 | +₹17,096 | −₹257 |
 
 Adopted: early exit then done for the day — ~14% less profit for roughly half the drawdown and worst day.
+
+### Europe-open guard (optional, added 14 Oct 2026)
+
+9 of 13 stop-outs in the backtest happened 12:00–13:30 (European open). Re-entering for a second
+trade was flat-to-negative in Aug–Oct in every variant (drawdown ~2x), so the rule stays one trade a
+day. Optional guard: if the trade is still open at **12:15** and in profit, book it, then no more
+entries that day. Off by default.
+
+| 0.25 pt slippage | Current | With 12:15 guard |
+|---|---|---|
+| Full net | ₹92,564 | ₹70,828 |
+| Aug–Oct | +₹17,096 | +₹5,569 |
+| Max DD | −₹11,691 | **−₹7,144** |
+| Worst day | −₹10,243 | **−₹6,648** |
