@@ -72,10 +72,9 @@ TRADE_ON_SIDEWAYS_SETTING_KEY = "trade_on_sideways"
 
 STOP_LOSS_PERCENT_SETTING_KEY = "stop_loss_percent"
 
-# Plain cross over: when ON, both CE and PE enter on their own EMA8/EMA21
-# cross-over with no day-direction gate, and exit ONLY on the cross-under
-# (or the mandatory 15:30 square-off) -- no stop loss, no staged targets,
-# no trailing. Each trade stores the flag (and a "Plain cross over"
+# Plain cross over: when ON, trades exit ONLY on the cross-under (or the
+# mandatory 15:30 square-off) -- no stop loss, no staged targets, no
+# trailing. Entries still follow the day-direction settings. Each trade stores the flag (and a "Plain cross over"
 # comment), so changing the setting never changes an open trade's rules.
 PLAIN_CROSSOVER_SETTING_KEY = "plain_crossover"
 
@@ -495,15 +494,13 @@ async def _poll_once(settings: Settings, now: Any) -> None:
 
     direction = await _day_direction(dhan, settings, today)
 
-    if is_plain_crossover_enabled():
-        sides_to_check: tuple[Side, ...] = SIDES
-    elif is_day_direction_filter_enabled():
+    if is_day_direction_filter_enabled():
         if not direction:
             return
         if direction["label"] == "Sideways":
             if not is_trade_on_sideways_enabled():
                 return
-            sides_to_check = SIDES
+            sides_to_check: tuple[Side, ...] = SIDES
         else:
             sides_to_check = ("CE",) if direction["label"] == "Up" else ("PE",)
     else:

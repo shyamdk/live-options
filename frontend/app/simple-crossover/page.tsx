@@ -124,7 +124,7 @@ export default function SimpleCrossoverPage() {
   // With the day-direction filter off, the engine evaluates CE and PE
   // independently every poll (each enters only on its own up-crossover), so
   // show both sides next to each other instead of one toggled view.
-  const splitView = config !== null && (!config.dayDirectionFilterEnabled || config.plainCrossover);
+  const splitView = config !== null && !config.dayDirectionFilterEnabled;
 
   // Auto-picks the side that matches today's direction (bearish day -> PE,
   // bullish -> CE) the moment the direction is first known or changes --
@@ -386,15 +386,15 @@ function StrategyConditionsPanel({
           disabled={!config || saving}
           onChange={() => void save({ plainCrossover: !config?.plainCrossover })}
         />
-        Plain cross over (enter on cross-over, exit on cross-under -- nothing else)
+        Plain cross over (exit only on the cross-under -- no stop loss, targets or trailing)
       </label>
       <p className="pcr-oi-caption" style={{ margin: "4px 0 10px" }}>
         {config?.plainCrossover
-          ? "ON: CE and PE each enter on their own cross-over (no day-direction gate) and exit all lots only on the cross-under or the 15:30 square-off -- no stop loss, no targets, no trailing. These trades are commented \"Plain cross over\". The settings below are ignored for new entries."
-          : "OFF: the rules below apply."}
+          ? "ON: entries still follow the day-direction setting below; every lot exits only on the cross-under or the 15:30 square-off -- the stop loss and +5%/+10% targets below are ignored. These trades are commented \"Plain cross over\"."
+          : "OFF: stop loss, staged targets and trailing apply."}
       </p>
 
-      <div style={{ opacity: config?.plainCrossover ? 0.5 : 1 }}>
+      <div>
       <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
         <input
           type="checkbox"
