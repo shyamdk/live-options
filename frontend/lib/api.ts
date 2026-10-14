@@ -25,7 +25,7 @@ import type { AnimeshCandlesResponse, AnimeshSession, AnimeshSessionDetail, Anim
 import type { CreditSpreadState } from "@/types/credit-spread";
 import type { SimpleCrossoverConfig, SimpleCrossoverData, SimpleCrossoverSide, SimpleCrossoverTrade } from "@/types/simple-crossover";
 import type { ThetaRuntimeConfig, ThetaSession, ThetaSessionDetail, ThetaState } from "@/types/theta";
-import type { CalmConfig, CalmState, CalmTrade } from "@/types/calm-strangle";
+import type { CalmConfig, CalmState, CalmTrade, CalmTradeDetail } from "@/types/calm-strangle";
 import type { NiftyStrangleConfig, NiftyStranglePlan, NiftyStrangleTrade } from "@/types/nifty-strangle";
 import type { MeltingConfig, MeltingDaySummary, MeltingState, MeltingTag, MeltingTrade } from "@/types/melting";
 import type { MantraAlarm, MantraConfig, MantraMode, MantraPlan, MantraTrade } from "@/types/mantra";
@@ -866,4 +866,8 @@ export async function enterCalmNow(): Promise<{ status: string; message?: string
 
 export async function closeCalmTrade(id: number): Promise<{ status: string; message?: string }> {
   return apiJson(`/api/calm-strangle/trades/${id}/close`, { method: "POST" }, "Failed to close the strangle");
+}
+
+export async function getCalmTrade(id: number): Promise<CalmTradeDetail> {
+  return apiJson<CalmTradeDetail>(`/api/calm-strangle/trades/${id}`, undefined, "Failed to load the trade");
 }

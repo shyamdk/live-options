@@ -15,6 +15,7 @@ step aside when it moves, and sell again when it settles at the next level. Buil
 | Exit — move | NIFTY moves **0.6 × straddle** (the straddle at entry) away from the entry spot, either way. |
 | Exit — backstop | Combined premium **+150%** over the credit. |
 | Exit — time | Flat at **15:15**. **No profit target** (fixed targets reduced results — the decay is held). |
+| Exit — early profit | At entry, the strangle's value at 15:15 if NIFTY stays put is computed (Black-Scholes, each leg's implied vol at entry). If the premium falls to it earlier, **book it and take no more entries that day** (setting; on by default). |
 | Re-entry | After a stop, sell again only when the 15-min calm test passes again. Max **3 entries / 2 stops** a day. |
 | Size | **5 lots** (325) per leg. |
 | Fills | Paper: sell at bid, buy at ask (LTP if no quote), Dhan charge model. Live (later) behind `CALM_STRANGLE_LIVE_ORDER_ENABLED` + page mode; needs near-mid fills. |
@@ -33,3 +34,15 @@ At 0.25 slippage: 119 trades, 71% winners, 71/129 winning days, worst day −₹
 up. Caveats: execution cost decides it (loses at 1 pt/leg); expiry-day skip and the 15:15 exit were
 chosen with the Aug–Oct period visible, so forward paper results are the real test; backtest stops
 are on 1-min closes, the live monitor checks every few seconds.
+
+### Early-profit exit (added 14 Oct 2026)
+
+| 0.25 pt slippage | Hold to 15:15 | Early exit, then done for the day | Early exit, re-enter when calm |
+|---|---|---|---|
+| Full net | ₹1,07,428 | ₹92,564 | ₹78,750 |
+| Max DD | −₹20,037 | **−₹11,691** | −₹22,738 |
+| Worst day | −₹15,558 | **−₹10,243** | −₹15,686 |
+| Win % / stops | 71% / 23 | **86% / 12** | 84% / 17 |
+| Aug–Oct | +₹39,480 | +₹17,096 | −₹257 |
+
+Adopted: early exit then done for the day — ~14% less profit for roughly half the drawdown and worst day.

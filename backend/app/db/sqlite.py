@@ -947,6 +947,18 @@ def init_db() -> None:
             )
             """
         )
+        _add_column_if_missing(conn, "calm_strangle_trades", "early_target", "REAL")
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS calm_strangle_marks (
+                trade_id INTEGER NOT NULL,
+                time INTEGER NOT NULL,
+                combined REAL NOT NULL,
+                spot REAL,
+                PRIMARY KEY (trade_id, time)
+            )
+            """
+        )
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS calm_strangle_events (
@@ -4454,3 +4466,19 @@ def set_calm_setting(key: str, value: str) -> None:
             (key, value, now),
         )
         conn.commit()
+
+
+def add_calm_mark(trade_id: int, time_epoch: int, combined: float, spot: float | None) -> None:
+    with _DB_LOCK, _connect() as conn:
+        conn.execute("INSERT OR REPLACE INTO calm_strangle_marks (trade_id, time, combined, spot) VALUES (?, ?, ?, ?)",
+                     (trade_id, time_epoch, combined, spot))
+        conn.commit()
+
+
+def list_calm_marks(trade_id: int) -> list[dict[str, Any]]:
+    return _melting_rows("SELECT time, combined, spot FROM calm_strangle_marks WHERE trade_id = ? ORDER BY time", (trade_id,))
+
+
+def get_calm_trade(trade_id: int) -> dict[str, Any] | None:
+    rows = _melting_rows("SELECT * FROM calm_strangle_trades WHERE id = ?", (trade_id,))
+    return rows[0] if rows else None

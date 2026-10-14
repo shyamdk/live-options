@@ -24,6 +24,15 @@ class DhanApiError(RuntimeError):
 _QUOTE_CACHE: dict[tuple[tuple[str, tuple[int, ...]], ...], tuple[float, dict[str, Any]]] = {}
 _QUOTE_BACKOFF_UNTIL: dict[tuple[tuple[str, tuple[int, ...]], ...], float] = {}
 _TRADE_BOOK_CACHE: tuple[float, list[dict[str, Any]]] | None = None
+# Dhan's quote API allows ~1 request/second per user: every live-quote call
+# in the app goes through this lock so strategies queue instead of tripping
+# the limit (and its backoff) when several poll at the same moment.
+_QUOTE_LOCK = asyncio.Lock()
+_last_quote_call: float = 0.0
+_QUOTE_MIN_INTERVAL_SECONDS = 1.1
+# Callers that need fresh prices (max_age_seconds set) only back off this
+# long after a rate-limit, not the global dhan_market_quote_backoff_seconds.
+_FRESH_QUOTE_BACKOFF_SECONDS = 2.0
 _OPTION_CHAIN_LOCK = asyncio.Lock()
 _last_option_chain_call: float = 0.0
 _OPTION_CHAIN_MIN_INTERVAL_SECONDS = 3.1
@@ -181,18 +190,36 @@ class DhanService:
                 return copy.deepcopy(cached[1])
             raise DhanApiError("Dhan market quote backoff is active after rate limiting.", 429)
 
-        try:
-            payload = await self._request("POST", "/marketfeed/quote", require_client_id=True, json_body=body)
-        except DhanApiError as exc:
-            if exc.status_code == 429:
-                _QUOTE_BACKOFF_UNTIL[cache_key] = now + self.settings.dhan_market_quote_backoff_seconds
-            if cached and exc.status_code == 429:
-                return copy.deepcopy(cached[1])
-            raise
+        payload = None
+        for attempt in range(2):
+            try:
+                payload = await self._throttled_quote(body)
+                break
+            except DhanApiError as exc:
+                limited = exc.status_code == 429 or "DH-904" in str(exc) or "Rate_Limit" in str(exc)
+                if not limited:
+                    raise
+                if attempt == 0 and max_age_seconds is not None:
+                    await asyncio.sleep(1.2)  # fresh-price callers: one queued retry
+                    continue
+                backoff = _FRESH_QUOTE_BACKOFF_SECONDS if max_age_seconds is not None else self.settings.dhan_market_quote_backoff_seconds
+                _QUOTE_BACKOFF_UNTIL[cache_key] = time.monotonic() + backoff
+                if cached:
+                    return copy.deepcopy(cached[1])
+                raise
         data = payload.get("data") or {}
         _QUOTE_CACHE[cache_key] = (time.monotonic(), copy.deepcopy(data))
         _QUOTE_BACKOFF_UNTIL.pop(cache_key, None)
         return data
+
+    async def _throttled_quote(self, body: dict[str, Any]) -> Any:
+        global _last_quote_call
+        async with _QUOTE_LOCK:
+            wait_for = _QUOTE_MIN_INTERVAL_SECONDS - (time.monotonic() - _last_quote_call)
+            if wait_for > 0:
+                await asyncio.sleep(wait_for)
+            _last_quote_call = time.monotonic()
+            return await self._request("POST", "/marketfeed/quote", require_client_id=True, json_body=body)
 
     async def _request(
         self,

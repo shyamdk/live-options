@@ -28,6 +28,14 @@ async def trades() -> dict[str, Any]:
     return {"trades": calm_strangle.list_trades()}
 
 
+@router.get("/trades/{trade_id}", dependencies=[Depends(require_auth)])
+async def trade(trade_id: int) -> dict[str, Any]:
+    detail = calm_strangle.trade_detail(trade_id)
+    if not detail:
+        raise HTTPException(status_code=404, detail="Trade not found.")
+    return detail
+
+
 @router.post("/enter", dependencies=[Depends(require_auth)])
 async def enter() -> dict[str, Any]:
     return await calm_strangle.enter_now()

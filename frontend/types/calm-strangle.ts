@@ -14,6 +14,8 @@ export interface CalmConfig {
   maxEntries: number;
   maxStops: number;
   skipExpiryDay: boolean;
+  earlyExit: boolean;
+  stopAfterEarlyExit: boolean;
   lotSize: number;
   quantity: number;
   liveOrdersAllowed: boolean;
@@ -90,6 +92,7 @@ export interface CalmTrade {
   exitQuotes: Record<string, CalmQuote>;
   orderIds: Record<string, string | null>;
   notes: string | null;
+  earlyTarget: number | null;
   current: number;
   points: number;
   grossPnl: number;
@@ -107,8 +110,27 @@ export interface CalmState {
   snapshot: CalmSnapshot | null;
   spot: { time: number; close: number }[];
   todayTrades: CalmTrade[];
-  openTrade: CalmTrade | null;
+  openTrade: CalmTradeDetail | null;
   entriesToday: number;
   stopsToday: number;
   events: { time: number; kind: string; text: string; tradeId: number | null }[];
 }
+
+export interface CalmScenario {
+  kind: "move_low" | "move_high" | "backstop" | "early" | "time";
+  label: string;
+  level: number | null;
+  distance: number;
+  estNet: number;
+}
+
+export interface CalmAnalytics {
+  payoff: { price: number; expiry: number; today: number }[];
+  breakevens: number[];
+  ivs: Record<string, number>;
+  scenarios: CalmScenario[];
+  marks: { time: number; combined: number; spot: number | null }[];
+  quantity: number;
+}
+
+export type CalmTradeDetail = CalmTrade & CalmAnalytics;
