@@ -298,6 +298,12 @@ class Settings(BaseSettings):
     # adjustments, monthly + weekly. Paper only.
     mantra_monitor_enabled: bool = True
 
+    # BTC Calm Strangle (btc-calm-strangle.md): Calm Strangle's idea on Delta
+    # BTC daily options, overnight IST only. Paper by default; live needs
+    # btc_calm_live_order_enabled AND the page mode set to live.
+    btc_calm_monitor_enabled: bool = True
+    btc_calm_live_order_enabled: bool = False
+
     # Calm Strangle (calm-strangle.md): intraday NIFTY short strangle sold
     # only after the market settles. Paper by default; live needs
     # calm_strangle_live_order_enabled AND page mode live (+ live_order_enabled).

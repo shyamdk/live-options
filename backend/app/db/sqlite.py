@@ -903,6 +903,57 @@ def init_db() -> None:
         )
         conn.execute(
             """
+            CREATE TABLE IF NOT EXISTS btc_calm_trades (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                expiry_code TEXT NOT NULL,
+                settlement INTEGER NOT NULL,
+                mode TEXT NOT NULL,
+                trigger TEXT NOT NULL,
+                entry_time INTEGER NOT NULL,
+                entry_spot REAL NOT NULL,
+                straddle REAL NOT NULL,
+                calm_range REAL,
+                atm_strike REAL NOT NULL,
+                ce_strike REAL NOT NULL,
+                pe_strike REAL NOT NULL,
+                ce_symbol TEXT NOT NULL,
+                pe_symbol TEXT NOT NULL,
+                ce_product_id INTEGER NOT NULL,
+                pe_product_id INTEGER NOT NULL,
+                contracts INTEGER NOT NULL,
+                entry_ce REAL NOT NULL,
+                entry_pe REAL NOT NULL,
+                credit REAL NOT NULL,
+                entry_quotes TEXT,
+                stop_low REAL NOT NULL,
+                stop_high REAL NOT NULL,
+                backstop REAL NOT NULL,
+                early_target REAL,
+                exit_by INTEGER NOT NULL,
+                status TEXT NOT NULL,
+                exit_time INTEGER,
+                exit_reason TEXT,
+                exit_ce REAL,
+                exit_pe REAL,
+                exit_spot REAL,
+                exit_quotes TEXT,
+                fees REAL NOT NULL DEFAULT 0,
+                last_ce REAL,
+                last_pe REAL,
+                last_spot REAL,
+                last_update INTEGER,
+                best REAL,
+                worst REAL,
+                order_ids TEXT,
+                notes TEXT
+            )
+            """
+        )
+        conn.execute("CREATE TABLE IF NOT EXISTS btc_calm_events (id INTEGER PRIMARY KEY AUTOINCREMENT, expiry_code TEXT, trade_id INTEGER, time INTEGER NOT NULL, kind TEXT NOT NULL, text TEXT NOT NULL)")
+        conn.execute("CREATE TABLE IF NOT EXISTS btc_calm_marks (trade_id INTEGER NOT NULL, time INTEGER NOT NULL, combined REAL NOT NULL, spot REAL, PRIMARY KEY (trade_id, time))")
+        conn.execute("CREATE TABLE IF NOT EXISTS btc_calm_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL)")
+        conn.execute(
+            """
             CREATE TABLE IF NOT EXISTS calm_strangle_trades (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 day TEXT NOT NULL,
@@ -4482,3 +4533,62 @@ def list_calm_marks(trade_id: int) -> list[dict[str, Any]]:
 def get_calm_trade(trade_id: int) -> dict[str, Any] | None:
     rows = _melting_rows("SELECT * FROM calm_strangle_trades WHERE id = ?", (trade_id,))
     return rows[0] if rows else None
+
+
+# ---------------------------------------------------------------- BTC Calm Strangle
+
+
+def btc_calm_insert(table: str, values: dict[str, Any]) -> int:
+    return _mantra_insert(table, values)
+
+
+def btc_calm_update_trade(trade_id: int, **values: Any) -> None:
+    _mantra_update("btc_calm_trades", trade_id, values)
+
+
+def list_btc_calm_trades(*, status: str | None = None, expiry_code: str | None = None, limit: int = 1000) -> list[dict[str, Any]]:
+    clauses, params = [], []
+    if status:
+        clauses.append("status = ?"); params.append(status)
+    if expiry_code:
+        clauses.append("expiry_code = ?"); params.append(expiry_code)
+    where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+    return _melting_rows(f"SELECT * FROM btc_calm_trades {where} ORDER BY entry_time DESC, id DESC LIMIT ?", (*params, limit))
+
+
+def get_btc_calm_trade(trade_id: int) -> dict[str, Any] | None:
+    rows = _melting_rows("SELECT * FROM btc_calm_trades WHERE id = ?", (trade_id,))
+    return rows[0] if rows else None
+
+
+def add_btc_calm_mark(trade_id: int, time_epoch: int, combined: float, spot: float | None) -> None:
+    with _DB_LOCK, _connect() as conn:
+        conn.execute("INSERT OR REPLACE INTO btc_calm_marks (trade_id, time, combined, spot) VALUES (?, ?, ?, ?)",
+                     (trade_id, time_epoch, combined, spot))
+        conn.commit()
+
+
+def list_btc_calm_marks(trade_id: int) -> list[dict[str, Any]]:
+    return _melting_rows("SELECT time, combined, spot FROM btc_calm_marks WHERE trade_id = ? ORDER BY time", (trade_id,))
+
+
+def list_btc_calm_events(limit: int = 300) -> list[dict[str, Any]]:
+    return _melting_rows("SELECT * FROM btc_calm_events ORDER BY time DESC, id DESC LIMIT ?", (limit,))
+
+
+def get_btc_calm_setting(key: str) -> str | None:
+    rows = _melting_rows("SELECT value FROM btc_calm_settings WHERE key = ?", (key,))
+    return rows[0]["value"] if rows else None
+
+
+def set_btc_calm_setting(key: str, value: str) -> None:
+    now = datetime.now().isoformat(timespec="seconds")
+    with _DB_LOCK, _connect() as conn:
+        conn.execute(
+            """
+            INSERT INTO btc_calm_settings (key, value, updated_at) VALUES (?, ?, ?)
+            ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+            """,
+            (key, value, now),
+        )
+        conn.commit()

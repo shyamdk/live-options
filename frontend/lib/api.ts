@@ -25,6 +25,7 @@ import type { AnimeshCandlesResponse, AnimeshSession, AnimeshSessionDetail, Anim
 import type { CreditSpreadState } from "@/types/credit-spread";
 import type { SimpleCrossoverConfig, SimpleCrossoverData, SimpleCrossoverSide, SimpleCrossoverTrade } from "@/types/simple-crossover";
 import type { ThetaRuntimeConfig, ThetaSession, ThetaSessionDetail, ThetaState } from "@/types/theta";
+import type { BtcCalmConfig, BtcCalmState, BtcCalmTrade, BtcCalmTradeDetail } from "@/types/btc-calm";
 import type { CalmConfig, CalmState, CalmTrade, CalmTradeDetail } from "@/types/calm-strangle";
 import type { NiftyStrangleConfig, NiftyStranglePlan, NiftyStrangleTrade } from "@/types/nifty-strangle";
 import type { MeltingConfig, MeltingDaySummary, MeltingState, MeltingTag, MeltingTrade } from "@/types/melting";
@@ -870,4 +871,28 @@ export async function closeCalmTrade(id: number): Promise<{ status: string; mess
 
 export async function getCalmTrade(id: number): Promise<CalmTradeDetail> {
   return apiJson<CalmTradeDetail>(`/api/calm-strangle/trades/${id}`, undefined, "Failed to load the trade");
+}
+
+export async function getBtcCalmState(): Promise<BtcCalmState> {
+  return apiJson<BtcCalmState>("/api/btc-calm/state", undefined, "Failed to load BTC Calm Strangle");
+}
+
+export async function updateBtcCalmConfig(updates: Partial<BtcCalmConfig>): Promise<BtcCalmConfig> {
+  return apiJson<BtcCalmConfig>("/api/btc-calm/config", { method: "PUT", body: JSON.stringify(updates) }, "Failed to save BTC Calm settings");
+}
+
+export async function getBtcCalmTrades(): Promise<{ trades: BtcCalmTrade[] }> {
+  return apiJson<{ trades: BtcCalmTrade[] }>("/api/btc-calm/trades", undefined, "Failed to load BTC Calm trades");
+}
+
+export async function getBtcCalmTrade(id: number): Promise<BtcCalmTradeDetail> {
+  return apiJson<BtcCalmTradeDetail>(`/api/btc-calm/trades/${id}`, undefined, "Failed to load the trade");
+}
+
+export async function enterBtcCalmNow(): Promise<{ status: string; message?: string; tradeId?: number }> {
+  return apiJson("/api/btc-calm/enter", { method: "POST" }, "BTC Calm entry failed");
+}
+
+export async function closeBtcCalmTrade(id: number): Promise<{ status: string; message?: string }> {
+  return apiJson(`/api/btc-calm/trades/${id}/close`, { method: "POST" }, "Failed to close the strangle");
 }
