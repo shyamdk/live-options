@@ -11,7 +11,7 @@ Monthly follows batman-option-strategy-guide.pdf:
     hold (15 calendar days).
 Weekly is a research-based variant (paper): same structure with distances in
 expected-move units, entry Friday 15:16 on the expiry ~11 days out,
-+1.0% / -1.25%, hard exit the Thursday before expiry week.
++1.5% / -1.5%, hard exit the Friday before expiry week (15:15).
 
 Percentages are of the configured capital (default Rs 10L). Fills are
 simulated from the live Dhan chain: buys at ask, sells at bid.
@@ -41,9 +41,9 @@ logger = logging.getLogger(__name__)
 
 IST = ZoneInfo("Asia/Kolkata")
 MODES = ("monthly", "weekly")
-# Weekly was researched and built but is switched off (user decision): only
-# these modes are scheduled or reachable through the API.
-ACTIVE_MODES = ("monthly",)
+# Weekly runs as a second paper book (switched on 15 Oct 2026 after the
+# Apr-Oct backtest; defaults below are the backtest's most balanced setting).
+ACTIVE_MODES = ("monthly", "weekly")
 LOT_SIZE = 65
 MARKET_OPEN = dtime(9, 15)
 MARKET_CLOSE = dtime(15, 30)
@@ -66,7 +66,10 @@ DEFAULTS: dict[str, dict[str, Any]] = {
         "buyEm": 0.6, "sellEm": 0.25, "hedgeEm": 1.2,
         "creditCapPercent": 4.0, "shiftStep": 50.0, "maxShifts": 6,
         "balanceEm": 0.67, "overHedge": True, "maxExtraCallLots": 9,
-        "targetPercent": 1.0, "stopPercent": 1.25, "minDte": 8, "exitDaysBeforeExpiry": 5,
+        # backtest Apr-Oct 2026, 23 Friday entries: +Rs44.9k, 70% wins,
+        # worst trade -Rs28k; exit 3 days before expiry = the Friday before
+        # expiry week at 15:15, one minute before the next entry
+        "targetPercent": 1.5, "stopPercent": 1.5, "minDte": 8, "exitDaysBeforeExpiry": 3,
     },
 }
 

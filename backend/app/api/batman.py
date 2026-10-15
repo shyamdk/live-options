@@ -8,7 +8,7 @@ from app.services import batman
 from app.services.app_auth import require_auth
 
 router = APIRouter(prefix="/batman", tags=["batman"])
-MODE = Path(pattern="^monthly$")  # weekly is built but switched off
+MODE = Path(pattern="^(monthly|weekly)$")
 
 
 @router.get("/analyze", dependencies=[Depends(require_auth)])

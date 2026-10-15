@@ -57,9 +57,9 @@ const SETTING_FIELDS: Record<BatmanMode, { key: string; label: string; hint?: st
     { key: "shiftStep", label: "Shift step (pts)" },
     { key: "balanceEm", label: "T+0 balance move (× exp. move)", hint: "0.67" },
     { key: "maxExtraCallLots", label: "Max extra outer CE lots" },
-    { key: "targetPercent", label: "Target %", hint: "+1.0%" },
-    { key: "stopPercent", label: "Stop loss %", hint: "-1.25%" },
-    { key: "exitDaysBeforeExpiry", label: "Exit days before expiry", hint: "5 = Thursday before expiry week" },
+    { key: "targetPercent", label: "Target %", hint: "backtest +1.5%" },
+    { key: "stopPercent", label: "Stop loss %", hint: "backtest -1.5%" },
+    { key: "exitDaysBeforeExpiry", label: "Exit days before expiry", hint: "3 = Friday before expiry week, 15:15" },
   ],
 };
 
@@ -96,19 +96,26 @@ function fmtDate(value: string | null | undefined): string {
   return new Date(`${value}T00:00:00`).toLocaleDateString("en-IN", { weekday: "short", day: "2-digit", month: "short", year: "numeric" });
 }
 
+type BatmanTab = "monthly" | "weekly" | "analyzer";
+const TAB_LABEL: Record<BatmanTab, string> = {
+  monthly: "Monthly (paper trading)",
+  weekly: "Weekly (paper trading)",
+  analyzer: "Weekly analyzer",
+};
+
 export default function BatmanPage() {
-  const mode: BatmanMode = "monthly"; // weekly trading is switched off; the Weekly tab is analysis only
-  const [tab, setTab] = useState<"monthly" | "weekly">("monthly");
+  const [tab, setTab] = useState<BatmanTab>("monthly");
+  const mode: BatmanMode = tab === "weekly" ? "weekly" : "monthly";
   useEffect(() => {
     try {
       const fromUrl = new URLSearchParams(window.location.search).get("tab");
       const saved = fromUrl ?? window.localStorage.getItem("batman:tab");
-      if (saved === "monthly" || saved === "weekly") setTab(saved);
+      if (saved === "monthly" || saved === "weekly" || saved === "analyzer") setTab(saved);
     } catch {
       // ignore
     }
   }, []);
-  function switchTab(next: "monthly" | "weekly") {
+  function switchTab(next: BatmanTab) {
     setTab(next);
     try {
       window.localStorage.setItem("batman:tab", next);
@@ -197,7 +204,8 @@ export default function BatmanPage() {
             Batman
           </h1>
           <p>
-            NIFTY monthly 1:3:2 double ratio spread, 100% hedged, zero adjustments -- per the Batman rulebook. Paper trading --
+            NIFTY 1:3:2 double ratio spread, 100% hedged, zero adjustments -- monthly per the Batman rulebook, plus a weekly
+            paper book scaled to the expected move. Paper trading --
             simulated fills from the live Dhan chain.
           </p>
         </div>
@@ -209,7 +217,7 @@ export default function BatmanPage() {
           <button type="button" className="button secondary" onClick={() => load()} style={{ whiteSpace: "nowrap" }}>
             <RefreshCw size={14} /> Refresh
           </button>
-          <button type="button" className="button" onClick={enterNow} disabled={!!busy || tab !== "monthly"} style={{ whiteSpace: "nowrap" }}>
+          <button type="button" className="button" onClick={enterNow} disabled={!!busy || tab === "analyzer"} style={{ whiteSpace: "nowrap" }}>
             <Play size={14} /> {busy === "enter" ? "Entering…" : "Enter now"}
           </button>
         </div>
@@ -217,7 +225,7 @@ export default function BatmanPage() {
 
 
       <nav style={{ display: "flex", gap: 4, borderBottom: "1px solid var(--line)", marginBottom: 14 }}>
-        {(["monthly", "weekly"] as const).map((t) => (
+        {(["monthly", "weekly", "analyzer"] as const).map((t) => (
           <button
             key={t}
             type="button"
@@ -234,17 +242,24 @@ export default function BatmanPage() {
               cursor: "pointer",
             }}
           >
-            {t === "monthly" ? "Monthly (paper trading)" : "Weekly (analyzer)"}
+            {TAB_LABEL[t]}
           </button>
         ))}
       </nav>
 
-      {tab === "weekly" ? (
+      {tab === "analyzer" ? (
         <WeeklyAnalyzer />
       ) : (
         <>
       {error ? <div className="alert error">{error}</div> : null}
       {message ? <div className="alert success">{message}</div> : null}
+      {mode === "weekly" ? (
+        <p className="pcr-oi-caption" style={{ marginTop: 0 }}>
+          Weekly runs as a separate paper book: every Friday 15:16 on the expiry ~11 days out, exit at +1.5% / −1.5% or the Friday
+          before expiry week. Backtest Apr–Oct 2026 (23 Fridays, model-priced wings): +₹44.9k, 70% winners, worst trade −₹28k --
+          most other weekly settings lost money, so treat this as an experiment.
+        </p>
+      ) : null}
 
       <PlanSection mode={mode} preview={preview} />
 
