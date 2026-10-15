@@ -15,9 +15,10 @@ import {
   UTCTimestamp,
 } from "lightweight-charts";
 import { Maximize2, Minimize2, RefreshCw, Save, Waypoints } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { DailyTotalsTable, groupDailyTotals } from "@/components/DailyTotals";
+import { istTime, TradeNote, useTradeMarkers } from "@/components/TradeMarkers";
 import {
   getSimpleCrossoverConfig,
   getSimpleCrossoverData,
@@ -731,7 +732,7 @@ function SimpleCrossoverChart({ data, trades }: { data: SimpleCrossoverData | nu
   const rsiOverboughtBandRef = useRef<ISeriesApi<"Area"> | null>(null);
   const rsiOversoldBandRef = useRef<ISeriesApi<"Area"> | null>(null);
   const gapSeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
-  const markersRef = useRef<ISeriesMarkersPluginApi<Time> | null>(null);
+  const [handles, setHandles] = useState<{ chart: IChartApi; series: ISeriesApi<"Candlestick"> } | null>(null);
 
   useEffect(() => {
     if (!containerRef.current || chartRef.current) return;
@@ -809,7 +810,7 @@ function SimpleCrossoverChart({ data, trades }: { data: SimpleCrossoverData | nu
     rsiSmaSeriesRef.current = rsiSmaSeries;
     rsiOverboughtBandRef.current = rsiOverboughtBand;
     rsiOversoldBandRef.current = rsiOversoldBand;
-    markersRef.current = createSeriesMarkers(candleSeries, []);
+    setHandles({ chart, series: candleSeries });
 
     const resizeObserver = new ResizeObserver(() => {
       if (containerRef.current) {
@@ -820,7 +821,7 @@ function SimpleCrossoverChart({ data, trades }: { data: SimpleCrossoverData | nu
 
     return () => {
       resizeObserver.disconnect();
-      markersRef.current?.detach();
+      setHandles(null);
       chart.remove();
       chartRef.current = null;
       candleSeriesRef.current = null;
@@ -831,7 +832,6 @@ function SimpleCrossoverChart({ data, trades }: { data: SimpleCrossoverData | nu
       rsiSmaSeriesRef.current = null;
       rsiOverboughtBandRef.current = null;
       rsiOversoldBandRef.current = null;
-      markersRef.current = null;
     };
   }, []);
 
@@ -848,11 +848,11 @@ function SimpleCrossoverChart({ data, trades }: { data: SimpleCrossoverData | nu
     rsiSmaSeriesRef.current?.setData(numericSeries(times, data.rsiSmaValues));
     rsiOverboughtBandRef.current?.setData(times.map((time) => ({ time, value: 70 })));
     rsiOversoldBandRef.current?.setData(times.map((time) => ({ time, value: 30 })));
-
-    if (markersRef.current) {
-      markersRef.current.setMarkers(tradeMarkers(data, trades));
-    }
   }, [data, trades]);
+
+  const barTimes = useMemo(() => (data?.candles ?? []).map((c) => c.time), [data]);
+  const notes = useMemo(() => (data ? tradeNotes(data, trades) : []), [data, trades]);
+  const tooltip = useTradeMarkers(handles?.chart ?? null, handles?.series ?? null, notes, 60 * (data?.timeframeMinutes ?? 1), barTimes);
 
   return (
     <div
@@ -868,60 +868,58 @@ function SimpleCrossoverChart({ data, trades }: { data: SimpleCrossoverData | nu
           {isFullscreen ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
         </button>
       </div>
-      <div ref={containerRef} style={isFullscreen ? { width: "100%", flex: 1 } : { width: "100%", height: 320 }} />
+      <div style={isFullscreen ? { position: "relative", width: "100%", flex: 1, display: "flex" } : { position: "relative" }}>
+        <div ref={containerRef} style={isFullscreen ? { width: "100%", flex: 1 } : { width: "100%", height: 320 }} />
+        {tooltip}
+      </div>
     </div>
   );
 }
 
-// Paper-trade entries and every exit (staged targets included) on the
-// option this chart shows, each snapped to the candle it happened in.
-function tradeMarkers(data: SimpleCrossoverData, trades: SimpleCrossoverTrade[]): SeriesMarker<Time>[] {
-  const times = data.candles.map((c) => c.time);
-  if (!times.length) return [];
-  const first = times[0];
-  const last = times[times.length - 1] + 60 * (data.timeframeMinutes ?? 1);
-  const candleAt = (t: number): number | null => {
-    if (t < first || t >= last) return null;
-    let lo = 0;
-    let hi = times.length - 1;
-    while (lo < hi) {
-      const mid = Math.ceil((lo + hi) / 2);
-      if (times[mid] <= t) lo = mid;
-      else hi = mid - 1;
-    }
-    return times[lo];
-  };
-  const markers: SeriesMarker<Time>[] = [];
+// Paper-trade entries and every exit leg (staged targets included) on the
+// option this chart shows, with the reason for each -- shown on hover.
+function tradeNotes(data: SimpleCrossoverData, trades: SimpleCrossoverTrade[]): TradeNote[] {
+  const notes: TradeNote[] = [];
   for (const t of trades) {
     if (t.strike !== data.strike || t.expiry !== data.expiry) continue;
-    const entryAt = candleAt(t.entryTime);
-    if (entryAt != null) {
-      markers.push({
-        time: entryAt as UTCTimestamp,
-        position: "belowBar",
-        color: "#168448",
-        shape: "arrowUp",
-        text: `Entry @ ${fmtNum(t.entryPremium)}`,
-      });
-    }
-    const exits = t.exitLegs.length
-      ? t.exitLegs.map((l) => ({ time: l.exitTime, price: l.exitPremium }))
+    const tf = t.timeframeMinutes ?? 1;
+    const lag = t.signalTime ? t.entryTime - (t.signalTime + tf * 60) : null;
+    notes.push({
+      time: t.entryTime,
+      kind: "entry",
+      label: `Entry @ ${fmtNum(t.entryPremium)}`,
+      color: "#168448",
+      title: `Entry #${t.id} · BUY ${t.side} ${t.strike} × ${t.lots} lots @ ${fmtNum(t.entryPremium)}`,
+      lines: [
+        `${istTime(t.entryTime)}${t.plainCrossover ? " · Plain cross over" : ""}`,
+        t.signalTime
+          ? `Why: EMA8 crossed above EMA21 on the ${tf}-min candle of ${istTime(t.signalTime)} (close ${fmtNum(t.signalClose)}, ${t.signalSource === "live" ? "live price" : "Dhan candle"}) · entered +${lag}s`
+          : "Why: EMA8 crossed above EMA21",
+        `Day direction ${t.dayDirection ?? "—"}${t.entryEmaGap != null ? ` · EMA gap ${fmtNum(t.entryEmaGap)}` : ""}${t.entryPcr != null ? ` · PCR ${fmtNum(t.entryPcr)}` : ""}`,
+        t.plainCrossover ? "Exits only on the cross-under or 15:30" : `Stop ${fmtNum(t.stopLossPrice)} · targets +5% / +10% then trail`,
+      ],
+    });
+    const legs = t.exitLegs.length
+      ? t.exitLegs
       : t.exitTime && t.exitPremium != null
-        ? [{ time: t.exitTime, price: t.exitPremium }]
+        ? [{ lots: t.lots, exitTime: t.exitTime, exitPremium: t.exitPremium, exitReason: t.exitReason ?? "eod" }]
         : [];
-    for (const e of exits) {
-      const exitAt = candleAt(e.time);
-      if (exitAt == null) continue;
-      markers.push({
-        time: exitAt as UTCTimestamp,
-        position: "aboveBar",
-        color: "#c93535",
-        shape: "arrowDown",
-        text: `Exit @ ${fmtNum(e.price)}`,
+    for (const leg of legs) {
+      const pnl = (leg.exitPremium - t.entryPremium) * leg.lots * t.lotSize;
+      notes.push({
+        time: leg.exitTime,
+        kind: leg.lots < t.lots && leg.exitReason.startsWith("target") ? "adjust" : "exit",
+        label: `Exit @ ${fmtNum(leg.exitPremium)}`,
+        color: pnl >= 0 ? "#168448" : "#c93535",
+        title: `${EXIT_REASON_LABEL[leg.exitReason] ?? leg.exitReason} #${t.id} · ${leg.lots} lot${leg.lots > 1 ? "s" : ""} @ ${fmtNum(leg.exitPremium)}`,
+        lines: [
+          `${istTime(leg.exitTime)} · ${fmtSigned(leg.exitPremium - t.entryPremium)} per unit · ₹${fmtNum(pnl)}`,
+          `Why: ${EXIT_REASON_LABEL[leg.exitReason] ?? leg.exitReason}${leg.exitReason === "cross_under" ? " -- EMA8 crossed back below EMA21" : leg.exitReason === "eod" ? " -- 15:30 square-off" : ""}`,
+        ],
       });
     }
   }
-  return markers.sort((a, b) => (a.time as number) - (b.time as number));
+  return notes;
 }
 
 function numericSeries(times: UTCTimestamp[], values: (number | null)[]): { time: UTCTimestamp; value: number }[] {

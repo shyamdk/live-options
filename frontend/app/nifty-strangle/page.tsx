@@ -2,11 +2,12 @@
 
 import { ColorType, createChart, IChartApi, IPriceLine, ISeriesApi, LineSeries, Time, UTCTimestamp } from "lightweight-charts";
 import { Play, RefreshCw, Save, Spline, SquareArrowOutUpRight } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import CollapsibleSection from "@/components/CollapsibleSection";
 import { DailyTotalsTable, groupDailyTotals } from "@/components/DailyTotals";
 import StrikeDistanceMap from "@/components/StrikeDistanceMap";
+import { istTime, TradeNote, useTradeMarkers } from "@/components/TradeMarkers";
 import {
   closeNiftyStrangleLeg,
   enterNiftyStrangleNow,
@@ -198,7 +199,7 @@ export default function NiftyStranglePage() {
       </CollapsibleSection>
 
       <CollapsibleSection id="nifty-strangle-chart" title="NIFTY spot (5-min, last few sessions)" defaultOpen={false}>
-        <SpotChart open={open[0] ?? null} />
+        <SpotChart open={open[0] ?? null} trades={trades} />
       </CollapsibleSection>
     </section>
   );
@@ -553,7 +554,41 @@ function istTick(time: Time): string {
   return new Date(time * 1000).toLocaleString("en-IN", { timeZone: "Asia/Kolkata", day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", hour12: false });
 }
 
-function SpotChart({ open }: { open: NiftyStrangleTrade | null }) {
+const LEG_EXIT: Record<string, string> = { stop_loss: "stop loss hit", expiry_buyback: "bought back before expiry (still worth more than the threshold)", expired: "expired / settled at expiry", manual: "closed manually" };
+
+function niftyStrangleNotes(trades: NiftyStrangleTrade[]): TradeNote[] {
+  return trades.flatMap((t) => {
+    const legs = t.legs.filter((l) => l.entryPrice != null);
+    const entry: TradeNote = {
+      time: t.entryTime,
+      kind: "entry",
+      label: `#${t.id} sell`,
+      color: "#c93535",
+      title: `Entry #${t.id} · sold ${legs.map((l) => `${l.strike} ${l.optionType}`).join(" / ")} · ${t.lots} lots`,
+      lines: [
+        `${istTime(t.entryTime)} · NIFTY ${num(t.spot, 0)} · expiry ${day(t.expiry)}${t.trigger === "manual" ? " · manual" : ""}`,
+        `Why: scheduled entry the day before expiry -- strikes at spot ± ${t.multiplier} × ATM straddle ${num(t.straddle)} = ${num(t.distance, 0)} pts`,
+        `Credit ${inr(t.credit)} · stop each leg at +${t.stopLossPercent}% (${legs.map((l) => `${l.optionType} ${num(l.slPrice)}`).join(", ")})`,
+        t.notes ?? "",
+      ],
+    };
+    const exits: TradeNote[] = legs
+      .filter((l) => l.exitTime)
+      .map((l) => ({
+        time: l.exitTime as number,
+        kind: "exit",
+        label: `${l.optionType} ${inr(l.pnl)}`,
+        color: (l.pnl ?? 0) >= 0 ? "#168448" : "#c93535",
+        title: `Exit #${t.id} · ${l.strike} ${l.optionType} @ ${num(l.exitPrice)} · ${inr(l.pnl)}`,
+        lines: [`${istTime(l.exitTime)} · sold at ${num(l.entryPrice)}`, `Why: ${LEG_EXIT[l.exitReason ?? ""] ?? l.exitReason}`],
+      }));
+    return [entry, ...exits];
+  });
+}
+
+function SpotChart({ open, trades }: { open: NiftyStrangleTrade | null; trades: NiftyStrangleTrade[] }) {
+  const [handles, setHandles] = useState<{ chart: IChartApi; series: ISeriesApi<"Line"> } | null>(null);
+  const [barTimes, setBarTimes] = useState<number[]>([]);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef<ISeriesApi<"Line"> | null>(null);
@@ -572,12 +607,14 @@ function SpotChart({ open }: { open: NiftyStrangleTrade | null }) {
     });
     seriesRef.current = chart.addSeries(LineSeries, { color: "#2368b6", lineWidth: 2, title: "NIFTY" });
     chartRef.current = chart;
+    setHandles({ chart, series: seriesRef.current });
     const observer = new ResizeObserver(() => {
       if (containerRef.current) chart.applyOptions({ width: containerRef.current.clientWidth });
     });
     observer.observe(containerRef.current);
     return () => {
       observer.disconnect();
+      setHandles(null);
       chart.remove();
       chartRef.current = null;
       seriesRef.current = null;
@@ -593,11 +630,9 @@ function SpotChart({ open }: { open: NiftyStrangleTrade | null }) {
         if (cancelled || !seriesRef.current) return;
         setError(r.error ?? null);
         const seen = new Set<number>();
-        seriesRef.current.setData(
-          r.candles
-            .filter((c) => (seen.has(c.time) ? false : (seen.add(c.time), true)))
-            .map((c) => ({ time: c.time as UTCTimestamp, value: c.close })),
-        );
+        const rows = r.candles.filter((c) => (seen.has(c.time) ? false : (seen.add(c.time), true)));
+        seriesRef.current.setData(rows.map((c) => ({ time: c.time as UTCTimestamp, value: c.close })));
+        setBarTimes(rows.map((c) => c.time));
         for (const line of linesRef.current) seriesRef.current.removePriceLine(line);
         linesRef.current = (open?.legs ?? [])
           .filter((l) => l.status === "OPEN")
@@ -624,10 +659,17 @@ function SpotChart({ open }: { open: NiftyStrangleTrade | null }) {
     };
   }, [open]);
 
+  const notes = useMemo(() => niftyStrangleNotes(trades), [trades]);
+  const tooltip = useTradeMarkers(handles?.chart ?? null, handles?.series ?? null, notes, 300, barTimes);
+
   return (
     <div>
       {error ? <p className="pcr-oi-caption">{error}</p> : null}
-      <div ref={containerRef} style={{ width: "100%", height: 260 }} />
+      <p className="pcr-oi-caption" style={{ margin: "0 0 4px" }}>▲ entries, ▼ leg exits -- hover an arrow for the reason · dashed: open legs&apos; strikes</p>
+      <div style={{ position: "relative" }}>
+        <div ref={containerRef} style={{ width: "100%", height: 260 }} />
+        {tooltip}
+      </div>
     </div>
   );
 }

@@ -2,9 +2,10 @@
 
 import { ColorType, createChart, createSeriesMarkers, IChartApi, ISeriesApi, LineSeries, Time, UTCTimestamp } from "lightweight-charts";
 import { Droplets, Play, RefreshCw, Save, ShieldAlert, SquareArrowOutUpRight, XOctagon } from "lucide-react";
-import { Fragment, useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 
 import CollapsibleSection from "@/components/CollapsibleSection";
+import { istTime, TradeNote, useTradeMarkers } from "@/components/TradeMarkers";
 import { DailyTotalsTable, groupDailyTotals } from "@/components/DailyTotals";
 import {
   closeMeltingTrade,
@@ -433,12 +434,40 @@ function PnfMini({ columns, vwap }: { columns: MeltingColumn[]; vwap: number | n
   );
 }
 
+function meltingNotes(trades: MeltingTrade[]): TradeNote[] {
+  return trades.flatMap((t) =>
+    (t.fills ?? []).map((f) =>
+      f.side === "SELL"
+        ? {
+            time: f.time,
+            kind: "entry" as const,
+            label: `#${t.id} sell`,
+            color: "#c93535",
+            title: `Entry #${t.id} · sold ${t.tag} ${t.strike} straddle × ${f.lots} lots @ ${num(f.combined)}`,
+            lines: [
+              `${istTime(f.time)} · CE ${num(f.cePrice)} + PE ${num(f.pePrice)} · ${t.mode}`,
+              t.trigger === "manual" ? "Why: entered manually (Sell now)" : `Why: ${t.signal} on the P&F chart below VWAP ${num(t.signalVwap)} (signal close ${num(t.signalPrice)})`,
+              `Stop ${num(t.initialSl)} · books every ${t.step} pts`,
+            ],
+          }
+        : {
+            time: f.time,
+            kind: f.action === "EXIT" ? ("exit" as const) : ("adjust" as const),
+            label: f.action,
+            color: (f.points ?? 0) >= 0 ? "#168448" : "#c93535",
+            title: `${f.action === "EXIT" ? "Exit" : "Booked " + f.lots + " lot"} #${t.id} · ${inr(f.pnl)}`,
+            lines: [`${istTime(f.time)} · bought back @ ${num(f.combined)} (CE ${num(f.cePrice)} + PE ${num(f.pePrice)})`, `Why: ${f.reason}`, `${signed((f.points ?? 0) / Math.max(f.lots, 1))} pts/lot`],
+          },
+    ),
+  );
+}
+
 function PremiumChart({ straddles, trades }: { straddles: MeltingStraddle[]; trades: MeltingTrade[] }) {
   const [tag, setTag] = useState<MeltingTag>("ATM");
   const containerRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef<{ combined: ISeriesApi<"Line">; vwap: ISeriesApi<"Line"> } | null>(null);
-  const markersRef = useRef<ReturnType<typeof createSeriesMarkers<Time>> | null>(null);
+  const [handles, setHandles] = useState<{ chart: IChartApi; series: ISeriesApi<"Line"> } | null>(null);
 
   useEffect(() => {
     if (!containerRef.current || chartRef.current) return;
@@ -453,19 +482,25 @@ function PremiumChart({ straddles, trades }: { straddles: MeltingStraddle[]; tra
     const combined = chart.addSeries(LineSeries, { color: "#2368b6", lineWidth: 2, title: "Combined" });
     const vwap = chart.addSeries(LineSeries, { color: "#b7791f", lineWidth: 1, lineStyle: 2, title: "VWAP" });
     seriesRef.current = { combined, vwap };
-    markersRef.current = createSeriesMarkers(combined, []);
     chartRef.current = chart;
+    setHandles({ chart, series: combined });
     const observer = new ResizeObserver(() => {
       if (containerRef.current) chart.applyOptions({ width: containerRef.current.clientWidth });
     });
     observer.observe(containerRef.current);
     return () => {
       observer.disconnect();
+      setHandles(null);
       chart.remove();
       chartRef.current = null;
       seriesRef.current = null;
     };
   }, []);
+
+  const current = straddles.find((x) => x.tag === tag);
+  const barTimes = useMemo(() => (current?.series ?? []).map((p) => p.time), [current]);
+  const notes = useMemo(() => meltingNotes(trades.filter((t) => t.tag === tag)), [trades, tag]);
+  const tooltip = useTradeMarkers(handles?.chart ?? null, handles?.series ?? null, notes, 60, barTimes);
 
   useEffect(() => {
     const s = straddles.find((x) => x.tag === tag);
@@ -473,17 +508,6 @@ function PremiumChart({ straddles, trades }: { straddles: MeltingStraddle[]; tra
     seriesRef.current.combined.applyOptions({ color: TAG_COLOR[tag] });
     seriesRef.current.combined.setData(s.series.map((p) => ({ time: p.time as UTCTimestamp, value: p.combined })));
     seriesRef.current.vwap.setData(s.series.filter((p) => p.vwap != null).map((p) => ({ time: p.time as UTCTimestamp, value: p.vwap as number })));
-    const minute = (t: number) => (Math.floor(t / 60) * 60) as UTCTimestamp;
-    const marks = trades
-      .filter((t) => t.tag === tag)
-      .flatMap((t) => [
-        { time: minute(t.entryTime), position: "aboveBar" as const, color: "#c93535", shape: "arrowDown" as const, text: `#${t.id} sell` },
-        ...(t.fills ?? [])
-          .filter((f) => f.side === "BUY")
-          .map((f) => ({ time: minute(f.time), position: "belowBar" as const, color: (f.points ?? 0) >= 0 ? "#168448" : "#c93535", shape: "arrowUp" as const, text: f.action })),
-      ])
-      .sort((a, b) => (a.time as number) - (b.time as number));
-    markersRef.current?.setMarkers(marks);
     chartRef.current?.timeScale().fitContent();
   }, [straddles, trades, tag]);
 
@@ -502,10 +526,13 @@ function PremiumChart({ straddles, trades }: { straddles: MeltingStraddle[]; tra
           </button>
         ))}
         <span className="pcr-oi-caption" style={{ alignSelf: "center" }}>
-          combined premium vs VWAP · ▼ entries, ▲ buy-backs
+          combined premium vs VWAP · ▲ entries, ● bookings, ▼ exits -- hover for the reason
         </span>
       </div>
-      <div ref={containerRef} style={{ width: "100%", height: 260 }} />
+      <div style={{ position: "relative" }}>
+        <div ref={containerRef} style={{ width: "100%", height: 260 }} />
+        {tooltip}
+      </div>
     </div>
   );
 }

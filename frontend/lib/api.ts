@@ -25,6 +25,7 @@ import type { AnimeshCandlesResponse, AnimeshSession, AnimeshSessionDetail, Anim
 import type { CreditSpreadState } from "@/types/credit-spread";
 import type { SimpleCrossoverConfig, SimpleCrossoverData, SimpleCrossoverSide, SimpleCrossoverTrade } from "@/types/simple-crossover";
 import type { ThetaRuntimeConfig, ThetaSession, ThetaSessionDetail, ThetaState } from "@/types/theta";
+import type { VarahaPaperConfig, VarahaPaperState, VarahaPaperTrade } from "@/types/varaha-paper";
 import type { BtcCalmConfig, BtcCalmState, BtcCalmTrade, BtcCalmTradeDetail } from "@/types/btc-calm";
 import type { CalmConfig, CalmState, CalmTrade, CalmTradeDetail } from "@/types/calm-strangle";
 import type { NiftyStrangleConfig, NiftyStranglePlan, NiftyStrangleTrade } from "@/types/nifty-strangle";
@@ -895,4 +896,32 @@ export async function enterBtcCalmNow(book = "standard"): Promise<{ status: stri
 
 export async function closeBtcCalmTrade(id: number): Promise<{ status: string; message?: string }> {
   return apiJson(`/api/btc-calm/trades/${id}/close`, { method: "POST" }, "Failed to close the strangle");
+}
+
+export async function getVarahaPaperState(): Promise<VarahaPaperState> {
+  return apiJson<VarahaPaperState>("/api/varaha/paper/state", undefined, "Failed to load Varaha paper trading");
+}
+
+export async function updateVarahaPaperConfig(updates: Partial<VarahaPaperConfig>): Promise<VarahaPaperConfig> {
+  return apiJson<VarahaPaperConfig>("/api/varaha/paper/config", { method: "PUT", body: JSON.stringify(updates) }, "Failed to save Varaha paper settings");
+}
+
+export async function getVarahaPaperTrades(): Promise<{ trades: VarahaPaperTrade[] }> {
+  return apiJson<{ trades: VarahaPaperTrade[] }>("/api/varaha/paper/trades", undefined, "Failed to load Varaha paper trades");
+}
+
+export async function getVarahaPaperTrade(id: number): Promise<VarahaPaperTrade> {
+  return apiJson<VarahaPaperTrade>(`/api/varaha/paper/trades/${id}`, undefined, "Failed to load the trade");
+}
+
+export async function enterVarahaPaperNow(): Promise<{ status: string; message?: string; tradeId?: number }> {
+  return apiJson("/api/varaha/paper/enter", { method: "POST" }, "Varaha paper entry failed");
+}
+
+export async function closeVarahaPaperTrade(id: number): Promise<{ status: string; message?: string }> {
+  return apiJson(`/api/varaha/paper/trades/${id}/close`, { method: "POST" }, "Failed to close the trade");
+}
+
+export async function getVarahaPaperSpotChart(days: number): Promise<{ candles: { time: number; close: number }[]; error?: string }> {
+  return apiJson(`/api/varaha/paper/spot-chart?days=${days}`, undefined, "Failed to load the NIFTY chart");
 }

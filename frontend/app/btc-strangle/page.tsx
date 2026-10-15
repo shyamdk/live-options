@@ -2,10 +2,11 @@
 
 import { CandlestickSeries, ColorType, createChart, IChartApi, IPriceLine, ISeriesApi, LineSeries, Time, UTCTimestamp } from "lightweight-charts";
 import { Bitcoin, ChevronDown, ChevronRight, Play, RefreshCw, Save, SquareArrowOutUpRight } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { DailyTotalsTable, groupDailyTotals } from "@/components/DailyTotals";
 import StrikeDistanceMap from "@/components/StrikeDistanceMap";
+import { istTime as noteTime, TradeNote, useTradeMarkers } from "@/components/TradeMarkers";
 import {
   closeBtcStrangleLeg,
   enterBtcStrangleNow,
@@ -258,7 +259,7 @@ export default function BtcStranglePage() {
       </Section>
 
       <Section id="spot" title="BTC spot (reference)" aside={<span className="pcr-oi-caption">Delta BTC index (.DEXBTUSD) · refreshes every 30s</span>}>
-        <SpotChart />
+        <SpotChart trades={trades} />
       </Section>
     </section>
   );
@@ -752,7 +753,43 @@ function StrategyChart({ trade }: { trade: BtcStrangleTrade }) {
 
 const SPOT_REFRESH_MS = 30000;
 
-function SpotChart() {
+const BAR_SECONDS: Record<string, number> = { "1m": 60, "5m": 300, "15m": 900, "1h": 3600 };
+
+function btcStrangleNotes(trades: BtcStrangleTrade[]): TradeNote[] {
+  return trades.flatMap((t) => {
+    const legs = t.legs.filter((l) => l.entryPrice != null);
+    if (!legs.length) return [];
+    const variant = t.variant && t.variant !== "strangle" ? ` (${VARIANT_LABEL[t.variant]})` : "";
+    const entry: TradeNote = {
+      time: t.entryTime,
+      kind: "entry",
+      label: `#${t.id} sell`,
+      color: "#c93535",
+      title: `Entry #${t.id} · sold ${legs.map((l) => `${l.strike} ${l.optionType}`).join(" / ")}${variant}`,
+      lines: [
+        `${noteTime(t.entryTime)} IST · BTC ${num(t.spot, 0)} · expiry ${t.expiryCode} · ${t.mode}`,
+        `Why: nightly ${t.trigger === "manual" ? "manual" : "scheduled"} entry -- strikes at spot ± ${t.multiplier} × ATM straddle ${num(t.straddle, 0)} = ${num(t.distance, 0)}`,
+        `Sold ${legs.map((l) => `${l.optionType} @ ${num(l.entryPrice)} (stop ${num(l.slPrice)})`).join(", ")} · ${t.contracts} contracts`,
+        t.notes ?? "",
+      ],
+    };
+    const exits: TradeNote[] = legs
+      .filter((l) => l.exitTime)
+      .map((l) => ({
+        time: l.exitTime as number,
+        kind: "exit",
+        label: `${l.optionType} ${usd(l.pnl ?? null, 0)}`,
+        color: (l.pnl ?? 0) >= 0 ? "#168448" : "#c93535",
+        title: `Exit #${t.id} · ${l.strike} ${l.optionType} @ ${num(l.exitPrice)} · ${usd(l.pnl ?? null)}`,
+        lines: [`${noteTime(l.exitTime)} IST · sold at ${num(l.entryPrice)}`, `Why: ${EXIT_REASON_LABEL[l.exitReason ?? ""] ?? l.exitReason}`],
+      }));
+    return [entry, ...exits];
+  });
+}
+
+function SpotChart({ trades }: { trades: BtcStrangleTrade[] }) {
+  const [handles, setHandles] = useState<{ chart: IChartApi; series: ISeriesApi<"Candlestick"> } | null>(null);
+  const [barTimes, setBarTimes] = useState<number[]>([]);
   const [resolution, setResolution] = useState("5m");
   const [last, setLast] = useState<{ close: number; time: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -794,18 +831,23 @@ function SpotChart() {
       },
     });
     chartRef.current = chart;
+    setHandles({ chart, series: seriesRef.current });
     const observer = new ResizeObserver(() => {
       if (containerRef.current) chart.applyOptions({ width: containerRef.current.clientWidth });
     });
     observer.observe(containerRef.current);
     return () => {
       observer.disconnect();
+      setHandles(null);
       chart.remove();
       chartRef.current = null;
       seriesRef.current = null;
       linesRef.current = [];
     };
   }, []);
+
+  const notes = useMemo(() => btcStrangleNotes(trades), [trades]);
+  const tooltip = useTradeMarkers(handles?.chart ?? null, handles?.series ?? null, notes, BAR_SECONDS[resolution] ?? 300, barTimes);
 
   useEffect(() => {
     let cancelled = false;
@@ -817,6 +859,7 @@ function SpotChart() {
         series.setData(
           data.candles.map((c) => ({ time: c.time as UTCTimestamp, open: c.open, high: c.high, low: c.low, close: c.close })),
         );
+        setBarTimes(data.candles.map((c) => c.time));
         strikesRef.current = data.strikes.map((s) => s.strike);
         for (const line of linesRef.current) series.removePriceLine(line);
         linesRef.current = data.strikes.map((s) =>
@@ -854,7 +897,7 @@ function SpotChart() {
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6, flexWrap: "wrap" }}>
         <strong style={{ fontSize: 15 }}>{last ? usd(last.close, 1) : "—"}</strong>
         <span className="pcr-oi-caption">{last ? `last candle ${istTime(last.time as Time)} IST` : ""}</span>
-        <span className="pcr-oi-caption">Red dashed lines = short strikes of open strangles.</span>
+        <span className="pcr-oi-caption">Red dashed lines = short strikes of open strangles · ▲ entries, ▼ leg exits -- hover for the reason.</span>
         <div style={{ marginLeft: "auto", display: "flex", gap: 4 }}>
           {["1m", "5m", "15m", "1h"].map((r) => (
             <button
@@ -870,7 +913,10 @@ function SpotChart() {
         </div>
       </div>
       {error ? <div className="alert error">{error}</div> : null}
-      <div ref={containerRef} style={{ width: "100%" }} />
+      <div style={{ position: "relative" }}>
+        <div ref={containerRef} style={{ width: "100%" }} />
+        {tooltip}
+      </div>
     </div>
   );
 }

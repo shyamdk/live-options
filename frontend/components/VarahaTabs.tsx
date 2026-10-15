@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 const TABS = [
   { href: "/varaha", label: "Daily decision" },
   { href: "/varaha/full-butterfly", label: "Full Butterfly builder" },
+  { href: "/varaha/paper", label: "Paper trades" },
 ];
 
 export default function VarahaTabs() {

@@ -15,6 +15,7 @@ import {
   getTurtleTrades,
   updateTurtleConfig,
 } from "@/lib/api";
+import { MarkerTooltip, TradeNote } from "@/components/TradeMarkers";
 import type { PnfColumn, PnfSignal, TurtleAlarm, TurtleConfig, TurtleState, TurtleTrade } from "@/types/turtle";
 
 const REFRESH_MS = 20000;
@@ -152,7 +153,7 @@ export default function DefineTurtlePage() {
           ) : null
         }
       >
-        {state?.chart && config ? <PnfChart columns={state.chart.columns} signals={state.chart.signals} config={config} /> : <p className="pcr-oi-caption">Loading…</p>}
+        {state?.chart && config ? <PnfChart columns={state.chart.columns} signals={state.chart.signals} config={config} trades={trades} /> : <p className="pcr-oi-caption">Loading…</p>}
       </CollapsibleSection>
 
       <CollapsibleSection id="turtle-open" title={`Open spread (${state?.openTrades.length ?? 0})`}>
@@ -217,8 +218,43 @@ function StatusStrip({ state }: { state: TurtleState | null }) {
 
 const VISIBLE_COLUMNS = 45;
 
-function PnfChart({ columns: allColumns, signals, config }: { columns: PnfColumn[]; signals: PnfSignal[]; config: TurtleConfig }) {
+function turtleNotes(t: TurtleTrade): TradeNote[] {
+  const notes: TradeNote[] = [
+    {
+      time: t.entryTime,
+      kind: "entry",
+      label: "IN",
+      color: "var(--blue)",
+      title: `Entry #${t.id} · put credit spread · exp ${t.expiry}`,
+      lines: [
+        `${ist(t.entryTime)} · NIFTY ${num(t.spot, 0)} · sold ${t.shortStrike} PE @ ${num(t.shortEntry)}, bought ${t.longStrike} PE @ ${num(t.longEntry)} · ${t.lots} lots`,
+        t.trigger === "manual"
+          ? "Why: entered manually"
+          : `Why: Turtle Follow-Through on the P&F chart${t.signalTime ? ` at ${ist(t.signalTime)}` : ""} with RSI ${num(t.signalRsi)} above the threshold`,
+        `Credit ${num(t.creditPoints)} pts (${inr(t.credit)}) · max loss ${inr(t.maxLoss)}`,
+      ],
+    },
+  ];
+  if (t.exitTime) {
+    notes.push({
+      time: t.exitTime,
+      kind: "exit",
+      label: "OUT",
+      color: t.netPnl >= 0 ? "var(--green)" : "var(--red)",
+      title: `Exit #${t.id} · ${inr(t.netPnl)} net`,
+      lines: [
+        `${ist(t.exitTime)} · bought back ${t.shortStrike} PE @ ${num(t.shortExit)}, sold ${t.longStrike} PE @ ${num(t.longExit)}`,
+        `Why: ${EXIT_LABEL[t.exitReason ?? ""] ?? t.exitReason ?? "—"}`,
+      ],
+    });
+  }
+  return notes;
+}
+
+function PnfChart({ columns: allColumns, signals, config, trades }: { columns: PnfColumn[]; signals: PnfSignal[]; config: TurtleConfig; trades: TurtleTrade[] }) {
   const [hover, setHover] = useState<PnfColumn | null>(null);
+  const [tip, setTip] = useState<{ x: number; y: number; notes: TradeNote[] } | null>(null);
+  const wrapRef = useRef<HTMLDivElement | null>(null);
   const columns = allColumns.slice(-VISIBLE_COLUMNS);
   if (!columns.length) return <p className="pcr-oi-caption">Not enough data yet.</p>;
   const boxLog = Math.log(1 + config.boxPercent / 100);
@@ -244,13 +280,31 @@ function PnfChart({ columns: allColumns, signals, config }: { columns: PnfColumn
     .map((c, i) => (c.rsi == null ? null : `${(x(i) + colWidth / 2).toFixed(1)},${rsiY(c.rsi).toFixed(1)}`))
     .filter(Boolean)
     .join(" ");
+  // trade entries/exits, pinned to the column that was being drawn at the time
+  const columnAt = (t: number): number => {
+    if (t < columns[0].start) return -1;
+    let found = -1;
+    columns.forEach((c, i) => {
+      if (c.start <= t) found = i;
+    });
+    return found;
+  };
+  const tradeNotesByColumn = new Map<number, TradeNote[]>();
+  for (const note of trades.flatMap(turtleNotes)) {
+    const i = columnAt(note.time);
+    if (i >= 0) tradeNotesByColumn.set(i, [...(tradeNotesByColumn.get(i) ?? []), note]);
+  }
+  const showTip = (e: React.MouseEvent, notes: TradeNote[]) => {
+    const box = wrapRef.current?.getBoundingClientRect();
+    if (box) setTip({ x: e.clientX - box.left + (wrapRef.current?.scrollLeft ?? 0), y: e.clientY - box.top, notes });
+  };
 
   return (
-    <div style={{ overflowX: "auto" }}>
+    <div ref={wrapRef} style={{ overflowX: "auto", position: "relative" }}>
       <div style={{ fontSize: 12, minHeight: 18 }}>
         {hover
           ? `Column #${hover.index} ${hover.type}: ${num(hover.bottomPrice, 0)} – ${num(hover.topPrice, 0)} · ${ist(hover.start)} → ${ist(hover.end)} · RSI ${num(hover.rsi)}${hover.turtle ? " · Turtle Breakout" : ""}${hover.followThrough ? " · Follow-Through" : ""}`
-          : "X = rising column, O = falling. T = Turtle Breakout (above the last 5 columns' highs); ▲ = Turtle Follow-Through (green when RSI > 50)."}
+          : "X = rising column, O = falling. T = Turtle Breakout (above the last 5 columns' highs); ▲ = Turtle Follow-Through (green when RSI > 50); ▲IN / ▼OUT = paper spread entry / exit -- hover for the reason."}
       </div>
       <svg
         viewBox={`0 0 ${width} ${height}`}
@@ -306,6 +360,20 @@ function PnfChart({ columns: allColumns, signals, config }: { columns: PnfColumn
                   ▲
                 </text>
               ) : null}
+              {(tradeNotesByColumn.get(i) ?? []).map((note, k) => (
+                <g
+                  key={`n${k}`}
+                  onMouseMove={(e) => showTip(e, [note])}
+                  onMouseLeave={() => setTip(null)}
+                  style={{ cursor: "pointer" }}
+                  transform={`translate(${cx}, ${Math.min(y(c.bottom) + cell + 9 + k * 13, top + chartHeight + 12)})`}
+                >
+                  <rect x={-12} y={-6} width={24} height={12} rx={3} fill={note.color} />
+                  <text y={3} textAnchor="middle" fontSize={8} fontWeight={700} fill="#fff">
+                    {note.kind === "entry" ? "▲IN" : "▼OUT"}
+                  </text>
+                </g>
+              ))}
             </g>
           );
         })}
@@ -329,6 +397,7 @@ function PnfChart({ columns: allColumns, signals, config }: { columns: PnfColumn
           </>
         ) : null}
       </svg>
+      {tip ? <MarkerTooltip x={tip.x} y={tip.y} notes={tip.notes} /> : null}
     </div>
   );
 }

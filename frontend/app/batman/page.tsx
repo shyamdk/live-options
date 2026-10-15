@@ -2,11 +2,12 @@
 
 import { ColorType, createChart, IChartApi, IPriceLine, ISeriesApi, LineSeries, Time, UTCTimestamp } from "lightweight-charts";
 import { Moon, Play, RefreshCw, Save, SquareArrowOutUpRight } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import CollapsibleSection from "@/components/CollapsibleSection";
 import { DailyTotalsTable, groupDailyTotals } from "@/components/DailyTotals";
 import StrikeDistanceMap from "@/components/StrikeDistanceMap";
+import { istTime as noteTime, TradeNote, useTradeMarkers } from "@/components/TradeMarkers";
 import VarahaPayoffChart from "@/components/VarahaPayoffChart";
 import {
   analyzeBatman,
@@ -822,11 +823,41 @@ function OpenTrade({ trade, busy, onClose }: { trade: BatmanTrade; busy: boolean
   );
 }
 
+function batmanNotes(t: BatmanTrade): TradeNote[] {
+  const notes: TradeNote[] = [
+    {
+      time: t.entryTime,
+      kind: "entry",
+      label: `#${t.id} entry`,
+      color: "#2368b6",
+      title: `Entry #${t.id} · Batman ${t.mode} · exp ${t.expiry}`,
+      lines: [
+        `${noteTime(t.entryTime)} · NIFTY ${num(t.spot, 0)} · ${t.trigger}`,
+        `Why: ${t.trigger === "manual" ? "entered manually" : "rulebook entry day"} -- buys ±${t.buyOffset}, sells ${t.sellGap} beyond, hedges ${t.hedgeGap} beyond; base ${t.baseLots} lots`,
+        `Credit ${inr(t.credit)} (${num(t.creditPercent)}% of capital) · target +${t.targetPercent}% (${inr(t.targetAmount)}) · stop −${t.stopPercent}% (${inr(-t.stopAmount)})`,
+        t.notes ?? "",
+      ],
+    },
+  ];
+  if (t.exitTime) {
+    notes.push({
+      time: t.exitTime,
+      kind: "exit",
+      label: inr(t.netPnl),
+      color: t.netPnl >= 0 ? "#168448" : "#c93535",
+      title: `Exit #${t.id} · ${inr(t.netPnl)} net (${num(t.returnPercent)}%)`,
+      lines: [`${noteTime(t.exitTime)}`, `Why: ${EXIT_LABEL[t.exitReason ?? ""] ?? t.exitReason}`],
+    });
+  }
+  return notes;
+}
+
 function MtmChart({ trade }: { trade: BatmanTrade }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef<ISeriesApi<"Line"> | null>(null);
   const linesRef = useRef<IPriceLine[]>([]);
+  const [handles, setHandles] = useState<{ chart: IChartApi; series: ISeriesApi<"Line"> } | null>(null);
 
   useEffect(() => {
     if (!containerRef.current || chartRef.current) return;
@@ -840,12 +871,14 @@ function MtmChart({ trade }: { trade: BatmanTrade }) {
     });
     seriesRef.current = chart.addSeries(LineSeries, { color: "#2368b6", lineWidth: 2, title: "MTM ₹" });
     chartRef.current = chart;
+    setHandles({ chart, series: seriesRef.current });
     const observer = new ResizeObserver(() => {
       if (containerRef.current) chart.applyOptions({ width: containerRef.current.clientWidth });
     });
     observer.observe(containerRef.current);
     return () => {
       observer.disconnect();
+      setHandles(null);
       chart.remove();
       chartRef.current = null;
       seriesRef.current = null;
@@ -864,7 +897,16 @@ function MtmChart({ trade }: { trade: BatmanTrade }) {
     ];
   }, [trade]);
 
-  return <div ref={containerRef} style={{ width: "100%", marginTop: 12 }} />;
+  const barTimes = useMemo(() => (trade.mtmHistory ?? []).map((p) => p.time), [trade.mtmHistory]);
+  const notes = useMemo(() => batmanNotes(trade), [trade]);
+  const tooltip = useTradeMarkers(handles?.chart ?? null, handles?.series ?? null, notes, 60, barTimes);
+
+  return (
+    <div style={{ position: "relative" }}>
+      <div ref={containerRef} style={{ width: "100%", marginTop: 12 }} />
+      {tooltip}
+    </div>
+  );
 }
 
 function istShort(time: Time): string {

@@ -365,6 +365,12 @@ class Settings(BaseSettings):
     # stores it, and ranks candidate structures with OpenAI. All thresholds
     # are research starting points from the spec, not calibrated values.
     varaha_monitor_enabled: bool = True
+    # Varaha paper trading: auto-trades each 15:00 decision (UP -> CE
+    # butterfly, DOWN -> PE butterfly, flat -> defined-risk strangle).
+    # Live orders need varaha_live_order_enabled AND the paper page's mode
+    # set to live (plus the global live_order_enabled).
+    varaha_paper_enabled: bool = True
+    varaha_live_order_enabled: bool = False
     varaha_decision_time: str = "15:00"
     varaha_min_dte: int = 2
     varaha_max_dte: int = 12

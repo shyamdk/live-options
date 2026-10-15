@@ -1508,6 +1508,74 @@ def init_db() -> None:
         )
         conn.execute(
             """
+            CREATE TABLE IF NOT EXISTS varaha_paper_trades (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                rec_id INTEGER,
+                session_date TEXT NOT NULL,
+                mode TEXT NOT NULL,
+                trigger TEXT NOT NULL,
+                structure TEXT NOT NULL,
+                structure_label TEXT NOT NULL,
+                variant_label TEXT,
+                candidate_id TEXT,
+                direction TEXT NOT NULL,
+                move_class TEXT,
+                decision TEXT,
+                expiry TEXT NOT NULL,
+                exit_by INTEGER NOT NULL,
+                entry_time INTEGER NOT NULL,
+                entry_spot REAL NOT NULL,
+                lots INTEGER NOT NULL,
+                lot_size INTEGER NOT NULL,
+                entry_value REAL NOT NULL,
+                max_profit_points REAL,
+                max_loss_points REAL,
+                breakevens TEXT,
+                target_points REAL NOT NULL,
+                stop_points REAL NOT NULL,
+                status TEXT NOT NULL,
+                exit_time INTEGER,
+                exit_reason TEXT,
+                exit_value REAL,
+                exit_spot REAL,
+                charges REAL NOT NULL DEFAULT 0,
+                last_value REAL,
+                last_spot REAL,
+                last_update INTEGER,
+                best_points REAL,
+                worst_points REAL,
+                needs_attention TEXT,
+                notes TEXT
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS varaha_paper_legs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                trade_id INTEGER NOT NULL,
+                action TEXT NOT NULL,
+                option_type TEXT NOT NULL,
+                strike REAL NOT NULL,
+                ratio INTEGER NOT NULL,
+                quantity INTEGER NOT NULL,
+                security_id TEXT NOT NULL,
+                entry_price REAL,
+                entry_bid REAL, entry_ask REAL, entry_ltp REAL,
+                entry_order_id TEXT,
+                exit_price REAL,
+                exit_bid REAL, exit_ask REAL, exit_ltp REAL,
+                exit_order_id TEXT,
+                last_ltp REAL, last_bid REAL, last_ask REAL,
+                iv REAL,
+                delta REAL
+            )
+            """
+        )
+        conn.execute("CREATE TABLE IF NOT EXISTS varaha_paper_events (id INTEGER PRIMARY KEY AUTOINCREMENT, trade_id INTEGER, time INTEGER NOT NULL, kind TEXT NOT NULL, text TEXT NOT NULL)")
+        conn.execute("CREATE TABLE IF NOT EXISTS varaha_paper_marks (trade_id INTEGER NOT NULL, time INTEGER NOT NULL, pnl_points REAL NOT NULL, spot REAL, PRIMARY KEY (trade_id, time))")
+        conn.execute(
+            """
             CREATE TABLE IF NOT EXISTS varaha_recommendations (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 session_date TEXT NOT NULL,
@@ -4596,3 +4664,48 @@ def set_btc_calm_setting(key: str, value: str) -> None:
             (key, value, now),
         )
         conn.commit()
+
+
+# ---------------------------------------------------------------- Varaha paper trading
+
+
+def varaha_paper_insert(table: str, values: dict[str, Any]) -> int:
+    return _mantra_insert(table, values)
+
+
+def varaha_paper_update(table: str, row_id: int, **values: Any) -> None:
+    _mantra_update(table, row_id, values)
+
+
+def list_varaha_paper_trades(*, status: str | None = None, limit: int = 500) -> list[dict[str, Any]]:
+    where = "WHERE status = ?" if status else ""
+    params: tuple = (status, limit) if status else (limit,)
+    with _DB_LOCK, _connect() as conn:
+        trades = [dict(r) for r in conn.execute(
+            f"SELECT * FROM varaha_paper_trades {where} ORDER BY entry_time DESC, id DESC LIMIT ?", params).fetchall()]
+        for t in trades:
+            t["legs"] = [dict(r) for r in conn.execute("SELECT * FROM varaha_paper_legs WHERE trade_id = ? ORDER BY id", (t["id"],))]
+    return trades
+
+
+def list_varaha_paper_events(trade_id: int | None = None, limit: int = 300) -> list[dict[str, Any]]:
+    if trade_id is not None:
+        return _melting_rows("SELECT * FROM varaha_paper_events WHERE trade_id = ? ORDER BY time, id", (trade_id,))
+    return _melting_rows("SELECT * FROM varaha_paper_events ORDER BY time DESC, id DESC LIMIT ?", (limit,))
+
+
+def add_varaha_paper_mark(trade_id: int, time_epoch: int, pnl_points: float, spot: float | None) -> None:
+    with _DB_LOCK, _connect() as conn:
+        conn.execute("INSERT OR REPLACE INTO varaha_paper_marks (trade_id, time, pnl_points, spot) VALUES (?, ?, ?, ?)",
+                     (trade_id, time_epoch, pnl_points, spot))
+        conn.commit()
+
+
+def list_varaha_paper_marks(trade_id: int) -> list[dict[str, Any]]:
+    return _melting_rows("SELECT time, pnl_points, spot FROM varaha_paper_marks WHERE trade_id = ? ORDER BY time", (trade_id,))
+
+
+def get_varaha_recommendation(rec_id: int, *, include_snapshot: bool = False) -> dict[str, Any] | None:
+    with _DB_LOCK, _connect() as conn:
+        row = conn.execute("SELECT * FROM varaha_recommendations WHERE id = ?", (rec_id,)).fetchone()
+    return _varaha_row(row, include_snapshot=include_snapshot) if row else None

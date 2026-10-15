@@ -3,12 +3,9 @@
 import {
   CandlestickSeries,
   ColorType,
-  ISeriesMarkersPluginApi,
-  SeriesMarker,
   Time,
   UTCTimestamp,
   createChart,
-  createSeriesMarkers,
   IChartApi,
   ISeriesApi,
   LineSeries,
@@ -18,6 +15,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import { approveEma5Signal, getEma5Candles, getEma5SessionDetail, getEma5Sessions, getEma5State, updateEma5Config } from "@/lib/api";
 import type { Ema5Candle, Ema5Session, Ema5SessionDetail, Ema5Side, Ema5State, Ema5Trade, Ema5TradeLeg } from "@/types/ema5";
+import { istTime as noteTime, TradeNote, useTradeMarkers } from "@/components/TradeMarkers";
 
 const moneyFormat = new Intl.NumberFormat("en-IN", { maximumFractionDigits: 2, minimumFractionDigits: 2 });
 const STATE_REFRESH_MS = secondsToMs(process.env.NEXT_PUBLIC_EMA5_STATE_REFRESH_SECONDS, 5);
@@ -314,7 +312,7 @@ function Ema5Chart({ side, openTrade, trades }: { side: Ema5Side; openTrade: Ema
   const chartRef = useRef<IChartApi | null>(null);
   const candleSeriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
   const emaSeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
-  const markersRef = useRef<ISeriesMarkersPluginApi<Time> | null>(null);
+  const [handles, setHandles] = useState<{ chart: IChartApi; series: ISeriesApi<"Candlestick"> } | null>(null);
   const [candles, setCandles] = useState<Ema5Candle[]>([]);
   const [ema, setEma] = useState<(number | null)[]>([]);
   const [intervalMinutes, setIntervalMinutes] = useState<number | null>(null);
@@ -369,7 +367,7 @@ function Ema5Chart({ side, openTrade, trades }: { side: Ema5Side; openTrade: Ema
     chartRef.current = chart;
     candleSeriesRef.current = candleSeries;
     emaSeriesRef.current = emaLine;
-    markersRef.current = createSeriesMarkers(candleSeries, []);
+    setHandles({ chart, series: candleSeries });
 
     const resizeObserver = new ResizeObserver(() => {
       if (containerRef.current) chart.applyOptions({ width: containerRef.current.clientWidth });
@@ -378,12 +376,11 @@ function Ema5Chart({ side, openTrade, trades }: { side: Ema5Side; openTrade: Ema
 
     return () => {
       resizeObserver.disconnect();
-      markersRef.current?.detach();
+      setHandles(null);
       chart.remove();
       chartRef.current = null;
       candleSeriesRef.current = null;
       emaSeriesRef.current = null;
-      markersRef.current = null;
     };
   }, []);
 
@@ -413,16 +410,18 @@ function Ema5Chart({ side, openTrade, trades }: { side: Ema5Side; openTrade: Ema
     }
   }, [openTrade]);
 
-  useEffect(() => {
-    if (!markersRef.current || !candles.length) return;
-    markersRef.current.setMarkers(buildTradeMarkers(trades, side, candles));
-  }, [trades, side, candles]);
+  const barTimes = useMemo(() => candles.map((c) => c.time), [candles]);
+  const notes = useMemo(() => buildTradeNotes(trades, side), [trades, side]);
+  const tooltip = useTradeMarkers(handles?.chart ?? null, handles?.series ?? null, notes, 60 * (intervalMinutes ?? 5), barTimes);
 
   return (
     <div>
       <div className="subtext">{intervalMinutes ? `${intervalMinutes}m candles` : ""}</div>
       {chartError ? <div className="alert error">{chartError}</div> : null}
-      <div ref={containerRef} style={{ width: "100%" }} />
+      <div style={{ position: "relative" }}>
+        <div ref={containerRef} style={{ width: "100%" }} />
+        {tooltip}
+      </div>
     </div>
   );
 }
@@ -569,37 +568,51 @@ function SessionDetailCard({ detail, onClose }: { detail: Ema5SessionDetail; onC
   );
 }
 
-function buildTradeMarkers(trades: Ema5Trade[], side: Ema5Side, candles: Ema5Candle[]): SeriesMarker<Time>[] {
-  const markers: SeriesMarker<Time>[] = [];
+const LEG_EXIT_LABEL: Record<string, string> = {
+  STOP_ALL: "index hit the initial stop loss -- all lots closed",
+  BOOK_LOT1: "index reached target 1 (1R) -- lot 1 booked, SL moved to entry",
+  STOP_REMAINING: "index came back to entry (breakeven SL) after lot 1 was booked",
+  BOOK_LOT2: "index reached target 2 (2R) -- lot 2 booked, SL moved to target 1",
+  EXIT_LOT3: "index hit the trailing SL on the runner lot",
+  MANUAL: "closed manually",
+};
+
+function buildTradeNotes(trades: Ema5Trade[], side: Ema5Side): TradeNote[] {
+  const notes: TradeNote[] = [];
   for (const trade of trades) {
     if (trade.entryAt) {
-      const time = nearestCandleTime(candles, istIsoToEpoch(trade.entryAt));
-      if (time !== null) {
-        markers.push({
-          time: time as UTCTimestamp,
-          position: side === "CE" ? "belowBar" : "aboveBar",
-          color: side === "CE" ? "#168448" : "#c93535",
-          shape: side === "CE" ? "arrowUp" : "arrowDown",
-          text: `Entry ${money(trade.entryPremium)}`,
-        });
-      }
+      const t = istIsoToEpoch(trade.entryAt);
+      notes.push({
+        time: t,
+        kind: "entry",
+        label: `Entry ${money(trade.entryPremium)}`,
+        color: side === "CE" ? "#168448" : "#c93535",
+        title: `Entry ${trade.id} · ${trade.mode}`,
+        lines: [
+          `${noteTime(t)} · bought ${trade.strike ?? ""} ${side} @ ${money(trade.entryPremium)} × ${trade.entryQty ?? "—"}`,
+          `Why: $5-EMA alert candle broken -- index ${trade.entryIndexLevel}`,
+          `Plan: SL ${trade.initialSl} · T1 ${trade.target1} · T2 ${trade.target2} · lot 3 trails`,
+        ],
+      });
     }
     for (const leg of trade.legs ?? []) {
       if (leg.status !== "CLOSED" || !leg.exitAt) continue;
-      const time = nearestCandleTime(candles, istIsoToEpoch(leg.exitAt));
-      if (time === null) continue;
-      const positive = (leg.realizedPnl ?? 0) >= 0;
-      markers.push({
-        time: time as UTCTimestamp,
-        position: "inBar",
-        color: positive ? "#168448" : "#c93535",
-        shape: "circle",
-        text: `L${leg.lotNumber} ${leg.exitReason ?? "exit"} ${money(leg.exitPremium)}`,
+      const t = istIsoToEpoch(leg.exitAt);
+      const pnl = leg.realizedPnl ?? 0;
+      notes.push({
+        time: t,
+        kind: "exit",
+        label: `L${leg.lotNumber} ${money(leg.exitPremium)}`,
+        color: pnl >= 0 ? "#168448" : "#c93535",
+        title: `Exit lot ${leg.lotNumber} · ${trade.id} · P&L ${money(pnl)}`,
+        lines: [
+          `${noteTime(t)} · sold @ ${money(leg.exitPremium)} · index ${leg.exitIndexLevel ?? "—"}`,
+          `Why: ${LEG_EXIT_LABEL[leg.exitReason ?? ""] ?? leg.exitReason ?? "exit"}`,
+        ],
       });
     }
   }
-  markers.sort((a, b) => (a.time as number) - (b.time as number));
-  return markers;
+  return notes;
 }
 
 function istIsoToEpoch(iso: string): number {
@@ -609,16 +622,6 @@ function istIsoToEpoch(iso: string): number {
   const IST_OFFSET_MS = (5 * 60 + 30) * 60 * 1000;
   const utcMillis = Date.UTC(year, month - 1, day, hour, minute, second || 0) - IST_OFFSET_MS;
   return Math.floor(utcMillis / 1000);
-}
-
-function nearestCandleTime(candles: Ema5Candle[], epochSeconds: number): number | null {
-  if (!candles.length) return null;
-  let best = candles[0].time;
-  for (const candle of candles) {
-    if (candle.time <= epochSeconds) best = candle.time;
-    else break;
-  }
-  return best;
 }
 
 function formatCandleTime(epochSeconds: number): string {

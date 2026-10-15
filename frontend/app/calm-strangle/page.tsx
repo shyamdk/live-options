@@ -2,11 +2,12 @@
 
 import { ColorType, createChart, createSeriesMarkers, IChartApi, IPriceLine, ISeriesApi, LineSeries, Time, UTCTimestamp } from "lightweight-charts";
 import { Play, RefreshCw, Save, SquareArrowOutUpRight, Waves } from "lucide-react";
-import { Fragment, useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 
 import CollapsibleSection from "@/components/CollapsibleSection";
 import { DailyTotalsTable, groupDailyTotals } from "@/components/DailyTotals";
 import StrikeDistanceMap from "@/components/StrikeDistanceMap";
+import { istTime, TradeNote, useTradeMarkers } from "@/components/TradeMarkers";
 import { closeCalmTrade, enterCalmNow, getCalmState, getCalmTrade, getCalmTrades, updateCalmConfig } from "@/lib/api";
 import type { CalmConfig, CalmState, CalmTrade, CalmTradeDetail } from "@/types/calm-strangle";
 
@@ -133,7 +134,7 @@ export default function CalmStranglePage() {
 
       <StatusStrip state={state} />
 
-      <CollapsibleSection id="calm-chart" title="NIFTY today" aside={<span className="pcr-oi-caption">1-min closes · ▼ entries, ▲ exits · dashed: open position&apos;s stop band</span>}>
+      <CollapsibleSection id="calm-chart" title="NIFTY today" aside={<span className="pcr-oi-caption">1-min closes · ▲ entries, ▼ exits -- hover an arrow for the reason · dashed: open position&apos;s stop band</span>}>
         <SpotChart state={state} />
       </CollapsibleSection>
 
@@ -748,12 +749,48 @@ function istTick(time: Time): string {
   return typeof time === "number" ? clock(time) : String(time);
 }
 
+function calmNotes(trades: CalmTrade[], config?: CalmConfig): TradeNote[] {
+  return trades.flatMap((t) => [
+    {
+      time: t.entryTime,
+      kind: "entry" as const,
+      label: `#${t.id} sell ${num(t.credit)}`,
+      color: "#c93535",
+      title: `Entry #${t.id} · sold ${t.peStrike} PE / ${t.ceStrike} CE · ${t.lots} lots`,
+      lines: [
+        `${istTime(t.entryTime)} · NIFTY ${num(t.entrySpot)}${t.trigger === "manual" ? " · manual entry" : ""}`,
+        t.trigger === "manual"
+          ? "Why: entered manually (Enter now)"
+          : `Why: market settled -- last ${config?.calmWindow ?? 15} min range ${num(t.calmRange, 1)} pts ≤ ${config?.calmPercent ?? 15}% of the ATM straddle ${num(t.straddle)}`,
+        `Strikes at ±${config?.strikeMultiple ?? 1}× straddle · credit ${num(t.credit)} pts (${inr(t.premiumCollected)})`,
+        `Stops: NIFTY ${num(t.stopLow, 0)} / ${num(t.stopHigh, 0)} · backstop ${num(t.backstop)}`,
+      ],
+    },
+    ...(t.exitTime
+      ? [
+          {
+            time: t.exitTime,
+            kind: "exit" as const,
+            label: `exit ${inr(t.netPnl)}`,
+            color: t.netPnl >= 0 ? "#168448" : "#c93535",
+            title: `Exit #${t.id} · ${inr(t.netPnl)} net`,
+            lines: [
+              `${istTime(t.exitTime)} · NIFTY ${num(t.exitSpot)} · ${signed(t.points)} pts`,
+              `Why: ${t.exitReason ?? "—"}`,
+              `held ${t.minutesHeld} min · bought back at ${num((t.exitCe ?? 0) + (t.exitPe ?? 0))}`,
+            ],
+          },
+        ]
+      : []),
+  ]);
+}
+
 function SpotChart({ state }: { state: CalmState | null }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef<ISeriesApi<"Line"> | null>(null);
-  const markersRef = useRef<ReturnType<typeof createSeriesMarkers<Time>> | null>(null);
   const linesRef = useRef<IPriceLine[]>([]);
+  const [handles, setHandles] = useState<{ chart: IChartApi; series: ISeriesApi<"Line"> } | null>(null);
 
   useEffect(() => {
     if (!containerRef.current || chartRef.current) return;
@@ -766,14 +803,15 @@ function SpotChart({ state }: { state: CalmState | null }) {
       localization: { timeFormatter: (t: Time) => istTick(t) },
     });
     seriesRef.current = chart.addSeries(LineSeries, { color: "#2368b6", lineWidth: 2, title: "NIFTY" });
-    markersRef.current = createSeriesMarkers(seriesRef.current, []);
     chartRef.current = chart;
+    setHandles({ chart, series: seriesRef.current });
     const observer = new ResizeObserver(() => {
       if (containerRef.current) chart.applyOptions({ width: containerRef.current.clientWidth });
     });
     observer.observe(containerRef.current);
     return () => {
       observer.disconnect();
+      setHandles(null);
       chart.remove();
       chartRef.current = null;
       seriesRef.current = null;
@@ -781,21 +819,14 @@ function SpotChart({ state }: { state: CalmState | null }) {
     };
   }, []);
 
+  const barTimes = useMemo(() => (state?.spot ?? []).map((c) => c.time), [state?.spot]);
+  const notes = useMemo(() => calmNotes(state?.todayTrades ?? [], state?.config), [state?.todayTrades, state?.config]);
+  const tooltip = useTradeMarkers(handles?.chart ?? null, handles?.series ?? null, notes, 60, barTimes);
+
   useEffect(() => {
     const series = seriesRef.current;
     if (!series || !state) return;
     series.setData(state.spot.map((c) => ({ time: c.time as UTCTimestamp, value: c.close })));
-    const minute = (t: number) => (Math.floor(t / 60) * 60) as UTCTimestamp;
-    markersRef.current?.setMarkers(
-      state.todayTrades
-        .flatMap((t) => [
-          { time: minute(t.entryTime), position: "aboveBar" as const, color: "#c93535", shape: "arrowDown" as const, text: `#${t.id} sell ${num(t.credit)}` },
-          ...(t.exitTime
-            ? [{ time: minute(t.exitTime), position: "belowBar" as const, color: t.netPnl >= 0 ? "#168448" : "#c93535", shape: "arrowUp" as const, text: `exit ${inr(t.netPnl)}` }]
-            : []),
-        ])
-        .sort((a, b) => (a.time as number) - (b.time as number)),
-    );
     for (const l of linesRef.current) series.removePriceLine(l);
     linesRef.current = state.openTrade
       ? [
@@ -807,7 +838,12 @@ function SpotChart({ state }: { state: CalmState | null }) {
     chartRef.current?.timeScale().fitContent();
   }, [state]);
 
-  return <div ref={containerRef} style={{ width: "100%", height: 260 }} />;
+  return (
+    <div style={{ position: "relative" }}>
+      <div ref={containerRef} style={{ width: "100%", height: 260 }} />
+      {tooltip}
+    </div>
+  );
 }
 
 const FIELDS: { key: keyof CalmConfig; label: string; hint: string; text?: boolean }[] = [

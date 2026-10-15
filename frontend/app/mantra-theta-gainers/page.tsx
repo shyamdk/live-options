@@ -2,12 +2,13 @@
 
 import { ColorType, createChart, IChartApi, IPriceLine, ISeriesApi, LineSeries, Time, UTCTimestamp } from "lightweight-charts";
 import { Infinity as InfinityIcon, Play, RefreshCw, Save, SquareArrowOutUpRight } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import AlarmOverlay from "@/components/AlarmOverlay";
 import CollapsibleSection from "@/components/CollapsibleSection";
 import { DailyTotalsTable, groupDailyTotals } from "@/components/DailyTotals";
 import StrikeDistanceMap from "@/components/StrikeDistanceMap";
+import { istTime as noteTime, TradeNote, useTradeMarkers } from "@/components/TradeMarkers";
 import {
   acknowledgeMantraAlarm,
   closeMantraTrade,
@@ -492,11 +493,45 @@ function MtmBar({ mtm, target, stop, nextRollAt }: { mtm: number; target: number
   );
 }
 
+function mantraNotes(t: MantraTrade): TradeNote[] {
+  const notes: TradeNote[] = [];
+  for (const e of t.events ?? []) {
+    if (e.kind === "entry") {
+      notes.push({
+        time: e.time,
+        kind: "entry",
+        label: `#${t.id} entry`,
+        color: "#2368b6",
+        title: `Entry #${t.id} · ${t.mode} strangle · exp ${t.expiry}`,
+        lines: [
+          `${noteTime(e.time)} · NIFTY ${num(t.spot, 0)} · ${t.trigger}`,
+          `Why: ${t.trigger === "manual" ? "entered manually" : "scheduled Monday 15:00 entry"} -- CE/PE nearest the target premium`,
+          e.text,
+          `Credit ${inr(t.credit)} · target ${inr(t.target)} · stop ${inr(-t.stop)}`,
+        ],
+      });
+    } else if (e.kind === "roll") {
+      notes.push({ time: e.time, kind: "adjust", label: "roll", color: "#b7791f", title: `Roll #${t.id}`, lines: [noteTime(e.time), "Why: MTM loss reached the next roll level", e.text] });
+    } else if (e.kind === "exit") {
+      notes.push({
+        time: e.time,
+        kind: "exit",
+        label: inr(t.netPnl),
+        color: t.netPnl >= 0 ? "#168448" : "#c93535",
+        title: `Exit #${t.id} · ${inr(t.netPnl)} net`,
+        lines: [noteTime(e.time), `Why: ${EXIT_LABEL[t.exitReason ?? ""] ?? t.exitReason ?? "—"}`, e.text],
+      });
+    }
+  }
+  return notes;
+}
+
 function MtmChart({ trade }: { trade: MantraTrade }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef<ISeriesApi<"Line"> | null>(null);
   const linesRef = useRef<IPriceLine[]>([]);
+  const [handles, setHandles] = useState<{ chart: IChartApi; series: ISeriesApi<"Line"> } | null>(null);
 
   useEffect(() => {
     if (!containerRef.current || chartRef.current) return;
@@ -510,12 +545,14 @@ function MtmChart({ trade }: { trade: MantraTrade }) {
     });
     seriesRef.current = chart.addSeries(LineSeries, { color: "#2368b6", lineWidth: 2, title: "MTM ₹" });
     chartRef.current = chart;
+    setHandles({ chart, series: seriesRef.current });
     const observer = new ResizeObserver(() => {
       if (containerRef.current) chart.applyOptions({ width: containerRef.current.clientWidth });
     });
     observer.observe(containerRef.current);
     return () => {
       observer.disconnect();
+      setHandles(null);
       chart.remove();
       chartRef.current = null;
       seriesRef.current = null;
@@ -539,7 +576,16 @@ function MtmChart({ trade }: { trade: MantraTrade }) {
     ];
   }, [trade]);
 
-  return <div ref={containerRef} style={{ width: "100%", height: 220 }} />;
+  const barTimes = useMemo(() => (trade.mtmHistory ?? []).map((p) => p.time), [trade.mtmHistory]);
+  const notes = useMemo(() => mantraNotes(trade), [trade]);
+  const tooltip = useTradeMarkers(handles?.chart ?? null, handles?.series ?? null, notes, 60, barTimes);
+
+  return (
+    <div style={{ position: "relative" }}>
+      <div ref={containerRef} style={{ width: "100%", height: 220 }} />
+      {tooltip}
+    </div>
+  );
 }
 
 function EventsLog({ trade }: { trade: MantraTrade }) {

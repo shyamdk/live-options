@@ -2,11 +2,12 @@
 
 import { ColorType, createChart, createSeriesMarkers, IChartApi, IPriceLine, ISeriesApi, LineSeries, Time, UTCTimestamp } from "lightweight-charts";
 import { MoonStar, Play, RefreshCw, Save, SquareArrowOutUpRight } from "lucide-react";
-import { Fragment, useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 
 import CollapsibleSection from "@/components/CollapsibleSection";
 import { DailyTotalsTable, groupDailyTotals } from "@/components/DailyTotals";
 import StrikeDistanceMap from "@/components/StrikeDistanceMap";
+import { istTime, TradeNote, useTradeMarkers } from "@/components/TradeMarkers";
 import { closeBtcCalmTrade, enterBtcCalmNow, getBtcCalmState, getBtcCalmTrade, getBtcCalmTrades, updateBtcCalmConfig } from "@/lib/api";
 import type { BtcCalmBook, BtcCalmConfig, BtcCalmState, BtcCalmTrade, BtcCalmTradeDetail } from "@/types/btc-calm";
 
@@ -104,7 +105,7 @@ export default function BtcCalmStranglePage() {
 
       <StatusStrip state={state} />
 
-      <CollapsibleSection id="btc-calm-chart" title="BTC (last 6 hours, 1-min)" aside={<span className="pcr-oi-caption">▼ entries, ▲ exits · dashed: open position&apos;s stop band</span>}>
+      <CollapsibleSection id="btc-calm-chart" title="BTC (last 6 hours, 1-min)" aside={<span className="pcr-oi-caption">▲ entries, ▼ exits -- hover an arrow for the reason · dashed: open position&apos;s stop band</span>}>
         <SpotChart state={state} trades={trades} />
       </CollapsibleSection>
 
@@ -512,12 +513,51 @@ function PremiumChart({ trade: t }: { trade: BtcCalmTradeDetail }) {
   return <div ref={ref} style={{ width: "100%", height: 220 }} />;
 }
 
+function btcCalmNotes(trades: BtcCalmTrade[], config?: BtcCalmConfig): TradeNote[] {
+  return trades.flatMap((t) => {
+    const book = config?.books?.[t.book]?.label ?? t.book;
+    return [
+      {
+        time: t.entryTime,
+        kind: "entry" as const,
+        label: `#${t.id} ${t.book === "early" ? "06:00" : "13:30"}`,
+        color: "#c93535",
+        title: `Entry #${t.id} [${book}] · sold ${t.peStrike} PE / ${t.ceStrike} CE`,
+        lines: [
+          `${istTime(t.entryTime)} IST · BTC ${num(t.entrySpot, 0)}${t.trigger === "manual" ? " · manual entry" : ""}`,
+          t.trigger === "manual"
+            ? "Why: entered manually (Enter now)"
+            : `Why: BTC calm in the overnight window -- last ${config?.calmWindow ?? 15} min range ${num(t.calmRange, 0)} ≤ ${config?.calmPercent ?? 15}% of the ATM straddle ${usd(t.straddle, 0)}`,
+          `Strikes at ±${config?.strikeMultiple ?? 1.5}× straddle · credit ${num(t.credit)} per BTC (${usd(t.premiumCollected)} on ${t.btcPerLeg} BTC/leg)`,
+          `Stops: BTC ${num(t.stopLow, 0)} / ${num(t.stopHigh, 0)} · backstop ${num(t.backstop)} · book early at ${num(t.earlyTarget)} · time exit ${istTime(t.exitBy)}`,
+        ],
+      },
+      ...(t.exitTime
+        ? [
+            {
+              time: t.exitTime,
+              kind: "exit" as const,
+              label: usd(t.netPnl, 0),
+              color: t.netPnl >= 0 ? "#168448" : "#c93535",
+              title: `Exit #${t.id} [${book}] · ${usd(t.netPnl)} net`,
+              lines: [
+                `${istTime(t.exitTime)} IST · BTC ${num(t.exitSpot, 0)} · ${num(t.points)} per BTC`,
+                `Why: ${t.exitReason ?? "—"}`,
+                `held ${t.minutesHeld} min · fees ${usd(t.fees)}`,
+              ],
+            },
+          ]
+        : []),
+    ];
+  });
+}
+
 function SpotChart({ state, trades }: { state: BtcCalmState | null; trades: BtcCalmTrade[] }) {
   const ref = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef<ISeriesApi<"Line"> | null>(null);
-  const markersRef = useRef<ReturnType<typeof createSeriesMarkers<Time>> | null>(null);
   const linesRef = useRef<IPriceLine[]>([]);
+  const [handles, setHandles] = useState<{ chart: IChartApi; series: ISeriesApi<"Line"> } | null>(null);
   useEffect(() => {
     if (!ref.current || chartRef.current) return;
     const chart = createChart(ref.current, {
@@ -529,35 +569,26 @@ function SpotChart({ state, trades }: { state: BtcCalmState | null; trades: BtcC
       localization: { timeFormatter: tick },
     });
     seriesRef.current = chart.addSeries(LineSeries, { color: "#f2a900", lineWidth: 2, title: "BTC" });
-    markersRef.current = createSeriesMarkers(seriesRef.current, []);
     chartRef.current = chart;
+    setHandles({ chart, series: seriesRef.current });
     const observer = new ResizeObserver(() => ref.current && chart.applyOptions({ width: ref.current.clientWidth }));
     observer.observe(ref.current);
     return () => {
       observer.disconnect();
+      setHandles(null);
       chart.remove();
       chartRef.current = null;
       seriesRef.current = null;
       linesRef.current = [];
     };
   }, []);
+  const barTimes = useMemo(() => (state?.spot ?? []).map((c) => c.time), [state?.spot]);
+  const notes = useMemo(() => btcCalmNotes(trades, state?.config), [trades, state?.config]);
+  const tooltip = useTradeMarkers(handles?.chart ?? null, handles?.series ?? null, notes, 60, barTimes);
   useEffect(() => {
     const series = seriesRef.current;
     if (!series || !state) return;
     series.setData(state.spot.map((c) => ({ time: c.time as UTCTimestamp, value: c.close })));
-    const first = state.spot[0]?.time ?? 0;
-    const minute = (x: number) => (Math.floor(x / 60) * 60) as UTCTimestamp;
-    markersRef.current?.setMarkers(
-      trades
-        .filter((t) => t.entryTime >= first)
-        .flatMap((t) => [
-          { time: minute(t.entryTime), position: "aboveBar" as const, color: "#c93535", shape: "arrowDown" as const, text: `#${t.id} ${t.book === "early" ? "06:00" : "13:30"}` },
-          ...(t.exitTime && t.exitTime >= first
-            ? [{ time: minute(t.exitTime), position: "belowBar" as const, color: t.netPnl >= 0 ? "#168448" : "#c93535", shape: "arrowUp" as const, text: usd(t.netPnl, 0) }]
-            : []),
-        ])
-        .sort((a, b) => (a.time as number) - (b.time as number)),
-    );
     for (const l of linesRef.current) series.removePriceLine(l);
     const o = Object.values(state.books).map((b) => b.openTrade).find(Boolean) ?? null;
     linesRef.current = o
@@ -567,8 +598,13 @@ function SpotChart({ state, trades }: { state: BtcCalmState | null; trades: BtcC
         ]
       : [];
     chartRef.current?.timeScale().fitContent();
-  }, [state, trades]);
-  return <div ref={ref} style={{ width: "100%", height: 260 }} />;
+  }, [state]);
+  return (
+    <div style={{ position: "relative" }}>
+      <div ref={ref} style={{ width: "100%", height: 260 }} />
+      {tooltip}
+    </div>
+  );
 }
 
 function TradesTable({ trades }: { trades: BtcCalmTrade[] }) {
