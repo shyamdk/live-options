@@ -8,7 +8,7 @@ import CollapsibleSection from "@/components/CollapsibleSection";
 import { DailyTotalsTable, groupDailyTotals } from "@/components/DailyTotals";
 import StrikeDistanceMap from "@/components/StrikeDistanceMap";
 import { closeBtcCalmTrade, enterBtcCalmNow, getBtcCalmState, getBtcCalmTrade, getBtcCalmTrades, updateBtcCalmConfig } from "@/lib/api";
-import type { BtcCalmConfig, BtcCalmState, BtcCalmTrade, BtcCalmTradeDetail } from "@/types/btc-calm";
+import type { BtcCalmBook, BtcCalmConfig, BtcCalmState, BtcCalmTrade, BtcCalmTradeDetail } from "@/types/btc-calm";
 
 const REFRESH_MS = 15000;
 
@@ -74,7 +74,6 @@ export default function BtcCalmStranglePage() {
   }
 
   const config = state?.config;
-  const closed = trades.filter((t) => t.status === "CLOSED");
 
   return (
     <section className="page">
@@ -97,21 +96,6 @@ export default function BtcCalmStranglePage() {
           <button type="button" className="button secondary" onClick={load} style={{ whiteSpace: "nowrap" }}>
             <RefreshCw size={14} /> Refresh
           </button>
-          <button
-            type="button"
-            className="button"
-            disabled={busy || !!state?.openTrade}
-            style={{ whiteSpace: "nowrap" }}
-            onClick={() =>
-              window.confirm("Sell the BTC strangle now, without waiting for the calm test or the window?") &&
-              act(async () => {
-                const r = await enterBtcCalmNow();
-                return r.message ? `${r.status}: ${r.message}` : `Strangle ${r.status}.`;
-              })
-            }
-          >
-            <Play size={14} /> Enter now
-          </button>
         </div>
       </header>
 
@@ -124,35 +108,36 @@ export default function BtcCalmStranglePage() {
         <SpotChart state={state} trades={trades} />
       </CollapsibleSection>
 
-      <CollapsibleSection id="btc-calm-open" title={`Open position (${state?.openTrade ? 1 : 0})`}>
-        {state?.openTrade ? (
-          <OpenPosition
-            trade={state.openTrade}
-            busy={busy}
-            onClose={() =>
-              window.confirm(`Buy back #${state.openTrade!.id} now?`) &&
-              act(async () => {
-                const r = await closeBtcCalmTrade(state.openTrade!.id);
-                return `#${state.openTrade!.id}: ${r.status}`;
-              })
-            }
-          />
-        ) : (
-          <NextEntry state={state} />
-        )}
-      </CollapsibleSection>
+      {state
+        ? Object.entries(state.books).map(([key, book]) => (
+            <BookSection
+              key={key}
+              bookKey={key}
+              book={book}
+              state={state}
+              trades={trades.filter((t) => (t.book ?? "standard") === key)}
+              busy={busy}
+              onEnter={() =>
+                window.confirm(`${book.label}: sell the BTC strangle now, without waiting for the calm test or the window?`) &&
+                act(async () => {
+                  const r = await enterBtcCalmNow(key);
+                  return r.message ? `${book.label}: ${r.status} -- ${r.message}` : `${book.label}: strangle ${r.status}.`;
+                })
+              }
+              onClose={(id) =>
+                window.confirm(`Buy back #${id} now?`) &&
+                act(async () => {
+                  const r = await closeBtcCalmTrade(id);
+                  return `#${id}: ${r.status}`;
+                })
+              }
+            />
+          ))
+        : null}
 
-      <CollapsibleSection id="btc-calm-trades" title={`All trades (${trades.length})`}>
-        <TradesTable trades={trades} />
-      </CollapsibleSection>
-
-      <CollapsibleSection id="btc-calm-pnl" title="Daily P&L" defaultOpen={false}>
-        <DailyTotalsTable rows={groupDailyTotals(closed, (t) => t.exitTime, (t) => t.grossPnl, (t) => t.netPnl)} />
-        <p className="pcr-oi-caption">
-          Backtest reference (8 Apr – 13 Oct 2026, 0.5 BTC/leg, 4% slippage): +$1,964 over 189 sessions (~$10/session), 205 trades, 71% winners, max drawdown
-          −$740, worst day −$290. Paper so far: {closed.length} trades, net {usd(closed.reduce((a, t) => a + t.netPnl, 0))}.
-        </p>
-      </CollapsibleSection>
+      <p className="pcr-oi-caption">
+        Backtest reference (8 Apr – 13 Oct 2026, 0.5 BTC/leg, 4% slippage): hold to 13:30 +$1,964 (max drawdown −$740); exit 06:00 +$1,235 (max drawdown −$361).
+      </p>
 
       <CollapsibleSection id="btc-calm-log" title={`Log (${state?.events.length ?? 0})`} defaultOpen={false}>
         <table style={{ fontSize: 12 }}>
@@ -170,6 +155,59 @@ export default function BtcCalmStranglePage() {
 
       {config ? <Settings config={config} onSaved={load} /> : null}
     </section>
+  );
+}
+
+function BookSection({
+  bookKey,
+  book,
+  state,
+  trades,
+  busy,
+  onEnter,
+  onClose,
+}: {
+  bookKey: string;
+  book: BtcCalmBook;
+  state: BtcCalmState;
+  trades: BtcCalmTrade[];
+  busy: boolean;
+  onEnter: () => void;
+  onClose: (id: number) => void;
+}) {
+  const closed = trades.filter((t) => t.status === "CLOSED");
+  const net = closed.reduce((a, t) => a + t.netPnl, 0);
+  const wins = closed.filter((t) => t.netPnl > 0).length;
+  return (
+    <CollapsibleSection
+      id={`btc-calm-book-${bookKey}`}
+      title={`${book.label} — ${trades.length} trades · net ${usd(net)}`}
+      aside={
+        <span style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <span className="pcr-oi-caption">
+            {book.enabled ? "on" : "paused"} · exits {book.exitBy ? ist(book.exitBy, true) : "—"} IST · this session {book.entriesThisSession}/
+            {state.config.maxEntries} entries, {book.stopsThisSession}/{state.config.maxStops} stops
+            {closed.length ? ` · ${Math.round((wins / closed.length) * 100)}% winners` : ""}
+          </span>
+          <button type="button" className="button secondary" style={{ padding: "2px 8px", fontSize: 12, whiteSpace: "nowrap" }} disabled={busy || !!book.openTrade} onClick={onEnter}>
+            <Play size={12} /> Enter now
+          </button>
+        </span>
+      }
+    >
+      {book.openTrade ? (
+        <OpenPosition trade={book.openTrade} busy={busy} onClose={() => onClose(book.openTrade!.id)} />
+      ) : (
+        <NextEntry state={state} />
+      )}
+      <h4 style={{ margin: "14px 0 4px", fontSize: 13 }}>Trades</h4>
+      <TradesTable trades={trades} />
+      <h4 style={{ margin: "14px 0 4px", fontSize: 13 }}>Daily P&amp;L</h4>
+      <DailyTotalsTable
+        rows={groupDailyTotals(closed, (t) => t.exitTime, (t) => t.grossPnl, (t) => t.netPnl)}
+        formatAmount={(v) => `${v > 0 ? "+" : v < 0 ? "−" : ""}$${Math.abs(v).toFixed(2)}`}
+      />
+    </CollapsibleSection>
   );
 }
 
@@ -207,7 +245,11 @@ function StatusStrip({ state }: { state: BtcCalmState | null }) {
         caption={`${c?.windowStart ?? ""}–${c?.windowEnd ?? ""} IST`}
         color={state?.inWindow ? "var(--green)" : undefined}
       />
-      <Metric label="This session" value={`${state?.entriesThisSession ?? 0}/${c?.maxEntries ?? 3} entries · ${state?.stopsThisSession ?? 0}/${c?.maxStops ?? 2} stops`} caption={`${c?.contracts ?? 500} contracts (${c?.btcPerLeg ?? 0.5} BTC) per leg`} />
+      <Metric
+        label="Books"
+        value={Object.values(state?.books ?? {}).map((b) => `${b.label}: ${b.openTrade ? "open" : "flat"}`).join(" · ") || "—"}
+        caption={`${c?.contracts ?? 500} contracts (${c?.btcPerLeg ?? 0.5} BTC) per leg in each book`}
+      />
     </div>
   );
 }
@@ -509,7 +551,7 @@ function SpotChart({ state, trades }: { state: BtcCalmState | null; trades: BtcC
       trades
         .filter((t) => t.entryTime >= first)
         .flatMap((t) => [
-          { time: minute(t.entryTime), position: "aboveBar" as const, color: "#c93535", shape: "arrowDown" as const, text: `#${t.id} sell` },
+          { time: minute(t.entryTime), position: "aboveBar" as const, color: "#c93535", shape: "arrowDown" as const, text: `#${t.id} ${t.book === "early" ? "06:00" : "13:30"}` },
           ...(t.exitTime && t.exitTime >= first
             ? [{ time: minute(t.exitTime), position: "belowBar" as const, color: t.netPnl >= 0 ? "#168448" : "#c93535", shape: "arrowUp" as const, text: usd(t.netPnl, 0) }]
             : []),
@@ -517,7 +559,7 @@ function SpotChart({ state, trades }: { state: BtcCalmState | null; trades: BtcC
         .sort((a, b) => (a.time as number) - (b.time as number)),
     );
     for (const l of linesRef.current) series.removePriceLine(l);
-    const o = state.openTrade;
+    const o = Object.values(state.books).map((b) => b.openTrade).find(Boolean) ?? null;
     linesRef.current = o
       ? [
           series.createPriceLine({ price: o.stopHigh, color: "#c93535", lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: "stop" }),
@@ -623,7 +665,7 @@ const FIELDS: { key: keyof BtcCalmConfig; label: string; hint: string; text?: bo
   { key: "minCredit", label: "Min credit (per BTC)", hint: "20" },
   { key: "windowStart", label: "Entry window from (IST)", hint: "22:00", text: true },
   { key: "windowEnd", label: "Entry window until (IST)", hint: "06:00", text: true },
-  { key: "exitBeforeMinutes", label: "Exit before settlement (min)", hint: "240" },
+  { key: "exitBeforeMinutes", label: "Hold-to-13:30 book: exit before settlement (min)", hint: "240" },
   { key: "maxEntries", label: "Max entries / session", hint: "3" },
   { key: "maxStops", label: "Max stops / session", hint: "2" },
 ];
@@ -662,6 +704,12 @@ function Settings({ config, onSaved }: { config: BtcCalmConfig; onSaved: () => v
           <input type="checkbox" checked={config.enabled} onChange={(e) => save({ enabled: e.target.checked })} disabled={saving} />
           Automatic entries
         </label>
+        {Object.entries(config.books).map(([key, b]) => (
+          <label key={key} style={{ display: "flex", gap: 6, alignItems: "center" }}>
+            <input type="checkbox" checked={b.enabled} onChange={(e) => save({ books: { [key]: { enabled: e.target.checked } } } as unknown as Partial<BtcCalmConfig>)} disabled={saving} />
+            {b.label} book (exits {b.exitBeforeMinutes} min before settlement)
+          </label>
+        ))}
         <label style={{ display: "flex", gap: 6, alignItems: "center" }}>
           <input type="checkbox" checked={config.earlyExit} onChange={(e) => save({ earlyExit: e.target.checked })} disabled={saving} />
           Book early at the exit-time value (then done for the session)

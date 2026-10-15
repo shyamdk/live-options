@@ -14,6 +14,7 @@ export interface BtcCalmConfig {
   maxEntries: number;
   maxStops: number;
   earlyExit: boolean;
+  books: Record<string, { label: string; enabled: boolean; exitBeforeMinutes: number }>;
   btcPerLeg: number;
   liveOrdersAllowed: boolean;
 }
@@ -35,6 +36,7 @@ export interface BtcCalmSnapshot {
   expiry?: string;
   settlement?: number;
   exitBy?: number;
+  exitByBooks?: Record<string, number>;
   spot?: number;
   atmStrike?: number;
   straddle?: number;
@@ -48,6 +50,7 @@ export interface BtcCalmSnapshot {
 
 export interface BtcCalmTrade {
   id: number;
+  book: string;
   expiry: string;
   settlement: number;
   mode: "paper" | "live";
@@ -117,9 +120,17 @@ export interface BtcCalmState {
   mode: "paper" | "live";
   snapshot: BtcCalmSnapshot;
   spot: { time: number; close: number }[];
-  sessionTrades: BtcCalmTrade[];
+  books: Record<string, BtcCalmBook>;
+  events: { time: number; kind: string; text: string }[];
+}
+
+export interface BtcCalmBook {
+  label: string;
+  enabled: boolean;
+  exitBeforeMinutes: number;
+  exitBy: number | null;
   openTrade: BtcCalmTradeDetail | null;
+  sessionTrades: BtcCalmTrade[];
   entriesThisSession: number;
   stopsThisSession: number;
-  events: { time: number; kind: string; text: string }[];
 }

@@ -61,6 +61,15 @@ DEFAULTS: dict[str, Any] = {
     "earlyExit": True,
 }
 
+# Two paper books run side by side on the same signal: "standard" holds to
+# exitBeforeMinutes (13:30 IST); "early" exits at 06:00 IST (690 minutes
+# before the 17:30 settlement) -- ~37% less profit, ~half the drawdown in
+# the backtest. Each book has its own trades, session limits and switch.
+BOOKS: dict[str, dict[str, Any]] = {
+    "standard": {"label": "Hold to 13:30", "exitBeforeMinutes": None},   # uses the global exitBeforeMinutes
+    "early": {"label": "Exit 06:00", "exitBeforeMinutes": 690},
+}
+
 _lock = asyncio.Lock()
 _runtime: dict[str, Any] = {"minute": 0, "snapshot": None, "spot": [], "spotAt": 0}
 
@@ -82,6 +91,16 @@ def get_config() -> dict[str, Any]:
             config[key] = float(raw)
         else:
             config[key] = raw
+    books = {}
+    for name, spec in BOOKS.items():
+        enabled = db.get_btc_calm_setting(f"{name}.enabled")
+        exit_before = db.get_btc_calm_setting(f"{name}.exitBeforeMinutes")
+        books[name] = {
+            "label": spec["label"],
+            "enabled": (enabled or "1") == "1",
+            "exitBeforeMinutes": int(float(exit_before)) if exit_before else (spec["exitBeforeMinutes"] or int(config["exitBeforeMinutes"])),
+        }
+    config["books"] = books
     settings = get_settings()
     config["btcPerLeg"] = round(int(config["contracts"]) * engine.CONTRACT_VALUE_BTC, 3)
     config["liveOrdersAllowed"] = bool(settings.btc_calm_live_order_enabled and settings.delta_exchange_api_key)
@@ -89,6 +108,14 @@ def get_config() -> dict[str, Any]:
 
 
 def update_config(updates: dict[str, Any]) -> dict[str, Any]:
+    for name, sub in (updates.get("books") or {}).items():
+        if name in BOOKS and isinstance(sub, dict):
+            if sub.get("enabled") is not None:
+                db.set_btc_calm_setting(f"{name}.enabled", "1" if sub["enabled"] else "0")
+            if sub.get("exitBeforeMinutes") is not None:
+                if not 30 <= int(float(sub["exitBeforeMinutes"])) <= 1400:
+                    raise ValueError("exitBeforeMinutes must be 30-1400")
+                db.set_btc_calm_setting(f"{name}.exitBeforeMinutes", str(int(float(sub["exitBeforeMinutes"]))))
     for key, value in updates.items():
         if key not in DEFAULTS or value is None:
             continue
@@ -172,8 +199,10 @@ def snapshot(chain: dict[str, Any], minutes: list[dict[str, Any]], config: dict[
             legs[side] = {**q, "distancePercent": round(abs(k - spot) / spot * 100, 2)}
     credit = sum((l.get("bid") or l.get("mark") or 0) for l in legs.values()) if len(legs) == 2 else None
     exit_by = expiry["settlement"] - int(config["exitBeforeMinutes"]) * 60
+    exit_by_books = {n: expiry["settlement"] - int(b["exitBeforeMinutes"]) * 60 for n, b in config["books"].items()}
     return {
-        "time": now_epoch, "expiry": expiry["code"], "settlement": expiry["settlement"], "exitBy": exit_by, "spot": spot,
+        "time": now_epoch, "expiry": expiry["code"], "settlement": expiry["settlement"], "exitBy": exit_by,
+        "exitByBooks": exit_by_books, "spot": spot,
         "atmStrike": atm, "straddle": round(straddle, 2), "calmRange": round(calm_range, 2) if calm_range is not None else None,
         "calmThreshold": round(threshold, 2), "calm": calm_range is not None and calm_range <= threshold,
         "legs": legs, "credit": round(credit, 2) if credit else None,
@@ -245,7 +274,7 @@ async def _execute(q: dict[str, Any], side: str, contracts: int, mode: str) -> d
     return {"ok": True, "price": fill or price, "orderId": str(order_id), "note": None if fill else "fill price not confirmed -- quote used"}
 
 
-async def _enter(config: dict[str, Any], snap: dict[str, Any], trigger: str) -> dict[str, Any]:
+async def _enter(config: dict[str, Any], snap: dict[str, Any], trigger: str, book: str = "standard") -> dict[str, Any]:
     mode = _mode(config)
     contracts = int(config["contracts"])
     legs = snap["legs"]
@@ -263,7 +292,8 @@ async def _enter(config: dict[str, Any], snap: dict[str, Any], trigger: str) -> 
     credit = round(ce + pe, 2)
     spot = float(snap["spot"])
     band = float(snap["straddle"]) * float(config["stopMultiple"])
-    early = _early_target(snap["settlement"], snap["exitBy"], now, spot, legs["CE"]["strike"], ce, legs["PE"]["strike"], pe)
+    exit_by = snap["exitByBooks"][book]
+    early = _early_target(snap["settlement"], exit_by, now, spot, legs["CE"]["strike"], ce, legs["PE"]["strike"], pe)
     trade_id = db.btc_calm_insert("btc_calm_trades", {
         "expiry_code": snap["expiry"], "settlement": snap["settlement"], "mode": mode, "trigger": trigger, "entry_time": now,
         "entry_spot": spot, "straddle": snap["straddle"], "calm_range": snap["calmRange"], "atm_strike": snap["atmStrike"],
@@ -273,13 +303,13 @@ async def _enter(config: dict[str, Any], snap: dict[str, Any], trigger: str) -> 
         "entry_quotes": json.dumps({s: {k: legs[s].get(k) for k in ("bid", "ask", "mark", "iv")} for s in ("CE", "PE")}),
         "stop_low": round(spot - band, 2), "stop_high": round(spot + band, 2),
         "backstop": round(credit * (1 + float(config["backstopPercent"]) / 100), 2), "early_target": early,
-        "exit_by": snap["exitBy"], "status": "OPEN", "fees": round(_fee(ce, contracts, spot) + _fee(pe, contracts, spot), 4),
+        "exit_by": exit_by, "book": book, "status": "OPEN", "fees": round(_fee(ce, contracts, spot) + _fee(pe, contracts, spot), 4),
         "last_ce": ce, "last_pe": pe, "last_spot": spot, "last_update": now, "best": credit, "worst": credit,
         "order_ids": json.dumps({s: f["orderId"] for s, f in fills.items()}),
     })
     db.add_btc_calm_mark(trade_id, now, credit, spot)
     usd = credit * contracts * engine.CONTRACT_VALUE_BTC
-    text = (f"#{trade_id} SELL {legs['CE']['symbol']} @ {ce:.1f} + {legs['PE']['symbol']} @ {pe:.1f} = {credit:.1f} "
+    text = (f"[{BOOKS[book]['label']}] #{trade_id} SELL {legs['CE']['symbol']} @ {ce:.1f} + {legs['PE']['symbol']} @ {pe:.1f} = {credit:.1f} "
             f"(${usd:,.2f} on {contracts} contracts) · BTC {spot:,.0f} calm ({snap['calmRange']:.0f} ≤ {snap['calmThreshold']:.0f}) · "
             f"stop if BTC < {spot - band:,.0f} or > {spot + band:,.0f}")
     _event(snap["expiry"], trade_id, "entry", text)
@@ -312,7 +342,7 @@ async def _exit(trade: dict[str, Any], chain: dict[str, Any] | None, reason: str
     db.add_btc_calm_mark(trade["id"], now, round(ce + pe, 2), spot)
     pts = float(trade["credit"]) - (ce + pe)
     net = pts * contracts * engine.CONTRACT_VALUE_BTC - fees
-    text = f"#{trade['id']} closed ({reason}) @ {ce + pe:.1f} (CE {ce:.1f} + PE {pe:.1f}) · {pts:+.1f} · net ${net:,.2f}"
+    text = f"[{BOOKS.get(trade.get('book') or 'standard', BOOKS['standard'])['label']}] #{trade['id']} closed ({reason}) @ {ce + pe:.1f} (CE {ce:.1f} + PE {pe:.1f}) · {pts:+.1f} · net ${net:,.2f}"
     _event(trade["expiry_code"], trade["id"], "exit", text)
     await _notify(f"{'✅' if net >= 0 else '🛑'} BTC Calm Strangle {text}")
 
@@ -365,34 +395,38 @@ async def _monitor() -> None:
             reason = f"exit-time value reached early ({ce + pe:.1f} ≤ {float(trade['early_target']):.1f})"
         if reason:
             await _exit(trade, chain, reason)
-    if db.list_btc_calm_trades(status="OPEN") or not fresh_minute:
+    if not fresh_minute:
         return
-
     snap = _runtime["snapshot"]
     if snap.get("error") or not config["enabled"] or not in_window(now, config):
         return
-    if now_epoch >= snap["exitBy"] - 30 * 60:
-        return
-    session = db.list_btc_calm_trades(expiry_code=snap["expiry"])
-    stops = sum(1 for t in session if "stop" in (t["exit_reason"] or "") or "backstop" in (t["exit_reason"] or ""))
-    if len(session) >= int(config["maxEntries"]) or stops >= int(config["maxStops"]):
-        return
-    if any("reached early" in (t["exit_reason"] or "") for t in session):
-        return
     if not snap["calm"] or len(snap["legs"]) < 2 or not snap["credit"] or snap["credit"] < float(config["minCredit"]):
         return
-    await _enter(config, snap, "calm")
+    for book, spec in config["books"].items():
+        if not spec["enabled"] or db.list_btc_calm_trades(status="OPEN", book=book):
+            continue
+        if now_epoch >= snap["exitByBooks"][book] - 30 * 60:
+            continue
+        session = db.list_btc_calm_trades(expiry_code=snap["expiry"], book=book)
+        stops = sum(1 for t in session if "stop" in (t["exit_reason"] or "") or "backstop" in (t["exit_reason"] or ""))
+        if len(session) >= int(config["maxEntries"]) or stops >= int(config["maxStops"]):
+            continue
+        if any("reached early" in (t["exit_reason"] or "") for t in session):
+            continue
+        await _enter(config, snap, "calm", book)
 
 
-async def enter_now() -> dict[str, Any]:
+async def enter_now(book: str = "standard") -> dict[str, Any]:
+    if book not in BOOKS:
+        return {"status": "blocked", "message": "Unknown book."}
     async with _lock:
-        if db.list_btc_calm_trades(status="OPEN"):
-            return {"status": "blocked", "message": "A strangle is already open."}
+        if db.list_btc_calm_trades(status="OPEN", book=book):
+            return {"status": "blocked", "message": f"{BOOKS[book]['label']}: a strangle is already open."}
         config = get_config()
         snap = snapshot(await _chain(), await _spot_minutes(), config, int(time.time()))
         if snap.get("error") or len(snap.get("legs") or {}) < 2:
             return {"status": "blocked", "message": snap.get("error") or "Strikes unavailable."}
-        return await _enter(config, snap, "manual")
+        return await _enter(config, snap, "manual", book)
 
 
 async def close_now(trade_id: int) -> dict[str, Any]:
@@ -414,7 +448,7 @@ def summarize(t: dict[str, Any]) -> dict[str, Any]:
     points = float(t["credit"]) - current
     gross = points * btc
     return {
-        "id": t["id"], "expiry": t["expiry_code"], "settlement": t["settlement"], "mode": t["mode"], "trigger": t["trigger"],
+        "id": t["id"], "book": t.get("book") or "standard", "expiry": t["expiry_code"], "settlement": t["settlement"], "mode": t["mode"], "trigger": t["trigger"],
         "entryTime": t["entry_time"], "entrySpot": t["entry_spot"], "straddle": t["straddle"], "calmRange": t["calm_range"],
         "atmStrike": t["atm_strike"], "ceStrike": t["ce_strike"], "peStrike": t["pe_strike"], "ceSymbol": t["ce_symbol"],
         "peSymbol": t["pe_symbol"], "contracts": t["contracts"], "btcPerLeg": round(btc, 3), "entryCe": t["entry_ce"],
@@ -487,21 +521,26 @@ async def state() -> dict[str, Any]:
             snap = snapshot(await _chain(), await _spot_minutes(), config, int(time.time()))
         except Exception as exc:
             snap = {"error": f"Delta data unavailable: {exc}"}
-    session = [summarize(t) for t in db.list_btc_calm_trades(expiry_code=snap.get("expiry"))] if snap.get("expiry") else []
-    open_row = next(iter(db.list_btc_calm_trades(status="OPEN")), None)
-    open_trade = None
-    if open_row:
-        s = summarize(open_row)
-        open_trade = {**s, **analytics(s)}
-    stops = sum(1 for t in session if t["exitReason"] and ("stop" in t["exitReason"] or "backstop" in t["exitReason"]))
+    books = {}
+    for book, spec in config["books"].items():
+        session = [summarize(t) for t in db.list_btc_calm_trades(expiry_code=snap.get("expiry"), book=book)] if snap.get("expiry") else []
+        open_row = next(iter(db.list_btc_calm_trades(status="OPEN", book=book)), None)
+        open_trade = None
+        if open_row:
+            s = summarize(open_row)
+            open_trade = {**s, **analytics(s)}
+        books[book] = {
+            **spec, "openTrade": open_trade, "sessionTrades": session, "entriesThisSession": len(session),
+            "stopsThisSession": sum(1 for t in session if t["exitReason"] and ("stop" in t["exitReason"] or "backstop" in t["exitReason"])),
+            "exitBy": (snap.get("exitByBooks") or {}).get(book),
+        }
     try:
         spot_series = await _spot_minutes()
     except Exception:
         spot_series = []
     return {
         "config": config, "now": int(time.time()), "inWindow": in_window(now, config), "mode": _mode(config), "snapshot": snap,
-        "spot": spot_series, "sessionTrades": session, "openTrade": open_trade, "entriesThisSession": len(session),
-        "stopsThisSession": stops,
+        "spot": spot_series, "books": books,
         "events": [{"time": e["time"], "kind": e["kind"], "text": e["text"]} for e in db.list_btc_calm_events(200)],
     }
 

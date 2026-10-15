@@ -889,8 +889,8 @@ export async function getBtcCalmTrade(id: number): Promise<BtcCalmTradeDetail> {
   return apiJson<BtcCalmTradeDetail>(`/api/btc-calm/trades/${id}`, undefined, "Failed to load the trade");
 }
 
-export async function enterBtcCalmNow(): Promise<{ status: string; message?: string; tradeId?: number }> {
-  return apiJson("/api/btc-calm/enter", { method: "POST" }, "BTC Calm entry failed");
+export async function enterBtcCalmNow(book = "standard"): Promise<{ status: string; message?: string; tradeId?: number }> {
+  return apiJson(`/api/btc-calm/enter?book=${book}`, { method: "POST" }, "BTC Calm entry failed");
 }
 
 export async function closeBtcCalmTrade(id: number): Promise<{ status: string; message?: string }> {

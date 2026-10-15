@@ -37,8 +37,8 @@ async def trade(trade_id: int) -> dict[str, Any]:
 
 
 @router.post("/enter", dependencies=[Depends(require_auth)])
-async def enter() -> dict[str, Any]:
-    return await btc_calm.enter_now()
+async def enter(book: str = "standard") -> dict[str, Any]:
+    return await btc_calm.enter_now(book)
 
 
 @router.post("/trades/{trade_id}/close", dependencies=[Depends(require_auth)])

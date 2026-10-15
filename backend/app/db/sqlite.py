@@ -949,6 +949,7 @@ def init_db() -> None:
             )
             """
         )
+        _add_column_if_missing(conn, "btc_calm_trades", "book", "TEXT NOT NULL DEFAULT 'standard'")
         conn.execute("CREATE TABLE IF NOT EXISTS btc_calm_events (id INTEGER PRIMARY KEY AUTOINCREMENT, expiry_code TEXT, trade_id INTEGER, time INTEGER NOT NULL, kind TEXT NOT NULL, text TEXT NOT NULL)")
         conn.execute("CREATE TABLE IF NOT EXISTS btc_calm_marks (trade_id INTEGER NOT NULL, time INTEGER NOT NULL, combined REAL NOT NULL, spot REAL, PRIMARY KEY (trade_id, time))")
         conn.execute("CREATE TABLE IF NOT EXISTS btc_calm_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL)")
@@ -4546,8 +4547,11 @@ def btc_calm_update_trade(trade_id: int, **values: Any) -> None:
     _mantra_update("btc_calm_trades", trade_id, values)
 
 
-def list_btc_calm_trades(*, status: str | None = None, expiry_code: str | None = None, limit: int = 1000) -> list[dict[str, Any]]:
+def list_btc_calm_trades(*, status: str | None = None, expiry_code: str | None = None, book: str | None = None,
+                         limit: int = 1000) -> list[dict[str, Any]]:
     clauses, params = [], []
+    if book:
+        clauses.append("book = ?"); params.append(book)
     if status:
         clauses.append("status = ?"); params.append(status)
     if expiry_code:
