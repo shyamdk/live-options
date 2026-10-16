@@ -208,6 +208,30 @@ export type TagLevels = {
   updatedAt: string | null;
 };
 
+export type TagPayoff = {
+  error?: string;
+  spot?: number;
+  points?: { price: number; today: number; expiry: number }[];
+  breakevens?: number[];
+  basis?: string;
+  currentPnl?: number;
+  maxDayProfit?: number;
+  maxDayProfitAt?: number;
+  capturePercent?: number | null;
+  closeAt?: number;
+  ivs?: Record<string, number>;
+};
+
+export type TagSuggestion = {
+  capturePercent: number;
+  thresholdPercent: number;
+  currentPnl: number;
+  maxDayProfit: number;
+  text: string;
+};
+
+export type SuggestConfig = { enabled: boolean; thresholdPercent: number };
+
 export type TagSummary = {
   tag: string;
   isStrangle: boolean;
@@ -220,6 +244,8 @@ export type TagSummary = {
   toTarget: number | null;
   toStopLoss: number | null;
   levels: TagLevels;
+  payoff?: TagPayoff | null;
+  suggestion?: TagSuggestion | null;
 };
 
 export type LiveTradeSummary = {
@@ -243,6 +269,7 @@ export type LiveTradeSnapshot = {
   updatedAt: string;
   summary: LiveTradeSummary;
   tagGroups?: TagSummary[];
+  suggestConfig?: SuggestConfig;
   groups: {
     closed: LiveTrade[];
     equity: LiveTrade[];

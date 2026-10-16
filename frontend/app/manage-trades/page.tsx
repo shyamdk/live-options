@@ -18,6 +18,7 @@ import {
   approveRiskExit,
   closeTrade,
   exitTag,
+  updateSuggestConfig,
   getDhanSession,
   getLiveTrades,
   getTradeCandles,
@@ -26,7 +27,8 @@ import {
   saveTradeLevels,
 } from "@/lib/api";
 import { isMarketHoursNow } from "@/lib/marketHours";
-import type { DhanSession, LiveTrade, LiveTradeSnapshot, MarketCandle, TagSummary } from "@/types/live";
+import type { DhanSession, LiveTrade, LiveTradeSnapshot, MarketCandle, SuggestConfig, TagSummary } from "@/types/live";
+import VarahaPayoffChart from "@/components/VarahaPayoffChart";
 import PcrOiPanel from "@/components/PcrOiPanel";
 
 type DraftLevels = {
@@ -106,6 +108,9 @@ export default function ManageTradesPage() {
   }
 
   function checkRiskAlerts(payload: LiveTradeSnapshot) {
+    for (const group of payload.tagGroups ?? []) {
+      if (group.suggestion && !isSnoozed(group.tag)) notifySuggestion(group);
+    }
     const trades = payload.groups.options;
     const now = Date.now();
     for (const trade of trades) {
@@ -219,13 +224,17 @@ export default function ManageTradesPage() {
     }
   }
 
-  async function handleExitTag(group: TagGroup) {
+  async function handleExitTag(group: TagGroup, viaSuggestion = false) {
     const legs = group.openTrades.map(tradeLabel).join(", ");
-    if (!window.confirm(`Close ALL open legs in "${group.tag}" with market orders?\n\n${legs}\n\nShorts are bought back first, then longs are sold.`)) return;
+    const hint = group.summary?.suggestion;
+    const intro = viaSuggestion && hint
+      ? `Book profit on "${group.tag}"?\n\nToday's P&L ${money(hint.currentPnl)} is ${hint.capturePercent.toFixed(0)}% of the most it can make today (${money(hint.maxDayProfit)}).\n\nThis closes ALL open legs with market orders:`
+      : `Close ALL open legs in "${group.tag}" with market orders?`;
+    if (!window.confirm(`${intro}\n\n${legs}\n\nShorts are bought back first, then longs are sold.`)) return;
     setMessage(null);
     setError(null);
     try {
-      const result = await exitTag(group.tag);
+      const result = await exitTag(group.tag, viaSuggestion ? "suggestion" : "manual");
       setMessage(`${group.tag}: close all ${String(result.status ?? "submitted")}${result.message ? ` -- ${result.message}` : ""}.`);
       await loadTrades();
     } catch (exc) {
@@ -294,6 +303,8 @@ export default function ManageTradesPage() {
           Risk orders {riskOrderLabel(session)}
         </span>
       </div>
+
+      {snapshot?.suggestConfig ? <SuggestSettings config={snapshot.suggestConfig} onSaved={loadTrades} /> : null}
 
       <div className="metric-grid">
         <Metric label="Day P&L" value={money(summary?.dayPnl)} tone={tone(summary?.dayPnl)} />
@@ -477,7 +488,7 @@ function TagGroupTable({
   onClose: (trade: LiveTrade) => void;
   onApprove: (trade: LiveTrade) => void;
   onSaveTagLevels: (tag: string, target: number | null, stopLoss: number | null) => Promise<void>;
-  onExitTag: (group: TagGroup) => Promise<void>;
+  onExitTag: (group: TagGroup, viaSuggestion?: boolean) => Promise<void>;
   expandedIds: Set<string>;
   onToggleExpand: (tradeId: string) => void;
 }) {
@@ -503,9 +514,13 @@ function TagGroupTable({
         </span>
         <span>Remaining Premium: {money(groupRemaining)}</span>
       </div>
+      {group.summary?.suggestion && group.openTrades.length ? (
+        <SuggestionBanner group={group} onAccept={() => onExitTag(group, true)} />
+      ) : null}
       {group.summary ? (
         <TagLevelsBar group={group} summary={group.summary} onSave={onSaveTagLevels} onExit={onExitTag} />
       ) : null}
+      {group.summary?.payoff && group.openTrades.length ? <TagPayoffPanel group={group} /> : null}
       {expanded ? (
       <div className="table-wrap">
         <table className="wide-table">
@@ -650,6 +665,158 @@ function TagGroupTable({
       </div>
       ) : null}
     </section>
+  );
+}
+
+const SNOOZE_MS = 30 * 60 * 1000;
+const notifiedSuggestions = new Set<string>();
+
+function snoozeKey(tag: string): string {
+  return `manage-trades:suggest-snooze:${tag}`;
+}
+
+function isSnoozed(tag: string): boolean {
+  try {
+    return Number(window.localStorage.getItem(snoozeKey(tag)) || 0) > Date.now();
+  } catch {
+    return false;
+  }
+}
+
+function notifySuggestion(group: TagSummary): void {
+  const key = `${new Date().toDateString()}:${group.tag}`;
+  if (notifiedSuggestions.has(key)) return;
+  notifiedSuggestions.add(key);
+  if (typeof window === "undefined" || !("Notification" in window) || Notification.permission !== "granted") return;
+  try {
+    new Notification(`Book profit on ${group.tag}?`, { body: group.suggestion?.text ?? "", tag: `suggest-${group.tag}` });
+  } catch {
+    // ignore
+  }
+}
+
+function SuggestionBanner({ group, onAccept }: { group: TagGroup; onAccept: () => Promise<void> }) {
+  const hint = group.summary?.suggestion;
+  const [snoozed, setSnoozed] = useState(false);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    setSnoozed(isSnoozed(group.tag));
+    const timer = window.setInterval(() => setSnoozed(isSnoozed(group.tag)), 30_000);
+    return () => window.clearInterval(timer);
+  }, [group.tag]);
+  if (!hint || snoozed) return null;
+  function snooze() {
+    try {
+      window.localStorage.setItem(snoozeKey(group.tag), String(Date.now() + SNOOZE_MS));
+    } catch {
+      // ignore
+    }
+    setSnoozed(true);
+  }
+  async function accept() {
+    setBusy(true);
+    try {
+      await onAccept();
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <div className="alert warning" style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap", margin: "6px 0" }}>
+      <div style={{ flex: 1, minWidth: 260 }}>
+        <strong>💡 Profit-booking suggestion ({hint.capturePercent.toFixed(0)}% of today&apos;s max)</strong>
+        <div style={{ fontSize: 13 }}>{hint.text}</div>
+      </div>
+      <button type="button" className="button" onClick={accept} disabled={busy}>
+        {busy ? "Booking…" : "Book profit (close all legs)"}
+      </button>
+      <button type="button" className="button secondary" onClick={snooze} disabled={busy}>
+        Not now (30 min)
+      </button>
+    </div>
+  );
+}
+
+function TagPayoffPanel({ group }: { group: TagGroup }) {
+  const payoff = group.summary?.payoff;
+  const [expanded, toggle] = useSectionExpanded(`payoff:${group.tag}`);
+  if (!payoff) return null;
+  if (payoff.error) {
+    return <p className="pcr-oi-caption" style={{ margin: "4px 0" }}>Payoff: {payoff.error}</p>;
+  }
+  const capture = payoff.capturePercent;
+  return (
+    <div style={{ margin: "6px 0" }}>
+      <div className="gb-status-row" style={{ alignItems: "center" }}>
+        <button type="button" className="button secondary" onClick={toggle} style={{ padding: "2px 10px" }}>
+          {expanded ? "Hide payoff" : "Show payoff"}
+        </button>
+        <span>
+          Today&apos;s P&amp;L: <strong className={tone(payoff.currentPnl)}>{money(payoff.currentPnl)}</strong>
+        </span>
+        <span>
+          Max day profit: <strong>{money(payoff.maxDayProfit)}</strong> (index ≈ {Math.round(payoff.maxDayProfitAt ?? 0).toLocaleString("en-IN")})
+        </span>
+        <span>
+          Captured: <strong>{capture !== null && capture !== undefined ? `${capture.toFixed(0)}%` : "—"}</strong>
+        </span>
+        <span className="pcr-oi-caption">counted {payoff.basis}; before charges</span>
+      </div>
+      {expanded && payoff.points?.length ? (
+        <VarahaPayoffChart
+          chartId={`tag-payoff-${group.tag}`}
+          label={`${group.tag} payoff`}
+          points={payoff.points}
+          breakevens={payoff.breakevens ?? []}
+          spot={payoff.spot ?? 0}
+          expectedMove={null}
+          todayLabel="Today at 15:30 close (max day profit = its peak)"
+        />
+      ) : null}
+    </div>
+  );
+}
+
+function SuggestSettings({ config, onSaved }: { config: SuggestConfig; onSaved: () => Promise<void> }) {
+  const [threshold, setThreshold] = useState(String(config.thresholdPercent));
+  const [busy, setBusy] = useState(false);
+  useEffect(() => setThreshold(String(config.thresholdPercent)), [config.thresholdPercent]);
+  async function save(updates: Partial<SuggestConfig>) {
+    setBusy(true);
+    try {
+      await updateSuggestConfig(updates);
+      await onSaved();
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <div className="status-row" style={{ flexWrap: "wrap", gap: 10 }}>
+      <label style={{ display: "flex", gap: 6, alignItems: "center" }}>
+        <input type="checkbox" checked={config.enabled} disabled={busy} onChange={(e) => save({ enabled: e.target.checked })} />
+        Profit-booking suggestions
+      </label>
+      <span>when today&apos;s P&amp;L reaches</span>
+      <input
+        type="number"
+        min={10}
+        max={100}
+        step={1}
+        value={threshold}
+        onChange={(e) => setThreshold(e.target.value)}
+        style={{ width: 64 }}
+        disabled={busy}
+      />
+      <span>% of the max day profit</span>
+      <button
+        type="button"
+        className="button secondary"
+        disabled={busy || Number(threshold) === config.thresholdPercent || !(Number(threshold) >= 10 && Number(threshold) <= 100)}
+        onClick={() => save({ thresholdPercent: Number(threshold) })}
+      >
+        Save
+      </button>
+    </div>
   );
 }
 

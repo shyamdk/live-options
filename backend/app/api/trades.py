@@ -5,6 +5,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
+from app.services import tag_payoff
 from app.services.app_auth import require_auth
 from app.services.trades import (
     approve_risk_exit,
@@ -55,8 +56,29 @@ async def update_tag_levels(tag: str, payload: TagLevelsIn) -> dict[str, Any]:
 
 
 @router.post("/tags/{tag}/exit", dependencies=[Depends(require_auth)])
-async def exit_tag(tag: str) -> dict[str, Any]:
-    return await exit_tag_now(tag)
+async def exit_tag(tag: str, reason: str = "manual") -> dict[str, Any]:
+    try:
+        return await exit_tag_now(tag, reason)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+class SuggestConfigIn(BaseModel):
+    enabled: bool | None = None
+    thresholdPercent: float | None = None
+
+
+@router.get("/suggestions/config", dependencies=[Depends(require_auth)])
+async def suggestion_config() -> dict[str, Any]:
+    return tag_payoff.get_config()
+
+
+@router.put("/suggestions/config", dependencies=[Depends(require_auth)])
+async def update_suggestion_config(payload: SuggestConfigIn) -> dict[str, Any]:
+    try:
+        return tag_payoff.update_config(payload.enabled, payload.thresholdPercent)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @router.put("/{trade_id}/levels", dependencies=[Depends(require_auth)])

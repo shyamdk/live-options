@@ -29,6 +29,8 @@ from app.services.charges import (
 from app.services.dhan import DhanService
 from app.services.market import MarketService
 from app.services.orders import DhanOrderService
+from app.services import tag_payoff
+from app.db.sqlite import get_manage_setting, set_manage_setting
 from app.services.telegram import TelegramNotifier
 
 
@@ -99,6 +101,17 @@ async def _live_trade_snapshot() -> dict[str, Any]:
 
     _assign_tags(option_trades, closed_options)
     tag_groups = _tag_groups(option_trades, closed_options, get_tag_levels(today_ist()))
+    suggest_config = tag_payoff.get_config()
+    market_open = _market_open_now()
+    await _apply_prev_closes(service, [t for t in [*option_trades, *closed_options] if t.get("carryQty")])
+    for group in tag_groups:
+        legs = [trade for trade in [*option_trades, *closed_options] if trade.get("tag") == group["tag"]]
+        try:
+            payoff = tag_payoff.tag_payoff(legs)
+        except Exception as exc:  # never let the payoff break the positions view
+            payoff = {"error": f"Payoff unavailable: {exc}"}
+        group["payoff"] = payoff
+        group["suggestion"] = tag_payoff.suggestion(payoff, suggest_config, market_open)
 
     equity = [trade for trade in open_trades if trade["assetClass"] == "EQUITY"]
     await _notify_spot_distance_alerts([trade for trade in option_trades if trade["side"] == "SELL"])
@@ -109,6 +122,7 @@ async def _live_trade_snapshot() -> dict[str, Any]:
         "updatedAt": datetime.now().isoformat(timespec="seconds"),
         "summary": summary,
         "tagGroups": tag_groups,
+        "suggestConfig": suggest_config,
         "groups": {
             "closed": sorted(closed, key=_closed_sort_key),
             "equity": sorted(equity, key=lambda row: row["tradingSymbol"]),
@@ -204,12 +218,44 @@ async def process_risk_order_check() -> dict[str, Any]:
     }
 
 
+_SUGGEST_CHECK_SECONDS = 60
+_last_suggest_check = 0.0
+
+
+async def _maybe_notify_suggestions() -> None:
+    """Once a minute in market hours: Telegram the first profit-booking
+    suggestion of the day for each tag (the page shows it live)."""
+    global _last_suggest_check
+    now = datetime.now().timestamp()
+    if now - _last_suggest_check < _SUGGEST_CHECK_SECONDS:
+        return
+    _last_suggest_check = now
+    if not _market_open_now() or not tag_payoff.get_config()["enabled"]:
+        return
+    snapshot = await _live_trade_snapshot()
+    today = today_ist()
+    for group in snapshot.get("tagGroups") or []:
+        hint = group.get("suggestion")
+        key = f"suggest.notified.{today}.{group['tag']}"
+        if not hint or get_manage_setting(key):
+            continue
+        set_manage_setting(key, str(hint["capturePercent"]))
+        await TelegramNotifier().send(
+            f"💡 Book-profit suggestion: {group['tag']}\n{hint['text']}\n"
+            "Open Manage Trades to accept (closes every open leg of the tag) or ignore it."
+        )
+
+
 async def _risk_order_monitor_loop() -> None:
     settings = get_settings()
     interval = max(settings.risk_order_monitor_interval_seconds, 1)
     while True:
         try:
             await process_risk_order_check()
+            try:
+                await _maybe_notify_suggestions()
+            except Exception:
+                pass
             await asyncio.sleep(interval)
         except asyncio.CancelledError:
             raise
@@ -361,6 +407,46 @@ def _find_trade(snapshot: dict[str, Any], trade_id: str) -> dict[str, Any] | Non
     return None
 
 
+def _carry_fields(row: dict[str, Any]) -> dict[str, Any]:
+    """Carried-in quantity and today's traded values, so today's P&L can be
+    counted from yesterday's close for carried legs (tag payoff)."""
+    cf_buy, cf_sell = _number(row.get("carryForwardBuyQty")), _number(row.get("carryForwardSellQty"))
+    day_buy, day_sell = _number(row.get("dayBuyValue")), _number(row.get("daySellValue"))
+    if (cf_buy is None and cf_sell is None) or day_buy is None or day_sell is None:
+        return {"carryQty": None, "dayBuyValue": None, "daySellValue": None}
+    return {"carryQty": int((cf_buy or 0) - (cf_sell or 0)), "dayBuyValue": day_buy, "daySellValue": day_sell}
+
+
+_PREV_CLOSE_CACHE: dict[tuple[str, str], float] = {}
+
+
+async def _apply_prev_closes(service: DhanService, legs: list[dict[str, Any]]) -> None:
+    """Yesterday's close of each carried option leg (Dhan quote ohlc.close),
+    cached for the day -- it doesn't change intraday."""
+    today = today_ist()
+    missing: dict[str, list[int]] = {}
+    for leg in legs:
+        key = (today, str(leg.get("securityId") or ""))
+        if key in _PREV_CLOSE_CACHE:
+            leg["prevClose"] = _PREV_CLOSE_CACHE[key]
+            continue
+        security_id = _int(leg.get("securityId"))
+        if security_id and leg.get("exchangeSegment"):
+            missing.setdefault(str(leg["exchangeSegment"]), []).append(security_id)
+    if not missing:
+        return
+    try:
+        quotes = await service.market_quotes_by_segment(missing)
+    except Exception:
+        return
+    for leg in legs:
+        quote = (quotes.get(str(leg.get("exchangeSegment") or "")) or {}).get(str(leg.get("securityId") or "")) or {}
+        close = _number((quote.get("ohlc") or {}).get("close"))
+        if close:
+            _PREV_CLOSE_CACHE[(today, str(leg.get("securityId") or ""))] = close
+            leg["prevClose"] = close
+
+
 def _normalize_position(row: dict[str, Any]) -> dict[str, Any] | None:
     qty = int(_number(_first(row, "netQty", "netQuantity", "quantity", "positionQty")) or 0)
 
@@ -435,6 +521,7 @@ def _normalize_position(row: dict[str, Any]) -> dict[str, Any] | None:
             "dayPnl": realized,
             "percentChange": _percent_change(entry_avg, exit_avg, percent_qty),
             "rawProductType": row.get("productType"),
+            **_carry_fields(row),
         }
 
     ltp_derived = False
@@ -476,6 +563,7 @@ def _normalize_position(row: dict[str, Any]) -> dict[str, Any] | None:
         "dayPnl": round(open_pnl + realized, 2),
         "percentChange": _percent_change(avg_price, ltp, qty),
         "rawProductType": row.get("productType"),
+        **_carry_fields(row),
     }
     used_stale_ltp = _apply_cached_ltp(trade)
     if used_stale_ltp:
@@ -1221,9 +1309,12 @@ async def _check_tag_levels(snapshot: dict[str, Any]) -> list[dict[str, Any]]:
     return actions
 
 
-async def exit_tag_now(tag: str) -> dict[str, Any]:
+async def exit_tag_now(tag: str, reason: str = "manual") -> dict[str, Any]:
     """User-initiated 'close every open leg in this tag' (also the retry
-    path after a failed automatic exit)."""
+    path after a failed automatic exit). reason: manual | suggestion (the
+    user accepted a profit-booking suggestion)."""
+    if reason not in ("manual", "suggestion"):
+        raise ValueError("reason must be manual or suggestion")
     normalized = normalize_tag(tag)
     snapshot = await _live_trade_snapshot()
     open_legs = [trade for trade in (snapshot.get("groups") or {}).get("options") or [] if trade.get("tag") == normalized]
@@ -1231,10 +1322,10 @@ async def exit_tag_now(tag: str) -> dict[str, Any]:
         return {"tag": normalized, "status": "blocked", "message": "No open positions in this tag."}
     net = next((g["netPnl"] for g in snapshot.get("tagGroups") or [] if g["tag"] == normalized), None)
     async with _TAG_EXIT_LOCK:
-        outcome = await _exit_tag_legs(normalized, open_legs, reason="manual")
+        outcome = await _exit_tag_legs(normalized, open_legs, reason=reason)
         if normalized in get_tag_levels(today_ist()):
             finish_tag_trigger(today_ist(), normalized, status=outcome["status"], result={**outcome, "manual": True})
-    await _notify_tag_exit(normalized, "manual", net, {}, outcome)
+    await _notify_tag_exit(normalized, reason, net, {}, outcome)
     return {"tag": normalized, **outcome}
 
 
@@ -1312,7 +1403,8 @@ async def _exit_tag_legs(tag: str, legs: list[dict[str, Any]], *, reason: str) -
 
 
 async def _notify_tag_exit(tag: str, kind: str, net: float | None, levels: dict[str, Any], outcome: dict[str, Any]) -> None:
-    title = {"target": "🎯 Tag target hit", "stopLoss": "🛑 Tag stop loss hit", "manual": "Tag closed manually"}.get(kind, kind)
+    title = {"target": "🎯 Tag target hit", "stopLoss": "🛑 Tag stop loss hit", "manual": "Tag closed manually",
+             "suggestion": "💡 Tag closed -- profit-booking suggestion accepted"}.get(kind, kind)
     level = levels.get("target") if kind == "target" else levels.get("stopLoss")
     lines = [
         f"{title}: {tag}",

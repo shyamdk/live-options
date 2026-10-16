@@ -70,6 +70,7 @@ const DIRECTION_COLOR: Record<string, string> = { Up: "#168448", Down: "#c93535"
 const GAP_TREND_LABEL: Record<string, string> = { increasing: "Increasing", decreasing: "Decreasing", flat: "Flat" };
 const EXIT_REASON_LABEL: Record<string, string> = {
   cross_under: "Cross-under",
+  plain_target: "Plain target",
   target_5: "Target +5%",
   target_10: "Target +10%",
   stop_loss: "Stop loss",
@@ -347,11 +348,13 @@ function StrategyConditionsPanel({
   loadError: string | null;
 }) {
   const [stopLossDraft, setStopLossDraft] = useState("");
+  const [plainTargetDraft, setPlainTargetDraft] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (config) setStopLossDraft(String(config.stopLossPercent));
+    if (config) setPlainTargetDraft(String(config.plainTargetPercent ?? 0));
   }, [config]);
 
   async function save(updates: Partial<SimpleCrossoverConfig>) {
@@ -365,6 +368,12 @@ function StrategyConditionsPanel({
     } finally {
       setSaving(false);
     }
+  }
+
+  function savePlainTarget() {
+    const value = Number(plainTargetDraft);
+    if (!config || !Number.isFinite(value) || value < 0 || value > 100 || value === config.plainTargetPercent) return;
+    void save({ plainTargetPercent: value });
   }
 
   function saveStopLoss() {
@@ -387,11 +396,27 @@ function StrategyConditionsPanel({
           disabled={!config || saving}
           onChange={() => void save({ plainCrossover: !config?.plainCrossover })}
         />
-        Plain cross over (exit only on the cross-under -- no stop loss, targets or trailing)
+        Plain cross over (exit on the profit target or the cross-under -- no stop loss, staged targets or trailing)
+      </label>
+      <label style={{ display: "flex", alignItems: "center", gap: 6, margin: "6px 0 0 22px", fontSize: 13 }}>
+        Plain profit target
+        <input
+          type="number"
+          min={0}
+          max={100}
+          step={0.5}
+          value={plainTargetDraft}
+          onChange={(event) => setPlainTargetDraft(event.target.value)}
+          onBlur={savePlainTarget}
+          onKeyDown={(event) => event.key === "Enter" && savePlainTarget()}
+          disabled={!config || saving}
+          style={{ width: 76, fontSize: 12, padding: "2px 6px" }}
+        />
+        % above entry (0 = off)
       </label>
       <p className="pcr-oi-caption" style={{ margin: "4px 0 10px" }}>
         {config?.plainCrossover
-          ? "ON: entries still follow the day-direction setting below; every lot exits only on the cross-under or the 15:30 square-off -- the stop loss and +5%/+10% targets below are ignored. These trades are commented \"Plain cross over\"."
+          ? `ON: entries still follow the day-direction setting below; all lots exit together at +${config.plainTargetPercent ?? 0}% (if set), on the cross-under, or at the 15:30 square-off -- the stop loss and +5%/+10% targets below are ignored. Each trade keeps the target it entered with. These trades are commented "Plain cross over".`
           : "OFF: stop loss, staged targets and trailing apply."}
       </p>
 
@@ -549,7 +574,9 @@ function PaperTradesSection({
                     <td>{t.plainCrossover ? "none (plain)" : stopPrice != null ? `${stopLabel} ${fmtNum(stopPrice)}` : "—"}</td>
                     <td>
                       {t.plainCrossover
-                        ? "exit on cross-under"
+                        ? t.plainTargetPercent
+                          ? `+${t.plainTargetPercent}% (${fmtNum(t.entryPremium * (1 + t.plainTargetPercent / 100))}) or cross-under`
+                          : "exit on cross-under"
                         : `${t.target1Hit ? "+5% sold" : "+5% pending"} · ${t.target2Hit ? "+10% sold" : "+10% pending"}`}
                     </td>
                     <td style={{ color: (t.realizedPnl ?? 0) >= 0 ? "var(--green)" : "var(--red)" }}>{fmtSigned(t.realizedPnl)}</td>
@@ -896,7 +923,11 @@ function tradeNotes(data: SimpleCrossoverData, trades: SimpleCrossoverTrade[]): 
           ? `Why: EMA8 crossed above EMA21 on the ${tf}-min candle of ${istTime(t.signalTime)} (close ${fmtNum(t.signalClose)}, ${t.signalSource === "live" ? "live price" : "Dhan candle"}) · entered +${lag}s`
           : "Why: EMA8 crossed above EMA21",
         `Day direction ${t.dayDirection ?? "—"}${t.entryEmaGap != null ? ` · EMA gap ${fmtNum(t.entryEmaGap)}` : ""}${t.entryPcr != null ? ` · PCR ${fmtNum(t.entryPcr)}` : ""}`,
-        t.plainCrossover ? "Exits only on the cross-under or 15:30" : `Stop ${fmtNum(t.stopLossPrice)} · targets +5% / +10% then trail`,
+        t.plainCrossover
+          ? t.plainTargetPercent
+            ? `Exits at +${t.plainTargetPercent}% (${fmtNum(t.entryPremium * (1 + t.plainTargetPercent / 100))}), on the cross-under or at 15:30`
+            : "Exits only on the cross-under or 15:30"
+          : `Stop ${fmtNum(t.stopLossPrice)} · targets +5% / +10% then trail`,
       ],
     });
     const legs = t.exitLegs.length

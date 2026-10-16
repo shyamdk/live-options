@@ -32,11 +32,16 @@ EMA_SLOW_PERIOD = 21
 RSI_PERIOD = 8
 RSI_SMA_PERIOD = 5
 GAP_TREND_LOOKBACK = 3
-# How many recent 1-minute candles _evaluate_entry looks back through for
-# an unhandled crossover, instead of only the very latest candle pair --
-# recovers from a single missed/failed poll without risking entry into a
-# stale, long-past crossover after a real outage.
-RECENT_CROSSOVER_LOOKBACK_CANDLES = 5
+# How many candles before the just-closed one _evaluate_entry may still act
+# on. 0 = only the just-closed candle.
+RECENT_CROSSOVER_LOOKBACK_CANDLES = 0
+# 16 Oct 2026: the lookback used to be 5 candles, which let a crossover that
+# happened while the day-direction gate was closed (Sideways) be bought
+# minutes later when the gate opened -- 3-4 candles late and ~4% higher.
+# Now only the just-closed candle can trigger (it is still seen by all four
+# polls of its minute), and an entry is skipped if the live price has already
+# run more than ENTRY_CHASE_LIMIT_PERCENT above the signal candle's close.
+ENTRY_CHASE_LIMIT_PERCENT = 2.0
 # Net NIFTY move from today's open beyond this % counts as a trending day;
 # inside it is Sideways. This replaced an earlier version that reused OI
 # Upgraded's `regime` field -- that's a point-in-time sanity check (its own
@@ -77,6 +82,11 @@ STOP_LOSS_PERCENT_SETTING_KEY = "stop_loss_percent"
 # trailing. Entries still follow the day-direction settings. Each trade stores the flag (and a "Plain cross over"
 # comment), so changing the setting never changes an open trade's rules.
 PLAIN_CROSSOVER_SETTING_KEY = "plain_crossover"
+# Plain cross over profit target: book the whole position once the premium is
+# this % above entry (0 = off, exit only on the cross-under). Stored on each
+# trade at entry. Default 3% from the 16 Oct 2026 review of trades #80-#100.
+PLAIN_TARGET_PERCENT_SETTING_KEY = "plain_target_percent"
+DEFAULT_PLAIN_TARGET_PERCENT = 3.0
 
 # Candle timeframe for the EMA8/EMA21 crossover. Dhan's intraday API has no
 # 3-minute interval, so 3m candles are built from 1m candles, aligned to the
@@ -169,6 +179,17 @@ def set_plain_crossover_enabled(value: bool) -> None:
     db.set_simple_crossover_setting(PLAIN_CROSSOVER_SETTING_KEY, "1" if value else "0")
 
 
+def get_plain_target_percent() -> float:
+    raw = db.get_simple_crossover_setting(PLAIN_TARGET_PERCENT_SETTING_KEY)
+    return float(raw) if raw is not None else DEFAULT_PLAIN_TARGET_PERCENT
+
+
+def set_plain_target_percent(value: float) -> None:
+    if not 0 <= value <= 100:
+        raise ValueError("plain target % must be between 0 and 100")
+    db.set_simple_crossover_setting(PLAIN_TARGET_PERCENT_SETTING_KEY, str(value))
+
+
 def get_stop_loss_percent() -> float:
     raw = db.get_simple_crossover_setting(STOP_LOSS_PERCENT_SETTING_KEY)
     return float(raw) if raw is not None else get_settings().simple_crossover_stop_loss_percent
@@ -197,6 +218,7 @@ def get_runtime_config() -> dict[str, Any]:
         "stopLossPercent": get_stop_loss_percent(),
         "timeframeMinutes": get_timeframe_minutes(),
         "plainCrossover": is_plain_crossover_enabled(),
+        "plainTargetPercent": get_plain_target_percent(),
     }
 
 
@@ -558,9 +580,8 @@ async def _evaluate_entry(dhan: DhanService, settings: Settings, side: Side, now
     ema_slow = ema(closes, EMA_SLOW_PERIOD)
     rsi_values = rsi(closes, RSI_PERIOD)
 
-    # A short lookback recovers one missed poll, but only the latest recent
-    # crossover can trigger. In particular, never skip a newer cross-under
-    # to act on an older cross-over.
+    # Only a crossover on the just-closed candle can trigger (see
+    # RECENT_CROSSOVER_LOOKBACK_CANDLES); never act on an older cross-over.
     all_crossovers = detect_crossovers(times, closes, ema_fast, ema_slow, rsi_values)
     recent_cutoff_index = len(ordered) - 1 - RECENT_CROSSOVER_LOOKBACK_CANDLES
     crossover = next(
@@ -573,6 +594,13 @@ async def _evaluate_entry(dhan: DhanService, settings: Settings, side: Side, now
 
     if _handled_crossover_time.get(side) == crossover_time:
         return  # already acted on this exact crossover candle
+    if ltp > crossover["price"] * (1 + ENTRY_CHASE_LIMIT_PERCENT / 100):
+        _handled_crossover_time[side] = crossover_time
+        logger.warning(
+            "simple_crossover: %s crossover at %s skipped -- live %.2f already %.1f%% above the signal close %.2f",
+            side, crossover_time, ltp, (ltp / crossover["price"] - 1) * 100, crossover["price"],
+        )
+        return
 
     entry_gap = ema_fast[-1] - ema_slow[-1]
     pcr_snapshot = _latest_pcr_snapshot(today)
@@ -598,6 +626,7 @@ async def _evaluate_entry(dhan: DhanService, settings: Settings, side: Side, now
         signal_close=crossover["price"],
         signal_source="live" if live_minute is not None and crossover_time <= live_minute < crossover_time + timeframe * 60 else "dhan",
         plain_crossover=is_plain_crossover_enabled(),
+        plain_target_percent=get_plain_target_percent() if is_plain_crossover_enabled() else None,
     )
     _handled_crossover_time[side] = crossover_time
     logger.warning(
@@ -643,9 +672,14 @@ async def _manage_open_trade(dhan: DhanService, trade: dict[str, Any], is_eod: b
 
     remaining_lots = int(trade.get("remainingLots") or trade["lots"])
     if trade.get("plainCrossover"):
-        # Plain cross over: only the 15:30 square-off and the cross-under exit apply.
+        # Plain cross over: the 15:30 square-off, the trade's own profit target
+        # (if any) and the cross-under exit apply.
         if is_eod:
             _close_remaining(trade, lots=remaining_lots, exit_time=now_epoch, exit_premium=current_premium, exit_reason="eod")
+            return
+        target_percent = float(trade.get("plainTargetPercent") or 0)
+        if target_percent > 0 and current_premium >= entry_premium * (1 + target_percent / 100):
+            _close_remaining(trade, lots=remaining_lots, exit_time=now_epoch, exit_premium=current_premium, exit_reason="plain_target")
             return
         await _cross_under_exit(dhan, trade, remaining_lots, current_premium, now_epoch)
         return

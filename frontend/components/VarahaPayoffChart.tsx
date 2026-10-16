@@ -22,6 +22,7 @@ export default function VarahaPayoffChart({
   spot,
   expectedMove,
   lossZone,
+  todayLabel = "Today (theoretical)",
 }: {
   chartId: string;
   label: string;
@@ -30,6 +31,7 @@ export default function VarahaPayoffChart({
   spot: number;
   expectedMove: number | null;
   lossZone?: [number, number] | null;
+  todayLabel?: string;
 }) {
   const [hover, setHover] = useState<number | null>(null);
   const width = 900;
@@ -76,11 +78,13 @@ export default function VarahaPayoffChart({
           <span style={{ color: "var(--green)", fontWeight: 700 }}>━</span> Expiry payoff
         </span>
         <span>
-          <span style={{ color: "var(--blue)", fontWeight: 700 }}>━</span> Today (theoretical)
+          <span style={{ color: "var(--blue)", fontWeight: 700 }}>━</span> {todayLabel}
         </span>
-        <span>
-          <span style={{ color: "rgba(35,104,182,0.35)", fontWeight: 700 }}>■</span> ±1× / ±2× expected move
-        </span>
+        {expectedMove ? (
+          <span>
+            <span style={{ color: "rgba(35,104,182,0.35)", fontWeight: 700 }}>■</span> ±1× / ±2× expected move
+          </span>
+        ) : null}
         {lossZone ? (
           <span>
             <span style={{ color: "rgba(201,53,53,0.6)", fontWeight: 700 }}>┆</span> Central loss V {fmtNum(lossZone[0])} – {fmtNum(lossZone[1])}

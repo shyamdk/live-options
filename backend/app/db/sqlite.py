@@ -839,6 +839,7 @@ def init_db() -> None:
         # Plain cross over: entry on the cross-over, exit only on the
         # cross-under (or the 15:30 square-off) -- no stop or targets.
         _add_column_if_missing(conn, "simple_crossover_trades", "plain_crossover", "INTEGER NOT NULL DEFAULT 0")
+        _add_column_if_missing(conn, "simple_crossover_trades", "plain_target_percent", "REAL")
         conn.execute(
             "UPDATE simple_crossover_trades SET remaining_lots = lots WHERE status = 'open' AND remaining_lots = 0"
         )
@@ -1020,6 +1021,15 @@ def init_db() -> None:
                 time INTEGER NOT NULL,
                 kind TEXT NOT NULL,
                 text TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS manage_trades_settings (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL,
+                updated_at TEXT NOT NULL
             )
             """
         )
@@ -2968,6 +2978,7 @@ def create_simple_crossover_trade(
     signal_close: float | None = None,
     signal_source: str | None = None,
     plain_crossover: bool = False,
+    plain_target_percent: float | None = None,
 ) -> int:
     now = datetime.now().isoformat(timespec="seconds")
     with _DB_LOCK, _connect() as conn:
@@ -2977,8 +2988,8 @@ def create_simple_crossover_trade(
                 underlying, side, strike, expiry, security_id, exchange_segment, lots, lot_size,
                 entry_time, entry_premium, entry_ema_gap, entry_pcr, entry_ce_oi_change, entry_pe_oi_change,
                 day_direction, status, current_premium, remaining_lots, peak_premium, created_at, updated_at,
-                timeframe_minutes, signal_time, signal_close, signal_source, plain_crossover, comment
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                timeframe_minutes, signal_time, signal_close, signal_source, plain_crossover, comment, plain_target_percent
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 underlying, side, strike, expiry, security_id, exchange_segment, lots, lot_size,
@@ -2986,6 +2997,7 @@ def create_simple_crossover_trade(
                 day_direction, entry_premium, lots, entry_premium, now, now, timeframe_minutes,
                 signal_time, signal_close, signal_source, 1 if plain_crossover else 0,
                 "Plain cross over" if plain_crossover else None,
+                plain_target_percent,
             ),
         )
         conn.commit()
@@ -3142,6 +3154,7 @@ def _simple_crossover_trade_from_row(row: sqlite3.Row, exit_legs: list[dict[str,
         "signalClose": row["signal_close"],
         "signalSource": row["signal_source"],
         "plainCrossover": bool(row["plain_crossover"]),
+        "plainTargetPercent": row["plain_target_percent"] if "plain_target_percent" in row.keys() else None,
         "status": row["status"],
         "currentPremium": row["current_premium"],
         "remainingLots": row["remaining_lots"],
@@ -4568,6 +4581,24 @@ def list_calm_trades(*, day: str | None = None, status: str | None = None, limit
 
 def list_calm_events(day: str, limit: int = 300) -> list[dict[str, Any]]:
     return _melting_rows("SELECT * FROM calm_strangle_events WHERE day = ? ORDER BY time DESC, id DESC LIMIT ?", (day, limit))
+
+
+def get_manage_setting(key: str) -> str | None:
+    rows = _melting_rows("SELECT value FROM manage_trades_settings WHERE key = ?", (key,))
+    return rows[0]["value"] if rows else None
+
+
+def set_manage_setting(key: str, value: str) -> None:
+    now = datetime.now().isoformat(timespec="seconds")
+    with _DB_LOCK, _connect() as conn:
+        conn.execute(
+            """
+            INSERT INTO manage_trades_settings (key, value, updated_at) VALUES (?, ?, ?)
+            ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+            """,
+            (key, value, now),
+        )
+        conn.commit()
 
 
 def get_calm_setting(key: str) -> str | None:

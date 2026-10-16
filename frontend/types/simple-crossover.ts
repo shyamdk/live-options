@@ -36,6 +36,7 @@ export type SimpleCrossoverExitReason =
   | "stop_loss"
   | "trailing_stop"
   | "cross_under"
+  | "plain_target"
   | "eod";
 
 export interface SimpleCrossoverExitLeg {
@@ -67,6 +68,7 @@ export interface SimpleCrossoverTrade {
   signalClose?: number | null;
   signalSource?: "live" | "dhan" | null;
   plainCrossover?: boolean;
+  plainTargetPercent?: number | null;
   status: "open" | "closed";
   currentPremium: number | null;
   remainingLots: number;
@@ -95,6 +97,7 @@ export interface SimpleCrossoverConfig {
   stopLossPercent: number;
   timeframeMinutes: 1 | 3;
   plainCrossover: boolean;
+  plainTargetPercent: number;
 }
 
 export interface SimpleCrossoverData {

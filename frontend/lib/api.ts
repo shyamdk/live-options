@@ -15,6 +15,7 @@ import type {
   PaperTrade,
   PaperTradingSettings,
   PcrOiPayload,
+  SuggestConfig,
   TagExitLeg,
   TagLevels,
   TradeLevels,
@@ -217,11 +218,19 @@ export async function saveTagLevels(tag: string, levels: { target: number | null
   );
 }
 
-export async function exitTag(tag: string) {
+export async function exitTag(tag: string, reason: "manual" | "suggestion" = "manual") {
   return apiJson<{ tag: string; status: string; message?: string; legs?: TagExitLeg[] }>(
-    `/api/trades/tags/${encodeURIComponent(tag)}/exit`,
+    `/api/trades/tags/${encodeURIComponent(tag)}/exit?reason=${reason}`,
     { method: "POST" },
     "Failed to close tag",
+  );
+}
+
+export async function updateSuggestConfig(updates: Partial<SuggestConfig>): Promise<SuggestConfig> {
+  return apiJson<SuggestConfig>(
+    "/api/trades/suggestions/config",
+    { method: "PUT", body: JSON.stringify(updates) },
+    "Failed to save suggestion settings",
   );
 }
 
