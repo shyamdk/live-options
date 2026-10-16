@@ -1,6 +1,6 @@
 """Batman (1:3:2 double ratio spread) -- pure construction logic.
 
-Monthly follows batman-option-strategy-guide.pdf exactly: call side BUY 1x at
+Monthly follows docs/sources/batman-option-strategy-guide.pdf exactly: call side BUY 1x at
 spot+400, SELL 3x 200 further, BUY 2x 800 beyond the sell; mirror on puts; 3/9/6
 lot base; if ATM is a 50-strike the call base shifts up and the put base down
 one strike; Filter 1 shifts the buy offset outward until net credit <= cap;

@@ -1,4 +1,4 @@
-"""Melting Straddles -- intraday NIFTY / Sensex straddle decay (melting-straddles.md).
+"""Melting Straddles -- intraday NIFTY / Sensex straddle decay (docs/strategies/melting-straddles.md).
 
 Day: NIFTY on Fri/Mon/Tue (Tuesday weekly expiry), Sensex on Wed/Thu (Thursday
 weekly expiry). After the 09:15 candle the index open fixes three straddles:

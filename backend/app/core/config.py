@@ -294,17 +294,17 @@ class Settings(BaseSettings):
     simple_crossover_xaut_min_entry_gap: float = 0.06
     simple_crossover_xaut_max_entry_gap: float = 0.25
 
-    # Mantra (mantra.md): NIFTY naked short strangle with roll-in
+    # Mantra (docs/strategies/mantra.md): NIFTY naked short strangle with roll-in
     # adjustments, monthly + weekly. Paper only.
     mantra_monitor_enabled: bool = True
 
-    # BTC Calm Strangle (btc-calm-strangle.md): Calm Strangle's idea on Delta
+    # BTC Calm Strangle (docs/strategies/btc-calm-strangle.md): Calm Strangle's idea on Delta
     # BTC daily options, overnight IST only. Paper by default; live needs
     # btc_calm_live_order_enabled AND the page mode set to live.
     btc_calm_monitor_enabled: bool = True
     btc_calm_live_order_enabled: bool = False
 
-    # Calm Strangle (calm-strangle.md): intraday NIFTY short strangle sold
+    # Calm Strangle (docs/strategies/calm-strangle.md): intraday NIFTY short strangle sold
     # only after the market settles. Paper by default; live needs
     # calm_strangle_live_order_enabled AND page mode live (+ live_order_enabled).
     calm_strangle_monitor_enabled: bool = True
@@ -318,7 +318,7 @@ class Settings(BaseSettings):
     nifty_strangle_monitor_enabled: bool = True
     nifty_strangle_live_order_enabled: bool = False
 
-    # Melting Straddles (melting-straddles.md): intraday NIFTY (Fri/Mon/Tue)
+    # Melting Straddles (docs/strategies/melting-straddles.md): intraday NIFTY (Fri/Mon/Tue)
     # / Sensex (Wed/Thu) straddle decay on P&F combined-premium + VWAP.
     # Paper by default; real Dhan orders need BOTH melting_live_order_enabled
     # (env kill switch) AND the page's mode set to live, plus the global
@@ -327,15 +327,15 @@ class Settings(BaseSettings):
     melting_live_order_enabled: bool = False
     melting_live_order_product_type: str = "INTRADAY"
 
-    # Define Turtle (define-turtle.md): NIFTY P&F RSI + Turtle Follow-Through
+    # Define Turtle (docs/strategies/define-turtle.md): NIFTY P&F RSI + Turtle Follow-Through
     # -> next-week put credit spread. Paper only.
     turtle_monitor_enabled: bool = True
 
-    # Batman (batman-option-strategy-guide.pdf): NIFTY 1:3:2 double ratio
+    # Batman (docs/sources/batman-option-strategy-guide.pdf): NIFTY 1:3:2 double ratio
     # spread, monthly per the rulebook + a weekly variant. Paper only.
     batman_monitor_enabled: bool = True
 
-    # BTC Strangle (bitcoin-strangle.pdf): sells an OTM BTC call + put on
+    # BTC Strangle (docs/sources/bitcoin-strangle.pdf): sells an OTM BTC call + put on
     # Delta Exchange India every night, strikes at spot +- multiplier x ATM
     # straddle, per-leg stop loss. Paper by default; live orders need BOTH
     # btc_strangle_live_order_enabled (env kill switch) AND the page's mode

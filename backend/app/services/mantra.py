@@ -1,4 +1,4 @@
-"""Mantra - Theta Gainers -- NIFTY naked short strangle with roll-in adjustments (mantra.md).
+"""Mantra - Theta Gainers -- NIFTY naked short strangle with roll-in adjustments (docs/strategies/mantra.md).
 
 Monthly: the first Monday with the monthly expiry 43-50 days out; weekly:
 every Monday on the next-week expiry. 15:00-15:15 IST (holiday Monday ->

@@ -1,6 +1,6 @@
 # Define Turtle — NIFTY P&F RSI + Turtle Follow-Through
 
-Implementation spec for the first strategy from `systematic-options-trading-strategy.pdf`
+Implementation spec for the first strategy from `docs/sources/systematic-options-trading-strategy.pdf`
 ("Systematic Options Trading Strategy", grounded in Dushyant Thakkar's systematic income
 framework / Definedge P&F methodology). Review date: 3 Oct 2026.
 

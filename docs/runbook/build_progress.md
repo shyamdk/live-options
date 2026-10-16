@@ -444,7 +444,7 @@ OCI instance could read positions cleanly afterward.
 
 ### Why
 
-`gamma-blast.md` (a pre-existing research doc in the repo) proposed a new
+`docs/strategies/gamma-blast.md` (a pre-existing research doc in the repo) proposed a new
 options strategy: buy a cheap ATM/1-strike-OTM option when spot breaks a
 heavy-OI "wall" late on NIFTY/SENSEX expiry day, riding the gamma explosion
 from short-covering as trapped option sellers panic-cover. The doc explicitly

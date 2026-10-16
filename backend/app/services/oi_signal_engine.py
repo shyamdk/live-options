@@ -1,10 +1,10 @@
-"""Pure computation for the upgraded OI signal engine (see upgrade.md).
+"""Pure computation for the upgraded OI signal engine (see docs/strategies/oi-upgraded.md).
 No I/O -- takes an already-fetched PCR/OI snapshot series plus 1-minute
 index candles, returns an enriched series with a persistence-gated
 BUY CE / BUY PE / NO TRADE call per point. Same discipline as
 paper_trading_engine.py: plain data in, plain data out.
 
-Covers upgrade.md phases 1-4: rolling windows, PCR/OI classification,
+Covers docs/strategies/oi-upgraded.md phases 1-4: rolling windows, PCR/OI classification,
 VWAP + price confirmation, premium confirmation, scoring, persistence,
 per-point explanation (1-3), plus market regime, hysteresis (a looser
 "hold" bar than "entry"), exit confirmation, cooldown, and the full
@@ -22,7 +22,7 @@ score loosening this file's thresholds were deliberately tuned for.
 
 All thresholds below are first-pass heuristics sized to the magnitudes
 observed in this app's real NIFTY data (PCR ~0.6-1.2, OI-change deltas in
-the tens of lakhs, VIX ~10-12, IV ~9-12%) -- upgrade.md itself says these
+the tens of lakhs, VIX ~10-12, IV ~9-12%) -- docs/strategies/oi-upgraded.md itself says these
 need validation against historical/paper-trading data before being
 trusted live; nothing here should be read as tuned/backtested yet.
 """
@@ -288,7 +288,7 @@ def enrich_with_upgraded_signal(points: list[dict[str, Any]], candles: list[dict
         # backtesting against a real losing NIFTY trade found IV flagged
         # "risky" right at entry: a rapid IV spike alongside a sharp price
         # move is a classic capitulation/exhaustion signature, not genuine
-        # continuation. upgrade.md itself frames VIX/IV as a caution filter
+        # continuation. docs/strategies/oi-upgraded.md itself frames VIX/IV as a caution filter
         # (sections 10-11); this was being scored but never actually gated
         # a trade on it.
         ce_quality_ok = vix_state != "risky" and ce_iv_state != "risky"

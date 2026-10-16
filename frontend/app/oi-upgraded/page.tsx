@@ -455,7 +455,7 @@ function SignalDashboard({ latest }: { latest: OiUpgradedPoint | null }) {
           </ul>
         </details>
         <p className="pcr-oi-caption" style={{ margin: 0 }}>
-          Signal-engine design (upgrade.md phases 1-4), backtested against real NIFTY sessions but not yet validated
+          Signal-engine design (docs/strategies/oi-upgraded.md phases 1-4), backtested against real NIFTY sessions but not yet validated
           over many days — treat as assistive, not a guarantee. NO TRADE is a valid, intended outcome when the
           evidence doesn&apos;t clear the bar, not a failure state.
         </p>

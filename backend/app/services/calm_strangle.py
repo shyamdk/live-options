@@ -1,5 +1,5 @@
 """Calm Strangle -- intraday NIFTY short strangle sold only when the market
-has settled (calm-strangle.md).
+has settled (docs/strategies/calm-strangle.md).
 
 Every completed minute (10:00-14:30, not on expiry day or the trading day before it): if NIFTY's range
 over the last 15 one-minute closes is <= 15% of the ATM straddle, sell the

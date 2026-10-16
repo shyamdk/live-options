@@ -4403,7 +4403,7 @@ def set_mantra_setting(key: str, value: str) -> None:
         conn.commit()
 
 
-# ---------------------------------------------------------------- Melting Straddles (melting-straddles.md)
+# ---------------------------------------------------------------- Melting Straddles (docs/strategies/melting-straddles.md)
 
 
 def _melting_rows(sql: str, params: tuple = ()) -> list[dict[str, Any]]:
@@ -4558,7 +4558,7 @@ def set_nifty_strangle_setting(key: str, value: str) -> None:
         conn.commit()
 
 
-# ---------------------------------------------------------------- Calm Strangle (calm-strangle.md)
+# ---------------------------------------------------------------- Calm Strangle (docs/strategies/calm-strangle.md)
 
 
 def calm_insert(table: str, values: dict[str, Any]) -> int:

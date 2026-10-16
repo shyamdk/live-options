@@ -1,4 +1,4 @@
-"""Define Turtle -- pure Point & Figure engine (see define-turtle.md).
+"""Define Turtle -- pure Point & Figure engine (see docs/strategies/define-turtle.md).
 
 Builds a logarithmic-box P&F chart from 1-minute closes (close method),
 computes RSI(14) over column end values, and flags Turtle Breakout /
@@ -83,7 +83,7 @@ class PointAndFigure:
             if self.columns[i - 2]["turtle"] and not col["followThrough"]:
                 col["followThrough"] = True
                 self.signals.append(self._signal("turtle_follow_through", i, time))
-            # Strike Back (working definition, define-turtle.md 4.3): bear trap X at i-2
+            # Strike Back (working definition, docs/strategies/define-turtle.md 4.3): bear trap X at i-2
             # (it double-topped right after a double-bottom O at i-3), higher-low pullback at i-1.
             if (
                 i >= 4 and self.columns[i - 2]["doubleTop"] and self.columns[i - 3]["doubleBottom"]

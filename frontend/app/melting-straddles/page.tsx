@@ -148,7 +148,7 @@ export default function MeltingStraddlesPage() {
           <p>
             Intraday straddle decay: NIFTY on Fri/Mon/Tue, Sensex on Wed/Thu. Three straddles (ATM, ±200 / ±500) fixed at the open;
             sell when the combined premium prints a P&amp;F sell pattern below its VWAP; hard stop 10 / 30 pts, VWAP exit, book 25% at
-            every 10 / 30 pts with a trailing stop, flat at 14:00. See melting-straddles.md.
+            every 10 / 30 pts with a trailing stop, flat at 14:00. See docs/strategies/melting-straddles.md.
           </p>
         </div>
         <div className="toolbar" style={{ alignItems: "center" }}>

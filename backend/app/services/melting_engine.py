@@ -1,4 +1,4 @@
-"""Melting Straddles -- pure engine (melting-straddles.md).
+"""Melting Straddles -- pure engine (docs/strategies/melting-straddles.md).
 
 Combined-premium series (CE + PE close per minute, VWAP = VWAP(CE) + VWAP(PE)
 on typical price x volume, both legs cumulative from 09:15) and a

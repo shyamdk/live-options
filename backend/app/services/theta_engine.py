@@ -4,7 +4,7 @@ see services/theta.py for the orchestration that wires this to live data,
 mirroring the ema5_engine.py / animesh_engine.py separation used by the
 other two strategies.
 
-The rules encoded here come directly from selling_data/theta-book-strategy.md
+The rules encoded here come directly from docs/sources/theta-book/theta-book-strategy.md
 (sections 02-05), calibrated against the user's own 28-30 Jul trade logs.
 """
 

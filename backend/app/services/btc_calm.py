@@ -1,5 +1,5 @@
 """BTC Calm Strangle -- Calm Strangle's idea on Delta Exchange BTC daily
-options (btc-calm-strangle.md).
+options (docs/strategies/btc-calm-strangle.md).
 
 Session = the daily expiry settling at 17:30 IST. Entries only in the
 overnight window (22:00-06:00 IST), checked every completed minute: if BTC's

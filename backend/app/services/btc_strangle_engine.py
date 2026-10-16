@@ -1,4 +1,4 @@
-"""BTC Strangle -- pure helpers (no I/O) for bitcoin-strangle.pdf.
+"""BTC Strangle -- pure helpers (no I/O) for docs/sources/bitcoin-strangle.pdf.
 
 Delta Exchange India BTC option symbols look like C-BTC-86000-041026 /
 P-BTC-86000-041026 (type, underlying, strike, expiry DDMMYY). Every expiry

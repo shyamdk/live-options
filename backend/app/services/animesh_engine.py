@@ -1,4 +1,4 @@
-"""Pure animesh-scalping strategy logic (per animesh-scalping.txt): a daily
+"""Pure animesh-scalping strategy logic (per docs/strategies/animesh-scalping.txt): a daily
 Heikin Ashi bias filter, a modified MACD (8,21,8) crossover trigger gated by
 a 21-period EMA high/low/close band, and the SL/R-level rules layered on top
 of ema5's already-generic 3-lot partial-exit/trailing-SL state machine.

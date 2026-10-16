@@ -183,7 +183,7 @@ export default function MantraThetaGainersPage() {
           <p>
             NIFTY short strangle with roll-in adjustments. Monthly: ₹100 strikes 43–50 days out; weekly: ₹40 strikes on next
             week&apos;s expiry. Entered Monday 15:00; 80% target, 1:1 global stop, roll ladder, straddle conversion, exit the day before
-            expiry. Paper trading -- see mantra.md.
+            expiry. Paper trading -- see docs/strategies/mantra.md.
           </p>
         </div>
         <div className="toolbar" style={{ alignItems: "center" }}>

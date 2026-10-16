@@ -295,7 +295,7 @@ def _score(history: list[float], current: float | None) -> dict[str, Any]:
 
 _CONFIDENCE_RANK = {"low": 0, "medium": 1, "high": 2, "extreme": 3}
 
-# Fewer, more accurate signals (see fine-tune.md options 1+2): a signal only
+# Fewer, more accurate signals (see docs/runbook/fine-tune.md options 1+2): a signal only
 # fires once both factors clear this confidence floor -- "low" is within 1
 # std dev of today's own distribution, i.e. noise by construction -- and
 # PCR is read as a smoothed trend (vs. its own recent rolling average)

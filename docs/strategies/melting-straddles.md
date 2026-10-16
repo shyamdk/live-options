@@ -1,6 +1,6 @@
 # Melting Straddles — intraday NIFTY / Sensex straddle decay (paper)
 
-Spec from `mastering_intraday_options_straddles_algo_spec.docx` ("Mastering Intraday Options
+Spec from `docs/sources/mastering_intraday_options_straddles_algo_spec.docx` ("Mastering Intraday Options
 Straddles", Dr. Subhendu Ganguly's ATM straddle-decay method). Review date: 7 Oct 2026.
 
 ## 1. What the document says

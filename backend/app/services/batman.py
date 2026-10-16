@@ -1,6 +1,6 @@
 """Batman -- NIFTY 1:3:2 double ratio spread, paper trading.
 
-Monthly follows batman-option-strategy-guide.pdf:
+Monthly follows docs/sources/batman-option-strategy-guide.pdf:
   - entry on the LAST Friday before the current month's monthly expiry, at
     15:16 IST, on the NEXT month's series (the backtest dates only work that
     way: enter 24 Jan, exit 3 Feb = the Feb series);

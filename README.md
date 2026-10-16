@@ -10,8 +10,13 @@ Live Dhan trade management workspace with a FastAPI backend, SQLite persistence,
 
 ## Structure
 
-- `backend` - FastAPI middle tier and SQLite data store.
-- `frontend` - Next.js app with Manage Trades and Trade Journals pages.
+- `backend` - FastAPI middle tier and SQLite data store (`backend/data`, not in git).
+  - `backend/scripts/market_history.py` - local store of Dhan 1-min option/index history for backtests (`backend/data/history/`), topped up with only the missing days.
+- `frontend` - Next.js app (one page per strategy, plus Manage Trades and Trade Journals).
+- `ops` - OCI deploy script and the trade-instance scheduler.
+- `docs` - strategy specs, source documents, runbooks and PDF guides; see `docs/README.md`.
+- `archive` - code of retired strategies, kept so it can be moved back (see `archive/README.md`).
+- `research_notes`, `reports` - research write-ups (kept at the root; the research tooling looks for them there).
 - `.env` - copied from Options Dash and read by the backend.
 
 ## Local Run

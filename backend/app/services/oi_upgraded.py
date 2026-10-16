@@ -1,9 +1,9 @@
 """I/O orchestration for the upgraded signal engine (oi_signal_engine.py):
 fetches the already-collected PCR/OI snapshots plus fresh 1-minute index
 candles, and returns the enriched series. NIFTY only for this iteration --
-see upgrade.md's own "we will do NIFTY only for now" scoping.
+see docs/strategies/oi-upgraded.md's own "we will do NIFTY only for now" scoping.
 
-Also covers upgrade.md phase 5:
+Also covers docs/strategies/oi-upgraded.md phase 5:
 - A background logger (start/stop_oi_upgraded_task) that records each new
   poll's latest computed point to oi_upgraded_signal_log, off by default
   like every other monitor in this codebase.

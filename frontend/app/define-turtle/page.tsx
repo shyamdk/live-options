@@ -119,7 +119,7 @@ export default function DefineTurtlePage() {
           </h1>
           <p>
             NIFTY Point &amp; Figure RSI(14) &gt; 50 + Turtle Follow-Through → next-week put credit spread (sell ATM, buy 300
-            lower). Exits: 75% decay, RSI &lt; 50, or 3 days before expiry. Paper trading -- see define-turtle.md.
+            lower). Exits: 75% decay, RSI &lt; 50, or 3 days before expiry. Paper trading -- see docs/strategies/define-turtle.md.
           </p>
         </div>
         <div className="toolbar" style={{ alignItems: "center" }}>

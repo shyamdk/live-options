@@ -1,4 +1,4 @@
-"""BTC Strangle on Delta Exchange India (bitcoin-strangle.pdf).
+"""BTC Strangle on Delta Exchange India (docs/sources/bitcoin-strangle.pdf).
 
 Every night at the entry time (default 22:30 IST) sell an OTM BTC call and put
 on the expiry ~43h out, strikes at spot +- multiplier x ATM straddle (rounded

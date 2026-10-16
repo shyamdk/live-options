@@ -1,6 +1,6 @@
 """Define Turtle -- NIFTY P&F RSI + Turtle Follow-Through, paper trading.
 
-Spec: define-turtle.md. Every completed 1-minute NIFTY candle the P&F chart
+Spec: docs/strategies/define-turtle.md. Every completed 1-minute NIFTY candle the P&F chart
 (0.03% log boxes, 3-box reversal) is rebuilt from ~30 trading days of 1-min
 closes plus today's. A Turtle Follow-Through Bullish printed on the latest
 close with P&F RSI(14) > 50 opens a next-week put credit spread (sell ATM put
@@ -120,7 +120,7 @@ async def _expiries(dhan: DhanService) -> list[date]:
 
 
 def next_week_expiry(expiries: list[date], today: date) -> date | None:
-    """The expiry AFTER the nearest one (define-turtle.md decision 4)."""
+    """The expiry AFTER the nearest one (docs/strategies/define-turtle.md decision 4)."""
     upcoming = [d for d in expiries if d >= today]
     return upcoming[1] if len(upcoming) > 1 else None
 

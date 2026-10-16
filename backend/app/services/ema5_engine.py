@@ -1,4 +1,4 @@
-"""Pure 5-EMA scalping strategy logic (per ema5.txt): EMA calculation,
+"""Pure 5-EMA scalping strategy logic (per docs/strategies/ema5.txt): EMA calculation,
 rolling alert-candle detection, entry triggers, R-multiple levels, and the
 3-lot partial-exit/trailing-SL state machine. No I/O — takes plain data in,
 returns plain data out, so it's unit-testable without any Dhan/DB dependency.

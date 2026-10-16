@@ -98,7 +98,7 @@ export default function CalmStranglePage() {
             {config?.earlyExit ? `, or as soon as the premium reaches its ${config.exitTime} value (then done for the day)` : ""}
             {config?.europeGuard ? `, or at ${config.europeGuardTime} if in profit (Europe-open guard)` : ""}; re-enter after a stop when it
             settles again. No trading on expiry day.
-            See calm-strangle.md.
+            See docs/strategies/calm-strangle.md.
           </p>
         </div>
         <div className="toolbar" style={{ alignItems: "center" }}>
