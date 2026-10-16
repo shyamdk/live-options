@@ -14,6 +14,7 @@ export interface CalmConfig {
   maxEntries: number;
   maxStops: number;
   skipExpiryDay: boolean;
+  skipDayBeforeExpiry: boolean;
   earlyExit: boolean;
   stopAfterEarlyExit: boolean;
   europeGuard: boolean;
@@ -38,6 +39,7 @@ export interface CalmSnapshot {
   time?: number;
   expiry?: string;
   dte?: number;
+  tradingDte?: number;
   spot?: number;
   atmStrike?: number;
   straddle?: number;

@@ -206,14 +206,16 @@ function StatusStrip({ state }: { state: CalmState | null }) {
   const snap = state?.snapshot;
   const config = state?.config;
   const expiryDay = snap?.dte === 0;
+  const dayBefore = snap?.tradingDte === 1;
+  const noTrading = (expiryDay && config?.skipExpiryDay) || (dayBefore && config?.skipDayBeforeExpiry);
   const ratio = snap?.calmRange != null && snap?.calmThreshold ? snap.calmRange / snap.calmThreshold : null;
   return (
     <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 12 }}>
       <Metric
         label="Today"
         value={snap?.expiry ? (expiryDay ? "Expiry day" : `${snap.dte}d to expiry`) : "—"}
-        caption={snap?.expiry ? `expiry ${day(snap.expiry)}${expiryDay && config?.skipExpiryDay ? " · no trading today" : ""}` : snap?.error ?? ""}
-        color={expiryDay && config?.skipExpiryDay ? "var(--amber)" : undefined}
+        caption={snap?.expiry ? `expiry ${day(snap.expiry)}${noTrading ? ` · no trading today (${expiryDay ? "expiry day" : "day before expiry"})` : ""}` : snap?.error ?? ""}
+        color={noTrading ? "var(--amber)" : undefined}
       />
       <Metric label="NIFTY" value={num(snap?.spot)} caption={snap?.atmStrike ? `ATM ${snap.atmStrike.toLocaleString("en-IN")} · ${clock(snap.time)}` : ""} />
       <Metric label="ATM straddle" value={num(snap?.straddle)} caption="the move still priced in today" />
@@ -854,7 +856,7 @@ const FIELDS: { key: keyof CalmConfig; label: string; hint: string; text?: boole
   { key: "stopMultiple", label: "Stop: NIFTY move × straddle", hint: "0.6" },
   { key: "backstopPercent", label: "Premium backstop %", hint: "150" },
   { key: "minCredit", label: "Min credit (pts)", hint: "6" },
-  { key: "entryStart", label: "Entries from", hint: "09:45", text: true },
+  { key: "entryStart", label: "Entries from", hint: "10:00", text: true },
   { key: "lastEntry", label: "Last entry", hint: "14:30", text: true },
   { key: "exitTime", label: "Flat at", hint: "15:15", text: true },
   { key: "maxEntries", label: "Max entries / day", hint: "3" },
@@ -902,6 +904,10 @@ function SettingsSection({ config, onSaved }: { config: CalmConfig; onSaved: () 
         <label style={{ display: "flex", gap: 6, alignItems: "center", cursor: "pointer" }}>
           <input type="checkbox" checked={config.skipExpiryDay} onChange={(e) => save({ skipExpiryDay: e.target.checked })} disabled={saving} />
           Skip expiry day
+        </label>
+        <label style={{ display: "flex", gap: 6, alignItems: "center", cursor: "pointer" }}>
+          <input type="checkbox" checked={config.skipDayBeforeExpiry} onChange={(e) => save({ skipDayBeforeExpiry: e.target.checked })} disabled={saving} />
+          Skip the day before expiry
         </label>
         <label style={{ display: "flex", gap: 6, alignItems: "center", cursor: "pointer" }}>
           <input type="checkbox" checked={config.earlyExit} onChange={(e) => save({ earlyExit: e.target.checked })} disabled={saving} />

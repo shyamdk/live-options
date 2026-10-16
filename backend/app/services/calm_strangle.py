@@ -1,7 +1,7 @@
 """Calm Strangle -- intraday NIFTY short strangle sold only when the market
 has settled (calm-strangle.md).
 
-Every completed minute (09:45-14:30, not on expiry day): if NIFTY's range
+Every completed minute (10:00-14:30, not on expiry day or the trading day before it): if NIFTY's range
 over the last 15 one-minute closes is <= 15% of the ATM straddle, sell the
 CE at the first strike >= spot + 1.0 x straddle and the PE at the first
 strike <= spot - 1.0 x straddle (credit >= 6 pts).
@@ -56,12 +56,16 @@ DEFAULTS: dict[str, Any] = {
     "stopMultiple": 0.6,
     "backstopPercent": 150.0,
     "minCredit": 6.0,
-    "entryStart": "09:45",
+    "entryStart": "10:00",
     "lastEntry": "14:30",
     "exitTime": "15:15",
     "maxEntries": 3,
     "maxStops": 2,
     "skipExpiryDay": True,
+    # 16 Oct 2026 backtest: the trading day before expiry produced every loss
+    # over Rs6k; skipping it kept the profit (Rs93k vs Rs92.6k) and cut the
+    # worst trade from -Rs11.6k to -Rs3.8k (-Rs517 with the 10:00 start).
+    "skipDayBeforeExpiry": True,
     # book the trade as soon as the premium reaches what it should be worth at
     # the exit time if NIFTY stayed put, then take no more entries that day
     "earlyExit": True,
@@ -113,7 +117,7 @@ def update_config(updates: dict[str, Any]) -> dict[str, Any]:
                 raise ValueError("Live orders are locked on the server (CALM_STRANGLE_LIVE_ORDER_ENABLED=false).")
         if key in ("entryStart", "lastEntry", "exitTime", "europeGuardTime"):
             datetime.strptime(str(value), "%H:%M")
-        elif key not in ("enabled", "mode", "skipExpiryDay", "earlyExit", "stopAfterEarlyExit", "europeGuard") and float(value) <= 0:
+        elif key not in ("enabled", "mode", "skipExpiryDay", "skipDayBeforeExpiry", "earlyExit", "stopAfterEarlyExit", "europeGuard") and float(value) <= 0:
             raise ValueError(f"{key} must be positive")
         default = DEFAULTS[key]
         db.set_calm_setting(key, ("1" if value else "0") if isinstance(default, bool) else str(value))
@@ -216,7 +220,8 @@ async def snapshot(dhan: DhanService, config: dict[str, Any], today: date) -> di
                           "delta": q["delta"], "distancePercent": round(abs(k - spot) / spot * 100, 2)}
     credit = sum((leg["bid"] or leg["ltp"] or 0) for leg in legs.values()) if len(legs) == 2 else None
     return {
-        "time": int(time.time()), "expiry": expiry.isoformat(), "dte": (expiry - today).days, "spot": spot, "atmStrike": atm,
+        "time": int(time.time()), "expiry": expiry.isoformat(), "dte": (expiry - today).days,
+        "tradingDte": varaha._trading_days_until(today, expiry), "spot": spot, "atmStrike": atm,
         "straddle": round(straddle, 2), "calmRange": round(calm_range, 2) if calm_range is not None else None,
         "calmThreshold": round(threshold, 2), "calm": calm_range is not None and calm_range <= threshold,
         "windowMinutes": len(window), "legs": legs, "credit": round(credit, 2) if credit else None,
@@ -413,6 +418,8 @@ async def _monitor() -> None:
     if not (_hhmm(config["entryStart"]) <= now.time() < _hhmm(config["lastEntry"])):
         return
     if config["skipExpiryDay"] and snap["dte"] == 0:
+        return
+    if config["skipDayBeforeExpiry"] and snap.get("tradingDte") == 1:
         return
     today_trades = db.list_calm_trades(day=today.isoformat())
     stops = sum(1 for t in today_trades if t["exit_reason"] and ("stop" in t["exit_reason"] or "backstop" in t["exit_reason"]))
