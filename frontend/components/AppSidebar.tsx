@@ -6,6 +6,7 @@ import {
   Moon,
   MoonStar,
   Infinity as InfinityIcon,
+  BellRing,
   Droplets,
   Spline,
   Waves,
@@ -37,6 +38,7 @@ import { useEffect, useState } from "react";
 //    entry.
 const navItems = [
   { href: "/manage-trades", label: "Manage Trades", short: "MT", icon: BriefcaseBusiness },
+  { href: "/alerts", label: "Alerts & Reminders", short: "AL", icon: BellRing },
   { href: "/equity", label: "Equity", short: "EQ", icon: WalletCards },
   { href: "/trade-journals", label: "Trade Journals", short: "TJ", icon: BookOpenText },
   { href: "/oi-upgraded", label: "OI - Upgraded", short: "OU", icon: RadioTower },

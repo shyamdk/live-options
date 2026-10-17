@@ -1026,6 +1026,28 @@ def init_db() -> None:
         )
         conn.execute(
             """
+            CREATE TABLE IF NOT EXISTS alerts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                kind TEXT NOT NULL,
+                symbol TEXT,
+                security_id TEXT,
+                segment TEXT,
+                direction TEXT,
+                price REAL,
+                remind_at INTEGER,
+                note TEXT,
+                source TEXT NOT NULL DEFAULT 'manual',
+                status TEXT NOT NULL DEFAULT 'active',
+                created_at INTEGER NOT NULL,
+                triggered_at INTEGER,
+                trigger_price REAL,
+                telegram_sent INTEGER,
+                acknowledged_at INTEGER
+            )
+            """
+        )
+        conn.execute(
+            """
             CREATE TABLE IF NOT EXISTS manage_trades_settings (
                 key TEXT PRIMARY KEY,
                 value TEXT NOT NULL,
@@ -4581,6 +4603,26 @@ def list_calm_trades(*, day: str | None = None, status: str | None = None, limit
 
 def list_calm_events(day: str, limit: int = 300) -> list[dict[str, Any]]:
     return _melting_rows("SELECT * FROM calm_strangle_events WHERE day = ? ORDER BY time DESC, id DESC LIMIT ?", (day, limit))
+
+
+def create_alert(**values: Any) -> int:
+    return _mantra_insert("alerts", values)
+
+
+def update_alert(alert_id: int, **values: Any) -> None:
+    _mantra_update("alerts", alert_id, values)
+
+
+def list_alerts(status: str | None = None, limit: int = 300) -> list[dict[str, Any]]:
+    if status:
+        return _melting_rows("SELECT * FROM alerts WHERE status = ? ORDER BY id DESC LIMIT ?", (status, limit))
+    return _melting_rows("SELECT * FROM alerts ORDER BY id DESC LIMIT ?", (limit,))
+
+
+def delete_alert(alert_id: int) -> None:
+    with _DB_LOCK, _connect() as conn:
+        conn.execute("DELETE FROM alerts WHERE id = ?", (alert_id,))
+        conn.commit()
 
 
 def get_manage_setting(key: str) -> str | None:

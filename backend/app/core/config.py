@@ -370,6 +370,8 @@ class Settings(BaseSettings):
     # Live orders need varaha_live_order_enabled AND the paper page's mode
     # set to live (plus the global live_order_enabled).
     varaha_paper_enabled: bool = True
+    # Price alerts + date reminders (app/services/alerts.py): portal alarm + Telegram.
+    alerts_monitor_enabled: bool = True
     varaha_live_order_enabled: bool = False
     varaha_decision_time: str = "15:00"
     varaha_min_dte: int = 2

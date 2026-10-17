@@ -1,5 +1,9 @@
 "use client";
 
+import { BellRing } from "lucide-react";
+import { useState } from "react";
+
+import { createAlert } from "@/lib/api";
 import type { EquityEntrySignal, EquityHolding } from "@/types/equity";
 
 /** "Is now a good time to buy/add?" -- separate from the long-term recommendation. */
@@ -34,6 +38,38 @@ export function EntryBadge({ signal }: { signal?: EquityEntrySignal | null }) {
     >
       {signal.label}
     </span>
+  );
+}
+
+function AlertButton({ holding }: { holding: EquityHolding }) {
+  const s = holding.entrySignal;
+  const target = s?.nextAddBelow && s.lastBuy ? s.nextAddBelow : s?.buyBelow;
+  const [state, setState] = useState<"idle" | "busy" | "done" | "error">("idle");
+  if (!target) return null;
+  async function add() {
+    setState("busy");
+    try {
+      await createAlert({
+        kind: "price", symbol: holding.symbol, securityId: holding.securityId, segment: holding.exchangeSegment ?? "NSE_EQ",
+        direction: "below", price: target!, source: "entry_signal",
+        note: `${holding.symbol} reached ${s?.nextAddBelow && s.lastBuy ? "the next add level (8% below the last buy)" : "the buy zone (5% under SMA200)"}: check the Entry signal before buying one tranche.`,
+      });
+      setState("done");
+    } catch {
+      setState("error");
+    }
+  }
+  return (
+    <button
+      type="button"
+      className="button secondary"
+      title={`Alert me (portal + Telegram) when ${holding.symbol} falls to ${target.toLocaleString("en-IN")}`}
+      onClick={add}
+      disabled={state === "busy" || state === "done"}
+      style={{ padding: "2px 8px", whiteSpace: "nowrap" }}
+    >
+      <BellRing size={13} /> {state === "done" ? "Alert set" : state === "error" ? "Retry" : `Alert at ${target.toLocaleString("en-IN")}`}
+    </button>
   );
 }
 
@@ -74,6 +110,7 @@ export default function EquityEntrySignals({ holdings }: { holdings: EquityHoldi
               <th>Last buy</th>
               <th>Next add below</th>
               <th>Why / what&apos;s blocking</th>
+              <th />
             </tr>
           </thead>
           <tbody>
@@ -94,12 +131,15 @@ export default function EquityEntrySignals({ holdings }: { holdings: EquityHoldi
                   <td>{s.lastBuy ? `${fmt(s.lastBuy.price)} · ${s.lastBuy.date}` : "—"}</td>
                   <td>{fmt(s.nextAddBelow)}</td>
                   <td style={{ fontSize: 12, maxWidth: 420 }}>{[...(s.blocks ?? []), ...(s.reasons ?? [])].slice(0, 3).join(" ")}</td>
+                  <td>
+                    <AlertButton holding={h} />
+                  </td>
                 </tr>
               );
             })}
             {!rows.length ? (
               <tr>
-                <td colSpan={9} className="pcr-oi-caption">
+                <td colSpan={10} className="pcr-oi-caption">
                   No holding is in the buy zone right now.
                 </td>
               </tr>

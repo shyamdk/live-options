@@ -20,6 +20,7 @@ import type {
   TagLevels,
   TradeLevels,
 } from "@/types/live";
+import type { AlertsPayload, NewAlert, PortalAlert, TelegramStatus } from "@/types/alerts";
 import type { GammaBlastSessionDetail, GammaBlastState } from "@/types/gamma-blast";
 import type { Ema5CandlesResponse, Ema5Config, Ema5Session, Ema5SessionDetail, Ema5Side, Ema5State } from "@/types/ema5";
 import type { AnimeshCandlesResponse, AnimeshSession, AnimeshSessionDetail, AnimeshSide, AnimeshState } from "@/types/animesh";
@@ -933,4 +934,20 @@ export async function closeVarahaPaperTrade(id: number): Promise<{ status: strin
 
 export async function getVarahaPaperSpotChart(days: number): Promise<{ candles: { time: number; close: number }[]; error?: string }> {
   return apiJson(`/api/varaha/paper/spot-chart?days=${days}`, undefined, "Failed to load the NIFTY chart");
+}
+
+export async function getAlerts(): Promise<AlertsPayload> {
+  return apiJson<AlertsPayload>("/api/alerts", undefined, "Failed to load alerts");
+}
+
+export async function createAlert(alert: NewAlert): Promise<PortalAlert> {
+  return apiJson<PortalAlert>("/api/alerts", { method: "POST", body: JSON.stringify(alert) }, "Failed to create alert");
+}
+
+export async function alertAction(id: number, action: "acknowledge" | "dismiss" | "rearm"): Promise<PortalAlert> {
+  return apiJson<PortalAlert>(`/api/alerts/${id}/${action}`, { method: "POST" }, "Alert update failed");
+}
+
+export async function testTelegram(): Promise<TelegramStatus & { sent: boolean }> {
+  return apiJson(`/api/alerts/telegram-test`, { method: "POST" }, "Telegram test failed");
 }

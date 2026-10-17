@@ -30,7 +30,9 @@ export default function AlarmOverlay({
   alarms,
   acknowledge,
   onAcknowledged,
+  showArmBanner = true,
 }: {
+  showArmBanner?: boolean;
   title: string;
   alarms: PageAlarm[];
   acknowledge: (id: number) => Promise<unknown>;
@@ -98,7 +100,7 @@ export default function AlarmOverlay({
   }, []);
 
   if (!alarms.length) {
-    return soundReady ? null : (
+    return soundReady || !showArmBanner ? null : (
       <div className="alert warning" style={{ display: "flex", gap: 8, alignItems: "center" }}>
         <BellRing size={16} /> Click anywhere on this page once to arm the alarm sound (browsers block audio until you interact).
       </div>
