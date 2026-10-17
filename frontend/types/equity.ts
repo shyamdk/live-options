@@ -24,6 +24,8 @@ export type EquityTechnicals = {
   sma20?: number | null;
   sma50?: number | null;
   sma200?: number | null;
+  sma200Rising?: boolean | null;
+  rsi14?: number | null;
   fiftyTwoWeekHigh?: number | null;
   fiftyTwoWeekLow?: number | null;
   candleCount?: number;
@@ -63,6 +65,20 @@ export type EquityRecommendation = {
   guruSignals: Array<{ name: string; status: "pass" | "watch" | string; detail: string }>;
 };
 
+export type EquityEntrySignal = {
+  state: "BUY_ZONE" | "ADD_ZONE" | "BLOCKED" | "NEUTRAL" | "NOT_QUALITY" | "NO_DATA" | string;
+  label: string;
+  reasons: string[];
+  blocks: string[];
+  rsi?: number | null;
+  sma200?: number | null;
+  buyBelow?: number | null;
+  distanceToSma200Percent?: number | null;
+  lastBuy?: { date: string; price?: number | null } | null;
+  nextAddBelow?: number | null;
+  deep?: boolean;
+};
+
 export type EquityHolding = {
   id: string;
   exchange?: string | null;
@@ -88,6 +104,7 @@ export type EquityHolding = {
   technicals: EquityTechnicals;
   news: EquityNewsItem;
   recommendation: EquityRecommendation;
+  entrySignal?: EquityEntrySignal;
 };
 
 export type EquityPortfolioPayload = {
@@ -102,6 +119,7 @@ export type EquityPortfolioPayload = {
     pnlPercent?: number | null;
     potentialBuyCount: number;
     reviewCount: number;
+    entrySignals?: Record<string, number>;
   };
   data: EquityHolding[];
 };

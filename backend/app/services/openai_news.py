@@ -24,9 +24,14 @@ class OpenAINewsService:
             f"{f' ({company_name})' if company_name else ''}. "
             "Focus on earnings, management commentary, orders, regulation, credit rating, litigation, "
             "sector events, and broker or exchange announcements from the last 14 days when available. "
-            "Return compact JSON only with keys: sentiment, summary, headlines, risks. "
+            "Return compact JSON only with keys: sentiment, summary, headlines, risks, negativeScope, materialNegative, nextResultsDate. "
             "sentiment must be positive, neutral, negative, or mixed. "
-            "headlines must be an array of up to 5 objects with title, source, url, date, impact."
+            "headlines must be an array of up to 5 objects with title, source, url, date, impact. "
+            "negativeScope: where any negative news comes from -- company (governance, fraud, guidance cut, order loss, "
+            "regulatory action, downgrade specific to this company), sector, market, or none. "
+            "materialNegative: true only if there is company-specific negative news that could change the long-term "
+            "investment case, else false. "
+            "nextResultsDate: the date of the next quarterly results / board meeting as YYYY-MM-DD if announced, else null."
         )
         body = {
             "model": self.settings.openai_news_model,
@@ -72,6 +77,9 @@ class OpenAINewsService:
             "summary": str(parsed.get("summary") or "No material news summary returned."),
             "headlines": headlines,
             "risks": _string_list(parsed.get("risks")),
+            "negativeScope": str(parsed.get("negativeScope") or "none").lower() if str(parsed.get("negativeScope") or "none").lower() in ("company", "sector", "market", "none") else "none",
+            "materialNegative": parsed.get("materialNegative") is True or str(parsed.get("materialNegative")).lower() == "true",
+            "nextResultsDate": str(parsed.get("nextResultsDate"))[:10] if parsed.get("nextResultsDate") and str(parsed.get("nextResultsDate")).lower() != "null" else None,
             "sources": _sources(headlines, annotation_sources, payload.get("sources")),
             "updatedAt": datetime.now(timezone.utc).isoformat(),
             "warning": None,

@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowDown, ArrowDownToLine, ArrowUp, ArrowUpDown, ChevronDown, ChevronRight, LineChart, Newspaper, RefreshCw, Save, Search, WalletCards, X } from "lucide-react";
+import { ArrowDown, ArrowDownToLine, ArrowUp, ArrowUpDown, ChevronDown, ChevronRight, History, LineChart, Newspaper, RefreshCw, Save, Search, WalletCards, X } from "lucide-react";
 import { Fragment, useEffect, useMemo, useState } from "react";
 
 import {
@@ -21,8 +21,10 @@ import type {
   EquityTransaction,
   EquityTransactionsPayload,
 } from "@/types/equity";
+import EquityHoldingsHistory from "@/components/EquityHoldingsHistory";
+import EquityEntrySignals, { EntryBadge, entryRank } from "@/components/EquityEntrySignals";
 
-type EquityTab = "portfolio" | "lowest" | "transactions" | "options" | "research";
+type EquityTab = "portfolio" | "history" | "lowest" | "transactions" | "options" | "research";
 type SortDirection = "asc" | "desc";
 type SortValue = string | number | boolean | Date | null | undefined;
 type SortState<Key extends string> = { key: Key; direction: SortDirection };
@@ -59,7 +61,9 @@ type PortfolioSortKey =
   | "sma50"
   | "sma200"
   | "score"
-  | "recommendation";
+  | "rsi"
+  | "recommendation"
+  | "entry";
 type TransactionSortKey = "date" | "stock" | "side" | "qty" | "price" | "value" | "charges" | "product" | "order" | "tradeId";
 type LowestSortKey = "stock" | "leastBuyPrice" | "priceGapPercent" | "recommendation";
 type ResearchSortKey = "stock" | "score" | "action" | "reasons" | "risks" | "guruChecks";
@@ -84,8 +88,10 @@ const portfolioColumns: SortColumn<PortfolioRow, PortfolioSortKey>[] = [
   { key: "sma20", label: "SMA20", value: (row) => row.technicals?.sma20 },
   { key: "sma50", label: "SMA50", value: (row) => row.technicals?.sma50 },
   { key: "sma200", label: "SMA200", value: (row) => row.technicals?.sma200 },
+  { key: "rsi", label: "RSI", value: (row) => row.technicals?.rsi14 },
   { key: "score", label: "Score", value: (row) => row.recommendation?.score },
   { key: "recommendation", label: "Recommendation", value: (row) => row.recommendation?.action },
+  { key: "entry", label: "Entry", value: (row) => entryRank(row.entrySignal) },
 ];
 
 const transactionColumns: SortColumn<EquityTransaction, TransactionSortKey>[] = [
@@ -313,6 +319,14 @@ export default function EquityView() {
         </button>
         <button
           className="button secondary"
+          style={activeTab === "history" ? { background: "var(--accent, #2368b6)", color: "#fff" } : undefined}
+          onClick={() => setActiveTab("history")}
+        >
+          <History size={15} style={{ verticalAlign: "-2px", marginRight: 6 }} />
+          Holdings &amp; History
+        </button>
+        <button
+          className="button secondary"
           style={activeTab === "lowest" ? { background: "var(--accent, #2368b6)", color: "#fff" } : undefined}
           onClick={() => setActiveTab("lowest")}
         >
@@ -346,6 +360,7 @@ export default function EquityView() {
       </div>
 
       {activeTab === "portfolio" ? <PortfolioPanel holdings={portfolioRows} /> : null}
+      {activeTab === "history" ? <EquityHoldingsHistory holdings={holdings} transactions={transactions?.data ?? []} /> : null}
       {activeTab === "lowest" ? <LowestPricePanel holdings={portfolioRows} onSaveOverride={saveLowestPriceOverride} /> : null}
       {activeTab === "transactions" ? (
         <TransactionsPanel
@@ -370,6 +385,7 @@ function PortfolioPanel({ holdings }: { holdings: PortfolioRow[] }) {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <EquityEntrySignals holdings={holdings} />
       <RecommendationNote />
       <PortfolioTable
         title="Potential Buy / Accumulate"
@@ -454,6 +470,7 @@ function PortfolioTable({ title, holdings, emptyLabel }: { title: string; holdin
                 <td>{money(holding.technicals?.sma20)}</td>
                 <td>{money(holding.technicals?.sma50)}</td>
                 <td>{money(holding.technicals?.sma200)}</td>
+                <td>{holding.technicals?.rsi14 != null ? holding.technicals.rsi14.toFixed(0) : "—"}</td>
                 <td>
                   <span className={`equity-grade equity-grade-${holding.recommendation.grade.toLowerCase()}`}>
                     {holding.recommendation.grade} {money(holding.recommendation.score)}
@@ -461,6 +478,9 @@ function PortfolioTable({ title, holdings, emptyLabel }: { title: string; holdin
                 </td>
                 <td>
                   <RecommendationButton holding={holding} onClick={() => setSelectedHolding(holding)} />
+                </td>
+                <td>
+                  <EntryBadge signal={holding.entrySignal} />
                 </td>
               </tr>
             ))}

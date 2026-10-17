@@ -82,6 +82,11 @@ def connect(path: Path = DB_PATH) -> sqlite3.Connection:
             open REAL, high REAL, low REAL, close REAL, volume REAL,
             PRIMARY KEY (underlying, interval, ts)
         );
+        CREATE TABLE IF NOT EXISTS daily_bars (
+            symbol TEXT NOT NULL, security_id TEXT NOT NULL, segment TEXT NOT NULL, ts INTEGER NOT NULL,
+            open REAL, high REAL, low REAL, close REAL, volume REAL,
+            PRIMARY KEY (segment, security_id, ts)
+        );
         CREATE TABLE IF NOT EXISTS fetched_days (
             series TEXT NOT NULL, day TEXT NOT NULL, bars INTEGER NOT NULL, fields TEXT NOT NULL,
             fetched_at TEXT NOT NULL, PRIMARY KEY (series, day)
@@ -235,6 +240,36 @@ async def sync_index(underlying: str, start: date, end: date, interval: int = 1)
         print(f"{underlying} index {f}..{t}: {len(rows)} bars", flush=True)
         await asyncio.sleep(REQUEST_GAP_SECONDS)
     conn.close()
+
+
+async def sync_daily(symbol: str, security_id: str, segment: str = "NSE_EQ", instrument: str = "EQUITY",
+                     start: date = date(2021, 1, 1), end: date | None = None) -> int:
+    """Daily candles for a stock/index; only the days after the last stored bar are fetched."""
+    end = end or date.today()
+    conn = connect()
+    row = conn.execute("SELECT MAX(ts) AS last FROM daily_bars WHERE segment = ? AND security_id = ?", (segment, str(security_id))).fetchone()
+    if row["last"]:
+        start = max(start, datetime.fromtimestamp(row["last"], IST).date() + timedelta(days=1))
+    if start > end:
+        conn.close()
+        return 0
+    dhan = DhanService(get_settings())
+    candles = await dhan.historical_daily_candles(str(security_id), segment, instrument, start.isoformat(), (end + timedelta(days=1)).isoformat())
+    cutoff = _complete_cutoff()
+    rows = [(symbol, str(security_id), segment, int(c["time"]), c["open"], c["high"], c["low"], c["close"], c.get("volume"))
+            for c in candles if datetime.fromtimestamp(int(c["time"]), IST).date() <= cutoff]
+    conn.executemany("INSERT OR REPLACE INTO daily_bars VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", rows)
+    conn.commit()
+    conn.close()
+    await asyncio.sleep(REQUEST_GAP_SECONDS)
+    return len(rows)
+
+
+def load_daily_bars(security_id: str, segment: str = "NSE_EQ") -> list[dict[str, Any]]:
+    conn = connect()
+    rows = conn.execute("SELECT * FROM daily_bars WHERE segment = ? AND security_id = ? ORDER BY ts", (segment, str(security_id))).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
 
 
 def import_json(path: str, underlying: str, expiry_code: int, expiry_flag: str = "WEEK", interval: int = 1) -> None:

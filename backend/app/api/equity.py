@@ -19,6 +19,7 @@ from app.db.sqlite import (
 )
 from app.services.app_auth import require_auth
 from app.services.dhan_equity import DhanEquityService, normalize_historical_candles
+from app.services.equity_entry import build_entry_signal, last_buys, rsi14, summarize as summarize_entries
 from app.services.equity_recommendations import build_recommendation
 from app.services.openai_news import OpenAINewsService
 from app.services.screener import ScreenerService
@@ -237,6 +238,16 @@ async def _portfolio(*, refresh: bool) -> dict[str, Any]:
     for holding in enriched:
         market_value = _number(holding.get("marketValue"))
         holding["exposurePercent"] = round((market_value / total_market_value) * 100, 2) if market_value and total_market_value else None
+    filters = _portfolio_filters(enriched)
+    latest_buys = last_buys(list_equity_transactions_cache(security_ids=filters["securityIds"], isins=filters["isins"]))
+    for holding in enriched:
+        try:
+            holding["entrySignal"] = build_entry_signal(
+                holding=holding, fundamentals=holding.get("fundamentals"), technicals=holding.get("technicals"),
+                news=holding.get("news"), last_buy=latest_buys.get(str(holding.get("securityId") or "")),
+            )
+        except Exception as exc:  # never let the timing overlay break the portfolio view
+            holding["entrySignal"] = {"state": "NO_DATA", "label": "No data", "reasons": [f"Entry signal failed: {exc}"], "blocks": []}
 
     total_pnl = round(total_market_value - total_invested, 2)
     return {
@@ -251,6 +262,7 @@ async def _portfolio(*, refresh: bool) -> dict[str, Any]:
             "pnlPercent": round((total_pnl / total_invested) * 100, 2) if total_invested else None,
             "potentialBuyCount": sum(1 for row in enriched if "Buy" in str((row.get("recommendation") or {}).get("action") or "")),
             "reviewCount": sum(1 for row in enriched if str((row.get("recommendation") or {}).get("action") or "") in {"Review", "Avoid / Reduce"}),
+            "entrySignals": summarize_entries(enriched),
         },
         "data": sorted(enriched, key=lambda row: _number(row.get("marketValue")) or 0, reverse=True),
     }
@@ -385,15 +397,25 @@ async def _technicals_for_holding(service: DhanEquityService, holding: dict[str,
         return _empty_technicals("Missing Dhan security id.")
     max_age = settings.equity_price_cache_minutes * 60
     cached = None if refresh else get_equity_cache("technicals", security_id, max_age)
+    if cached and "rsi14" not in (cached.get("payload") or {}):
+        cached = None  # saved before RSI / SMA200 slope were added
     if cached:
         payload = dict(cached["payload"])
         payload["cachedAt"] = cached["updatedAt"]
         return payload
     try:
-        payload = await service.historical_daily_data(
-            security_id=security_id,
-            exchange_segment=str(holding.get("exchangeSegment") or "NSE_EQ"),
-        )
+        payload = None
+        for attempt in range(3):  # 30+ holdings back to back trip Dhan's rate limit
+            await asyncio.sleep(0.35 + attempt * 1.5)
+            try:
+                payload = await service.historical_daily_data(
+                    security_id=security_id,
+                    exchange_segment=str(holding.get("exchangeSegment") or "NSE_EQ"),
+                )
+                break
+            except Exception as exc:
+                if "Rate_Limit" not in str(exc) or attempt == 2:
+                    raise
         candles = normalize_historical_candles(payload)
         technicals = _technicals(candles)
         upsert_equity_cache("technicals", security_id, technicals)
@@ -526,6 +548,8 @@ def _technicals(candles: list[dict[str, Any]]) -> dict[str, Any]:
         "sma20": _sma(closes, 20),
         "sma50": _sma(closes, 50),
         "sma200": _sma(closes, 200),
+        "sma200Rising": (_sma(closes, 200) > _sma(closes[:-20], 200)) if len(closes) >= 220 else None,
+        "rsi14": rsi14(closes),
         "fiftyTwoWeekHigh": max(highs[-260:]) if highs else None,
         "fiftyTwoWeekLow": min(lows[-260:]) if lows else None,
         "candleCount": len(candles),
