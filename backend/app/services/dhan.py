@@ -148,6 +148,7 @@ class DhanService:
         lows = payload.get("low") or []
         closes = payload.get("close") or []
         timestamps = payload.get("timestamp") or []
+        volumes = payload.get("volume") or []
         return [
             {
                 "time": int(timestamps[i]),
@@ -155,6 +156,7 @@ class DhanService:
                 "high": float(highs[i]),
                 "low": float(lows[i]),
                 "close": float(closes[i]),
+                "volume": float(volumes[i]) if i < len(volumes) and volumes[i] is not None else None,
             }
             for i in range(min(len(timestamps), len(opens), len(highs), len(lows), len(closes)))
         ]

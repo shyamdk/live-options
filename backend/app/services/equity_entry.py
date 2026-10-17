@@ -139,7 +139,7 @@ def build_entry_signal(
     return out
 
 
-def quality_failures(f: dict[str, Any]) -> list[str]:
+def quality_failures(f: dict[str, Any], include_valuation: bool = True) -> list[str]:
     """Long-term quality gates for the entry signal. Lenders (debt/equity
     above 2.5 with an ROE) are judged on ROE and pledge: ROCE and leverage
     describe their business model, not their risk."""
@@ -159,7 +159,7 @@ def quality_failures(f: dict[str, Any]) -> list[str]:
         failed.append(f"Leverage (debt/equity {debt if debt is not None else '—'})")
     if any(v < 0 for v in growth):
         failed.append("Growth (negative 3Y growth)")
-    if not _valuation_reasonable(pe, median_pe, industry_pe):
+    if include_valuation and not _valuation_reasonable(pe, median_pe, industry_pe):
         failed.append(f"Valuation (PE {pe if pe is not None else '—'} vs 3Y {median_pe if median_pe is not None else '—'})")
     return failed
 

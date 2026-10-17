@@ -1026,6 +1026,36 @@ def init_db() -> None:
         )
         conn.execute(
             """
+            CREATE TABLE IF NOT EXISTS equity_swing_bars (security_id TEXT NOT NULL, ts INTEGER NOT NULL, open REAL, high REAL, low REAL, close REAL, volume REAL, PRIMARY KEY (security_id, ts))
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS equity_swing_trades (id INTEGER PRIMARY KEY AUTOINCREMENT, symbol TEXT NOT NULL, security_id TEXT NOT NULL, industry TEXT, mode TEXT NOT NULL, status TEXT NOT NULL, qty INTEGER NOT NULL, planned_at INTEGER, entry_time INTEGER, entry_price REAL, entry_charges REAL, entry_reason TEXT, entry_rank INTEGER, entry_score REAL, exit_time INTEGER, exit_price REAL, exit_charges REAL, exit_reason TEXT, pnl REAL, last_price REAL, last_rank INTEGER, last_update INTEGER, entry_order_id TEXT, exit_order_id TEXT, note TEXT)
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS equity_swing_events (id INTEGER PRIMARY KEY AUTOINCREMENT, time INTEGER NOT NULL, kind TEXT NOT NULL, symbol TEXT, text TEXT NOT NULL)
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS equity_swing_equity (day TEXT PRIMARY KEY, cash REAL NOT NULL, holdings REAL NOT NULL, equity REAL NOT NULL, nifty REAL, positions INTEGER)
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS equity_swing_rankings (week TEXT PRIMARY KEY, created_at INTEGER NOT NULL, payload TEXT NOT NULL)
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS equity_swing_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL)
+            """
+        )
+        conn.execute(
+            """
             CREATE TABLE IF NOT EXISTS alerts (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 kind TEXT NOT NULL,
@@ -4603,6 +4633,40 @@ def list_calm_trades(*, day: str | None = None, status: str | None = None, limit
 
 def list_calm_events(day: str, limit: int = 300) -> list[dict[str, Any]]:
     return _melting_rows("SELECT * FROM calm_strangle_events WHERE day = ? ORDER BY time DESC, id DESC LIMIT ?", (day, limit))
+
+
+def swing_insert(table: str, values: dict[str, Any]) -> int:
+    return _mantra_insert(table, values)
+
+
+def swing_update(table: str, row_id: int, values: dict[str, Any]) -> None:
+    _mantra_update(table, row_id, values)
+
+
+def swing_rows(sql: str, params: tuple = ()) -> list[dict[str, Any]]:
+    return _melting_rows(sql, params)
+
+
+def swing_execute_many(sql: str, rows: list[tuple]) -> None:
+    with _DB_LOCK, _connect() as conn:
+        conn.executemany(sql, rows)
+        conn.commit()
+
+
+def get_swing_setting(key: str) -> str | None:
+    rows = _melting_rows("SELECT value FROM equity_swing_settings WHERE key = ?", (key,))
+    return rows[0]["value"] if rows else None
+
+
+def set_swing_setting(key: str, value: str) -> None:
+    now = datetime.now().isoformat(timespec="seconds")
+    with _DB_LOCK, _connect() as conn:
+        conn.execute(
+            "INSERT INTO equity_swing_settings (key, value, updated_at) VALUES (?, ?, ?) "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
+            (key, value, now),
+        )
+        conn.commit()
 
 
 def create_alert(**values: Any) -> int:

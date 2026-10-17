@@ -243,12 +243,13 @@ async def sync_index(underlying: str, start: date, end: date, interval: int = 1)
 
 
 async def sync_daily(symbol: str, security_id: str, segment: str = "NSE_EQ", instrument: str = "EQUITY",
-                     start: date = date(2021, 1, 1), end: date | None = None) -> int:
-    """Daily candles for a stock/index; only the days after the last stored bar are fetched."""
+                     start: date = date(2021, 1, 1), end: date | None = None, full: bool = False) -> int:
+    """Daily candles for a stock/index; only the days after the last stored bar
+    are fetched (full=True re-fetches everything, e.g. to backfill a field)."""
     end = end or date.today()
     conn = connect()
     row = conn.execute("SELECT MAX(ts) AS last FROM daily_bars WHERE segment = ? AND security_id = ?", (segment, str(security_id))).fetchone()
-    if row["last"]:
+    if row["last"] and not full:
         start = max(start, datetime.fromtimestamp(row["last"], IST).date() + timedelta(days=1))
     if start > end:
         conn.close()

@@ -372,6 +372,15 @@ class Settings(BaseSettings):
     varaha_paper_enabled: bool = True
     # Price alerts + date reminders (app/services/alerts.py): portal alarm + Telegram.
     alerts_monitor_enabled: bool = True
+    # Equity-Swing (app/services/equity_swing.py): weekly NIFTY 200 momentum
+    # rotation. Paper by default; live orders go to Angel One only when the
+    # page's mode is live AND both switches below are true.
+    equity_swing_monitor_enabled: bool = True
+    equity_swing_live_order_enabled: bool = False
+    angel_api_key: str | None = None
+    angel_client_id: str | None = None
+    angel_pin: str | None = None
+    angel_totp_secret: str | None = None
     varaha_live_order_enabled: bool = False
     varaha_decision_time: str = "15:00"
     varaha_min_dte: int = 2

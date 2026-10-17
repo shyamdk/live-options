@@ -20,6 +20,7 @@ import type {
   TagLevels,
   TradeLevels,
 } from "@/types/live";
+import type { SwingConfig, SwingState } from "@/types/equity-swing";
 import type { AlertsPayload, NewAlert, PortalAlert, TelegramStatus } from "@/types/alerts";
 import type { GammaBlastSessionDetail, GammaBlastState } from "@/types/gamma-blast";
 import type { Ema5CandlesResponse, Ema5Config, Ema5Session, Ema5SessionDetail, Ema5Side, Ema5State } from "@/types/ema5";
@@ -950,4 +951,20 @@ export async function alertAction(id: number, action: "acknowledge" | "dismiss" 
 
 export async function testTelegram(): Promise<TelegramStatus & { sent: boolean }> {
   return apiJson(`/api/alerts/telegram-test`, { method: "POST" }, "Telegram test failed");
+}
+
+export async function getSwingState(): Promise<SwingState> {
+  return apiJson<SwingState>("/api/equity-swing/state", undefined, "Failed to load Equity-Swing");
+}
+
+export async function updateSwingConfig(updates: Partial<SwingConfig>): Promise<SwingConfig> {
+  return apiJson<SwingConfig>("/api/equity-swing/config", { method: "PUT", body: JSON.stringify(updates) }, "Failed to save settings");
+}
+
+export async function syncSwingData(): Promise<{ series: number; failed: number }> {
+  return apiJson("/api/equity-swing/sync", { method: "POST" }, "Data sync failed");
+}
+
+export async function rebalanceSwingNow(): Promise<unknown> {
+  return apiJson("/api/equity-swing/rebalance", { method: "POST" }, "Ranking failed");
 }
