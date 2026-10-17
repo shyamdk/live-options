@@ -40,7 +40,7 @@ logger = logging.getLogger(__name__)
 IST = ZoneInfo("Asia/Kolkata")
 UNIVERSE_FILE = Path(__file__).resolve().parents[1] / "data" / "nifty200.json"
 NIFTY_KEY = "IDX:13"
-HISTORY_DAYS = 420
+HISTORY_DAYS = 2200  # ~6 years: enough to trade (14 months) and to back-test in retrospectives
 POLL_SECONDS = 60
 
 DEFAULTS: dict[str, Any] = {
@@ -162,6 +162,8 @@ async def sync_bars(full: bool = False) -> dict[str, int]:
     today = datetime.now(IST).date()
     jobs = [(m["securityId"], "NSE_EQ", "EQUITY", m["securityId"]) for m in universe()] + [("13", "IDX_I", "INDEX", NIFTY_KEY)]
     fetched = failed = 0
+    if db.get_swing_setting("bars.historyDays") != str(HISTORY_DAYS):  # one-time deeper backfill
+        full = True
     for sid, segment, instrument, key in jobs:
         row = db.swing_rows("SELECT MAX(ts) AS last FROM equity_swing_bars WHERE security_id = ?", (key,))
         last = row[0]["last"] if row else None
@@ -189,6 +191,8 @@ async def sync_bars(full: bool = False) -> dict[str, int]:
         )
         fetched += 1
     db.set_swing_setting("bars.syncedFor", today.isoformat())
+    if full and not failed:
+        db.set_swing_setting("bars.historyDays", str(HISTORY_DAYS))
     return {"series": fetched, "failed": failed}
 
 
@@ -463,6 +467,10 @@ async def monitor_once() -> None:
                 and db.get_swing_setting("bars.syncedFor") == today.isoformat()
                 and not db.swing_rows("SELECT week FROM equity_swing_rankings WHERE week = ?", (week,))):
             await rebalance("scheduled")
+        if now.time() >= dtime(16, 30):
+            from app.services import equity_swing_retro
+
+            await equity_swing_retro.maybe_monthly(now)
 
 
 async def _loop() -> None:

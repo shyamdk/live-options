@@ -4,6 +4,7 @@ import { Play, RefreshCw, Save, TrendingUp } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 import CollapsibleSection from "@/components/CollapsibleSection";
+import SwingRetrospectives from "@/components/SwingRetrospectives";
 import { getSwingState, rebalanceSwingNow, syncSwingData, updateSwingConfig } from "@/lib/api";
 import type { SwingConfig, SwingState, SwingTrade } from "@/types/equity-swing";
 
@@ -236,15 +237,18 @@ export default function EquitySwingPage() {
         ))}
       </CollapsibleSection>
 
+      <SwingRetrospectives onApplied={load} />
+
       {config ? <Settings config={config} onSaved={load} /> : null}
 
       <div className="pcr-oi-section">
-        <h3 style={{ margin: "0 0 6px" }}>What the back-test says (Jan 2022 – Oct 2026, ₹5L, delivery costs + 0.1% slippage)</h3>
+        <h3 style={{ margin: "0 0 6px" }}>What the back-test says (₹5L, delivery costs + 0.1% slippage)</h3>
         <p className="pcr-oi-caption" style={{ margin: 0 }}>
-          This setup (8 positions, 8-week cap with a 4-week cool-down, market filter on) made 30.7% a year with a worst drop of −18.4% and a
-          4-week median hold. Eight random NIFTY 200 stocks rotated monthly made 11.4%. Most of the gain came in the 2022–24 bull market
-          (+56% a year); since mid-2024 it made about +10% a year. Today&apos;s NIFTY 200 list flatters every back-test, and short-term gains are
-          taxed at 20%, so expect less. Breakout (Robust Swing v1) and dip-buying versions lost to random picks.
+          These settings made 31.4% a year from Jan 2022 to Oct 2026 (worst drop −19.2%, about 4-week median hold), but 21.7% a year when the
+          test starts three months earlier, in Oct 2021, near a market top -- the start date matters. Random NIFTY 200 picks made far less, NIFTY
+          made about 5% a year. Most of the gain came in the 2022–24 bull market; since mid-2024 it made roughly 8–10% a year, and in the last six
+          months the market filter kept it out entirely (NIFTY below its SMA200). Today&apos;s NIFTY 200 list flatters every back-test and
+          short-term gains are taxed at 20%, so expect less. The monthly retrospective re-checks all of this on the latest data.
         </p>
       </div>
     </section>

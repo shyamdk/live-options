@@ -99,3 +99,34 @@ export type SwingState = {
   events: Array<{ id: number; time: number; kind: string; symbol?: string | null; text: string }>;
   universe: number;
 };
+
+export type SwingBacktest = { cagr: number; totalReturn: number; maxDrawdown: number; niftyCagr: number; trades: number; winRate: number | null; costs: number; years: number };
+
+export type SwingRetro = {
+  id: number;
+  createdAt: number;
+  trigger: string;
+  settings: Record<string, unknown>;
+  review: {
+    openPositions: number;
+    closedTrades: number;
+    realized: number;
+    winRate: number | null;
+    avgWin: number | null;
+    avgLoss: number | null;
+    medianHoldWeeks: number | null;
+    byExit: Record<string, { trades: number; pnl: number; winRate: number }>;
+    bySector: Record<string, { trades: number; pnl: number; winRate: number }>;
+    byEntryRank: Record<string, { trades: number; pnl: number; winRate: number }>;
+    sinceStart: { from: string; to: string; strategy: number; nifty: number } | null;
+  };
+  retest: {
+    error?: string;
+    recentNote?: string | null;
+    window?: { from: string; to: string; recentFrom: string };
+    current?: { full: SwingBacktest; recent: SwingBacktest };
+    random?: { median: number; min: number; max: number };
+    variants?: Array<{ label: string; change: Record<string, unknown>; full: SwingBacktest; recent: SwingBacktest; gainFull: number; gainRecent: number; suggest: boolean }>;
+  };
+  decisions: Array<{ at: number; applied: string }>;
+};

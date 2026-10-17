@@ -1051,6 +1051,11 @@ def init_db() -> None:
         )
         conn.execute(
             """
+            CREATE TABLE IF NOT EXISTS equity_swing_retros (id INTEGER PRIMARY KEY AUTOINCREMENT, created_at INTEGER NOT NULL, trigger TEXT NOT NULL, payload TEXT NOT NULL)
+            """
+        )
+        conn.execute(
+            """
             CREATE TABLE IF NOT EXISTS equity_swing_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL)
             """
         )

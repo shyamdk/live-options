@@ -20,7 +20,7 @@ import type {
   TagLevels,
   TradeLevels,
 } from "@/types/live";
-import type { SwingConfig, SwingState } from "@/types/equity-swing";
+import type { SwingConfig, SwingRetro, SwingState } from "@/types/equity-swing";
 import type { AlertsPayload, NewAlert, PortalAlert, TelegramStatus } from "@/types/alerts";
 import type { GammaBlastSessionDetail, GammaBlastState } from "@/types/gamma-blast";
 import type { Ema5CandlesResponse, Ema5Config, Ema5Session, Ema5SessionDetail, Ema5Side, Ema5State } from "@/types/ema5";
@@ -967,4 +967,16 @@ export async function syncSwingData(): Promise<{ series: number; failed: number 
 
 export async function rebalanceSwingNow(): Promise<unknown> {
   return apiJson("/api/equity-swing/rebalance", { method: "POST" }, "Ranking failed");
+}
+
+export async function getSwingRetros(): Promise<{ running: number | null; retros: SwingRetro[] }> {
+  return apiJson("/api/equity-swing/retros", undefined, "Failed to load retrospectives");
+}
+
+export async function startSwingRetro(): Promise<{ status: string }> {
+  return apiJson("/api/equity-swing/retros", { method: "POST" }, "Failed to start the retrospective");
+}
+
+export async function applySwingRetro(id: number, label: string): Promise<SwingConfig> {
+  return apiJson<SwingConfig>(`/api/equity-swing/retros/${id}/apply`, { method: "POST", body: JSON.stringify({ label }) }, "Failed to apply");
 }
