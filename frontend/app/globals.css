@@ -1221,7 +1221,9 @@ td strong {
 }
 
 .field-panel textarea {
-  min-height: 220px;
+  /* three lines of text; still drag-resizable for longer entries */
+  height: calc(3 * 1.5em + 26px);
+  min-height: calc(3 * 1.5em + 26px);
   resize: vertical;
   border: 1px solid var(--line);
   border-radius: 8px;

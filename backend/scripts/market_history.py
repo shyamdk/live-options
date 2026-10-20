@@ -266,6 +266,40 @@ async def sync_daily(symbol: str, security_id: str, segment: str = "NSE_EQ", ins
     return len(rows)
 
 
+async def sync_delta(symbol: str = "BTCUSD", resolution: str = "1m", start: date = date(2025, 1, 1), end: date | None = None) -> int:
+    """Delta Exchange candles (public API, 2000 per call) into index_bars as
+    underlying "DELTA:<symbol>"; only bars after the last stored one are fetched."""
+    from app.services.delta_exchange import DeltaExchangeService
+
+    step = {"1m": 60, "5m": 300, "1h": 3600}[resolution]
+    key = f"DELTA:{symbol}"
+    conn = connect()
+    row = conn.execute("SELECT MAX(ts) AS last FROM index_bars WHERE underlying = ? AND interval = ?", (key, step // 60)).fetchone()
+    t0 = int(row["last"]) + step if row["last"] else int(datetime.combine(start, datetime.min.time(), tzinfo=IST).timestamp())
+    t_end = int(datetime.combine(end or date.today(), datetime.max.time(), tzinfo=IST).timestamp()) if end else int(time.time()) - step
+    svc = DeltaExchangeService(get_settings())
+    total = 0
+    while t0 < t_end:
+        t1 = min(t0 + step * 1999, t_end)
+        for attempt in range(4):
+            try:
+                candles = await svc.get_candles(symbol, resolution, t0, t1)
+                break
+            except Exception as exc:
+                print(f"  retry {attempt + 1}: {str(exc)[:80]}", flush=True)
+                await asyncio.sleep(3 * (attempt + 1))
+        else:
+            raise RuntimeError(f"Delta candles failed at {t0}")
+        rows = [(key, step // 60, int(c["time"]), c["open"], c["high"], c["low"], c["close"], c.get("volume")) for c in candles]
+        conn.executemany("INSERT OR REPLACE INTO index_bars VALUES (?, ?, ?, ?, ?, ?, ?, ?)", rows)
+        conn.commit()
+        total += len(rows)
+        t0 = t1 + step
+        await asyncio.sleep(0.15)
+    conn.close()
+    return total
+
+
 def load_daily_bars(security_id: str, segment: str = "NSE_EQ") -> list[dict[str, Any]]:
     conn = connect()
     rows = conn.execute("SELECT * FROM daily_bars WHERE segment = ? AND security_id = ? ORDER BY ts", (segment, str(security_id))).fetchall()

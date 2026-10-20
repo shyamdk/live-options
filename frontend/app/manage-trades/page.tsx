@@ -333,6 +333,7 @@ export default function ManageTradesPage() {
           onExitTag={handleExitTag}
           expandedIds={expandedIds}
           onToggleExpand={toggleExpand}
+          suggestThreshold={snapshot?.suggestConfig?.enabled ? snapshot.suggestConfig.thresholdPercent : null}
         />
       ))}
 
@@ -479,7 +480,9 @@ function TagGroupTable({
   onExitTag,
   expandedIds,
   onToggleExpand,
+  suggestThreshold,
 }: {
+  suggestThreshold: number | null;
   group: TagGroup;
   drafts: Record<string, DraftLevels>;
   savingId: string | null;
@@ -520,7 +523,7 @@ function TagGroupTable({
       {group.summary ? (
         <TagLevelsBar group={group} summary={group.summary} onSave={onSaveTagLevels} onExit={onExitTag} />
       ) : null}
-      {group.summary?.payoff && group.openTrades.length ? <TagPayoffPanel group={group} /> : null}
+      {group.summary?.payoff && group.openTrades.length ? <TagPayoffPanel group={group} threshold={suggestThreshold} /> : null}
       {expanded ? (
       <div className="table-wrap">
         <table className="wide-table">
@@ -737,7 +740,7 @@ function SuggestionBanner({ group, onAccept }: { group: TagGroup; onAccept: () =
   );
 }
 
-function TagPayoffPanel({ group }: { group: TagGroup }) {
+function TagPayoffPanel({ group, threshold }: { group: TagGroup; threshold: number | null }) {
   const payoff = group.summary?.payoff;
   const [expanded, toggle] = useSectionExpanded(`payoff:${group.tag}`);
   if (!payoff) return null;
@@ -760,6 +763,22 @@ function TagPayoffPanel({ group }: { group: TagGroup }) {
         <span>
           Captured: <strong>{capture !== null && capture !== undefined ? `${capture.toFixed(0)}%` : "—"}</strong>
         </span>
+        {threshold && payoff.maxDayProfit && payoff.maxDayProfit > 0 ? (() => {
+          const target = (payoff.maxDayProfit * threshold) / 100;
+          const toGo = target - (payoff.currentPnl ?? 0);
+          const progress = Math.max(0, Math.min(1, (payoff.currentPnl ?? 0) / target));
+          return (
+            <span title={`The profit-booking suggestion appears when today's P&L reaches ${threshold}% of the max day profit.`}>
+              Suggestion at <strong>{money(target)}</strong> ({threshold}% of {money(payoff.maxDayProfit)}) ·{" "}
+              {toGo > 0 ? <>{money(toGo)} to go</> : <strong style={{ color: "var(--green)" }}>reached</strong>}
+              <span
+                style={{ display: "inline-block", width: 90, height: 6, marginLeft: 8, verticalAlign: "middle", background: "var(--line)", borderRadius: 3, overflow: "hidden" }}
+              >
+                <span style={{ display: "block", width: `${progress * 100}%`, height: "100%", background: progress >= 1 ? "var(--green)" : "var(--blue)" }} />
+              </span>
+            </span>
+          );
+        })() : null}
         <span className="pcr-oi-caption">counted {payoff.basis}; before charges</span>
       </div>
       {expanded && payoff.points?.length ? (
