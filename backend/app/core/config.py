@@ -83,7 +83,7 @@ class Settings(BaseSettings):
     login_email: str | None = None
     login_password: str | None = None
     equity_transactions_lookback_days: int = 1825
-    equity_trade_history_max_pages: int = 50
+    equity_trade_history_max_pages: int = 150
     equity_fundamentals_cache_hours: int = 24
     equity_quote_cache_seconds: int = 120
     equity_price_cache_minutes: int = 1440

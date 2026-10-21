@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import date, timedelta
 from typing import Any
 
@@ -8,6 +9,15 @@ import httpx
 from app.core.config import Settings, get_settings
 from app.services.dhan import DhanApiError, DhanClientError
 from app.services.dhan_auth import DhanAuthError, get_dhan_access_token, is_invalid_token_response
+
+
+TRADE_PAGE_GAP_SECONDS = 0.6  # Dhan's per-user limit trips on back-to-back pages
+RATE_LIMIT_BACKOFF_SECONDS = (2.0, 4.0, 8.0)
+
+
+def _rate_limited(exc: Exception) -> bool:
+    text = str(exc)
+    return getattr(exc, "status_code", None) == 429 or "DH-904" in text or "Rate_Limit" in text
 
 
 class DhanEquityService:
@@ -35,18 +45,40 @@ class DhanEquityService:
         return payload.get("data") or {}
 
     async def trade_history(self, from_date: str, to_date: str, max_pages: int | None = None) -> list[dict[str, Any]]:
+        """All equity trades in the range, page by page. Pages are spaced out
+        and a rate-limited page is retried with back-off; if a page still
+        fails, the pages already fetched are kept and `last_warning` says so."""
         max_pages = max_pages or self.settings.equity_trade_history_max_pages
+        self.last_warning = None
         trades: list[dict[str, Any]] = []
         for page in range(max_pages):
-            payload = await self._get(f"/trades/{from_date}/{to_date}/{page}", require_client_id=False)
+            if page:
+                await asyncio.sleep(TRADE_PAGE_GAP_SECONDS)
+            try:
+                payload = await self._get_with_backoff(f"/trades/{from_date}/{to_date}/{page}")
+            except DhanApiError as exc:
+                if not trades:
+                    raise
+                self.last_warning = f"Trade history stopped at page {page} ({exc}); showing the {len(trades)} trades fetched plus saved history."
+                break
             rows = payload if isinstance(payload, list) else payload.get("data", [])
             if not rows:
                 break
             normalized = [self._transaction(row) for row in rows if isinstance(row, dict)]
             trades.extend([row for row in normalized if row.get("instrument") == "EQUITY"])
-            if len(rows) < 1:
-                break
+        else:
+            self.last_warning = f"Trade history hit the {max_pages}-page limit; older trades in the range may be missing."
         return trades
+
+    async def _get_with_backoff(self, path: str) -> Any:
+        for wait in RATE_LIMIT_BACKOFF_SECONDS:
+            try:
+                return await self._get(path, require_client_id=False)
+            except DhanApiError as exc:
+                if not _rate_limited(exc):
+                    raise
+                await asyncio.sleep(wait)
+        return await self._get(path, require_client_id=False)
 
     async def historical_daily_data(
         self,

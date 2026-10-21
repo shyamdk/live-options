@@ -87,6 +87,9 @@ def connect(path: Path = DB_PATH) -> sqlite3.Connection:
             open REAL, high REAL, low REAL, close REAL, volume REAL,
             PRIMARY KEY (segment, security_id, ts)
         );
+        CREATE TABLE IF NOT EXISTS delta_marks (
+            symbol TEXT NOT NULL, ts INTEGER NOT NULL, close REAL NOT NULL, PRIMARY KEY (symbol, ts)
+        ) WITHOUT ROWID;
         CREATE TABLE IF NOT EXISTS fetched_days (
             series TEXT NOT NULL, day TEXT NOT NULL, bars INTEGER NOT NULL, fields TEXT NOT NULL,
             fetched_at TEXT NOT NULL, PRIMARY KEY (series, day)
@@ -177,10 +180,16 @@ def store_option_payload(conn: sqlite3.Connection, key: tuple[str, str, int, int
 
 
 async def _post(client: httpx.AsyncClient, dhan: DhanService, path: str, body: dict[str, Any]) -> dict[str, Any]:
+    refresh = False
     for attempt in range(6):
         await asyncio.sleep(REQUEST_GAP_SECONDS)
         try:
-            r = await client.post(f"{dhan.settings.dhan_base_url}{path}", headers=await dhan._headers(require_client_id=True), json=body)
+            headers = await dhan._headers(require_client_id=True, force_refresh=refresh)
+            refresh = False
+            r = await client.post(f"{dhan.settings.dhan_base_url}{path}", headers=headers, json=body)
+            if r.status_code == 401:  # expired token: adopt the shared/refreshed one and retry
+                refresh = True
+                continue
             if r.status_code == 429 or "DH-904" in r.text or "Too many" in r.text:
                 await asyncio.sleep(8 * (attempt + 1))
                 continue
@@ -298,6 +307,72 @@ async def sync_delta(symbol: str = "BTCUSD", resolution: str = "1m", start: date
         await asyncio.sleep(0.15)
     conn.close()
     return total
+
+
+async def sync_delta_option_marks(start: date = date(2025, 1, 2), end: date | None = None, width: int = 5000,
+                                  grid: int = 1000, concurrency: int = 4) -> dict[str, int]:
+    """1-min MARK prices of Delta BTC daily options over each expiry's last 24 h
+    (17:30 IST settlement): strikes on a `grid` within +-`width` of the session's
+    opening BTC price, out-of-the-money side (both types near the money).
+    Expiries already fetched (fetched_days "delta-mark") are skipped."""
+    from app.services.delta_exchange import DeltaExchangeService
+
+    end = end or date.today() - timedelta(days=1)
+    conn = connect()
+    done = {r["day"] for r in conn.execute("SELECT day FROM fetched_days WHERE series = 'delta-mark'")}
+    svc = DeltaExchangeService(get_settings())
+    sem = asyncio.Semaphore(concurrency)
+    stats = {"expiries": 0, "series": 0, "empty": 0}
+
+    async def one(sym: str, t0: int, t1: int) -> list[tuple]:
+        async with sem:
+            for attempt in range(4):
+                try:
+                    candles = await svc.get_candles(sym, "1m", t0, t1)
+                    return [(sym[5:], int(c["time"]), float(c["close"])) for c in candles if c.get("close") is not None]
+                except Exception:
+                    await asyncio.sleep(2 * (attempt + 1))
+            return []
+
+    d = start
+    while d <= end:
+        if d.isoformat() in done:
+            d += timedelta(days=1)
+            continue
+        settle = int(datetime(d.year, d.month, d.day, 17, 30, tzinfo=IST).timestamp())
+        t0 = settle - 86400
+        row = conn.execute("SELECT close FROM index_bars WHERE underlying='DELTA:BTCUSD' AND interval=1 AND ts >= ? ORDER BY ts LIMIT 1", (t0,)).fetchone()
+        if not row:
+            d += timedelta(days=1)
+            continue
+        s0 = row["close"]
+        exp = d.strftime("%d%m%y")
+        syms = []
+        for k in range(int(round((s0 - width) / grid) * grid), int(round((s0 + width) / grid) * grid) + grid, grid):
+            if k >= s0 - grid:
+                syms.append(f"MARK:C-BTC-{k}-{exp}")
+            if k <= s0 + grid:
+                syms.append(f"MARK:P-BTC-{k}-{exp}")
+        results = await asyncio.gather(*(one(sym, t0, settle) for sym in syms))
+        rows = [r for res in results for r in res]
+        conn.executemany("INSERT OR REPLACE INTO delta_marks VALUES (?, ?, ?)", rows)
+        _mark(conn, "delta-mark", [d], {d.isoformat(): len(rows)}, ["close"])
+        conn.commit()
+        stats["expiries"] += 1
+        stats["series"] += sum(1 for res in results if res)
+        stats["empty"] += sum(1 for res in results if not res)
+        if stats["expiries"] % 25 == 0:
+            print(f"  {d} done -- {stats}", flush=True)
+        d += timedelta(days=1)
+    conn.close()
+    return stats
+
+
+def load_delta_marks(symbol: str) -> dict[int, float]:
+    conn = connect()
+    rows = conn.execute("SELECT ts, close FROM delta_marks WHERE symbol = ?", (symbol,)).fetchall()
+    conn.close()
+    return {r["ts"]: r["close"] for r in rows}
 
 
 def load_daily_bars(security_id: str, segment: str = "NSE_EQ") -> list[dict[str, Any]]:

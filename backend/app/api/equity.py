@@ -27,6 +27,9 @@ from app.services.screener import ScreenerService
 router = APIRouter(prefix="/equity", tags=["equity"])
 
 LOWEST_PRICE_OVERRIDE_CATEGORY = "lowest_price_override"
+TRANSACTION_OVERLAP_DAYS = 2
+TRANSACTION_SYNC_CATEGORY = "transactions_sync"
+DHAN_TRADE_HISTORY_DAYS = 100  # Dhan serves only ~3 months; older trades come from the CSV import
 
 
 class EquityRefreshIn(BaseModel):
@@ -64,8 +67,8 @@ async def equity_portfolio(refresh: bool = False) -> dict[str, Any]:
 
 
 @router.get("/transactions", dependencies=[Depends(require_auth)])
-async def equity_transactions(fromDate: str | None = None, toDate: str | None = None, refresh: bool = False) -> dict[str, Any]:
-    return await _transactions(from_date=fromDate, to_date=toDate, refresh=refresh)
+async def equity_transactions(fromDate: str | None = None, toDate: str | None = None, refresh: bool = False, full: bool = False) -> dict[str, Any]:
+    return await _transactions(from_date=fromDate, to_date=toDate, refresh=refresh, full=full)
 
 
 @router.get("/news", dependencies=[Depends(require_auth)])
@@ -268,11 +271,20 @@ async def _portfolio(*, refresh: bool) -> dict[str, Any]:
     }
 
 
-async def _transactions(*, from_date: str | None, to_date: str | None, refresh: bool) -> dict[str, Any]:
+async def _transactions(*, from_date: str | None, to_date: str | None, refresh: bool, full: bool = False) -> dict[str, Any]:
     settings = get_settings()
     end = _date_or_default(to_date, date.today())
     start = _date_or_default(from_date, end - timedelta(days=settings.equity_transactions_lookback_days))
-    range_key = f"{start.isoformat()}:{end.isoformat()}"
+    # Every fetched trade is stored, so only ask Dhan for the days since the
+    # last complete sync (Dhan's list also carries every F&O trade, ~1 page a
+    # day), with a short overlap for late fills; `full` re-fetches the range.
+    fetch_start = start
+    synced = None if full else (get_equity_cache(TRANSACTION_SYNC_CATEGORY, "through") or {}).get("payload", {}).get("date")
+    if synced:
+        fetch_start = max(start, min(end, date.fromisoformat(synced) - timedelta(days=TRANSACTION_OVERLAP_DAYS)))
+    elif not full:
+        fetch_start = max(start, end - timedelta(days=DHAN_TRADE_HISTORY_DAYS))
+    range_key = f"{fetch_start.isoformat()}:{end.isoformat()}"
     warning = None
     try:
         holdings = await DhanEquityService(settings).holdings()
@@ -289,9 +301,13 @@ async def _transactions(*, from_date: str | None, to_date: str | None, refresh: 
     else:
         service = DhanEquityService(settings)
         try:
-            rows = await service.trade_history(start.isoformat(), end.isoformat())
+            rows = await service.trade_history(fetch_start.isoformat(), end.isoformat())
             upsert_equity_transactions(rows)
-            upsert_equity_cache("transactions_range", range_key, {"data": rows})
+            if service.last_warning:
+                warning = " | ".join(part for part in [warning, service.last_warning] if part)
+            else:
+                upsert_equity_cache("transactions_range", range_key, {"data": rows})
+                upsert_equity_cache(TRANSACTION_SYNC_CATEGORY, "through", {"date": end.isoformat()})
         except Exception as exc:
             warning = " | ".join(part for part in [warning, str(exc)] if part)
             rows = []
