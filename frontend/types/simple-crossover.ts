@@ -69,6 +69,7 @@ export interface SimpleCrossoverTrade {
   signalSource?: "live" | "dhan" | null;
   plainCrossover?: boolean;
   plainTargetPercent?: number | null;
+  minGapPercent?: number | null;
   status: "open" | "closed";
   currentPremium: number | null;
   remainingLots: number;
@@ -98,6 +99,7 @@ export interface SimpleCrossoverConfig {
   timeframeMinutes: 1 | 3;
   plainCrossover: boolean;
   plainTargetPercent: number;
+  minGapPercent: number;
 }
 
 export interface SimpleCrossoverData {

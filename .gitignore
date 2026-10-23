@@ -11,3 +11,4 @@ frontend/tsconfig.tsbuildinfo
 .run/
 .claude/
 
+backend/data/history/backtests/

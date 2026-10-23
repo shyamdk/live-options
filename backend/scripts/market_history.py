@@ -51,6 +51,7 @@ UNDERLYINGS = {
     "NIFTY": {"securityId": 13, "segment": "NSE_FNO", "index": "13", "weeklyExpiry": 1},  # Tuesday
     "BANKNIFTY": {"securityId": 25, "segment": "NSE_FNO", "index": "25", "weeklyExpiry": None},
     "SENSEX": {"securityId": 51, "segment": "BSE_FNO", "index": "51", "weeklyExpiry": 3},  # Thursday
+    "INDIAVIX": {"securityId": 21, "segment": "IDX_I", "index": "21", "weeklyExpiry": None},  # index bars only
 }
 ALL_FIELDS = ("open", "high", "low", "close", "volume", "oi", "iv", "strike", "spot")
 # A stored day counts as complete when it has these (older downloads have no
@@ -131,11 +132,11 @@ def missing_days(conn: sqlite3.Connection, series: str, start: date, end: date, 
     return [d for d in _weekdays(start, end) if not need <= have.get(d.isoformat(), set())]
 
 
-def _windows(days: list[date]) -> list[tuple[date, date]]:
-    """Contiguous runs of missing days, cut into <= WINDOW_DAYS calendar-day windows."""
+def _windows(days: list[date], max_days: int = WINDOW_DAYS) -> list[tuple[date, date]]:
+    """Contiguous runs of missing days, cut into <= max_days calendar-day windows."""
     out: list[tuple[date, date]] = []
     for d in days:
-        if out and (d - out[-1][1]).days <= 3 and (d - out[-1][0]).days < WINDOW_DAYS:
+        if out and (d - out[-1][1]).days <= 3 and (d - out[-1][0]).days < max_days:
             out[-1] = (out[-1][0], d)
         else:
             out.append((d, d))
@@ -202,7 +203,8 @@ async def _post(client: httpx.AsyncClient, dhan: DhanService, path: str, body: d
 
 
 async def sync_options(underlying: str, expiry_code: int, offsets: list[int], start: date, end: date, *,
-                       expiry_flag: str = "WEEK", types: tuple[str, ...] = ("CALL", "PUT"), interval: int = 1) -> None:
+                       expiry_flag: str = "WEEK", types: tuple[str, ...] = ("CALL", "PUT"), interval: int = 1,
+                       window_days: int | None = None) -> None:
     meta = UNDERLYINGS[underlying]
     dhan = DhanService(get_settings())
     conn = connect()
@@ -210,7 +212,7 @@ async def sync_options(underlying: str, expiry_code: int, offsets: list[int], st
     for offset in offsets:
         for typ in types:
             series = option_series_key(underlying, expiry_flag, expiry_code, offset, typ, interval)
-            for window in _windows(missing_days(conn, series, start, end, CORE_FIELDS)):
+            for window in _windows(missing_days(conn, series, start, end, CORE_FIELDS), window_days or (WINDOW_DAYS if interval == 1 else 30)):
                 jobs.append((window, offset, typ, series))
     jobs.sort(key=lambda j: (j[0][0], abs(j[1]), j[1], j[2]))  # whole days fill in first, nearest strikes first
     print(f"{underlying} code {expiry_code}: {len(jobs)} requests to make", flush=True)
@@ -221,7 +223,11 @@ async def sync_options(underlying: str, expiry_code: int, offsets: list[int], st
                     "expiryFlag": expiry_flag, "expiryCode": expiry_code, "strike": strike, "drvOptionType": typ,
                     "requiredData": list(ALL_FIELDS), "fromDate": f.isoformat(), "toDate": t.isoformat()}
             t0 = time.monotonic()
-            data = (await _post(client, dhan, "/charts/rollingoption", body)).get("data") or {}
+            try:
+                data = (await _post(client, dhan, "/charts/rollingoption", body)).get("data") or {}
+            except RuntimeError as exc:  # keep going; the days stay missing and a later run retries them
+                print(f"[{n}/{len(jobs)}] {strike} {typ} {f}..{t}: SKIPPED ({exc})", flush=True)
+                continue
             payload = data.get("ce" if typ == "CALL" else "pe") or {}
             counts = store_option_payload(conn, (underlying, expiry_flag, expiry_code, offset, typ, interval), payload)
             _mark(conn, series, _weekdays(f, t), counts, ALL_FIELDS)
@@ -511,6 +517,8 @@ def main(argv: list[str] | None = None) -> None:
     s.add_argument("--expiry-flag", default="WEEK", choices=("WEEK", "MONTH"))
     s.add_argument("--offsets", default="-10:10")
     s.add_argument("--types", default="CALL,PUT")
+    s.add_argument("--interval", type=int, default=1, help="minutes: 1, 5, 15, 25 or 60 (longer bars fetch 30 days per request)")
+    s.add_argument("--window", type=int, default=None, help="calendar days per request (smaller when Dhan times out)")
     s.add_argument("--from", dest="start", required=True)
     s.add_argument("--to", dest="end", default=date.today().isoformat())
     i = sub.add_parser("sync-index")
@@ -526,7 +534,8 @@ def main(argv: list[str] | None = None) -> None:
         status()
     elif args.cmd == "sync":
         asyncio.run(sync_options(args.underlying, args.expiry_code, _offsets(args.offsets), date.fromisoformat(args.start),
-                                 date.fromisoformat(args.end), expiry_flag=args.expiry_flag, types=tuple(args.types.split(","))))
+                                 date.fromisoformat(args.end), expiry_flag=args.expiry_flag, types=tuple(args.types.split(",")),
+                                 interval=args.interval, window_days=args.window))
     elif args.cmd == "sync-index":
         asyncio.run(sync_index(args.underlying, date.fromisoformat(args.start), date.fromisoformat(args.end)))
     elif args.cmd == "import-json":

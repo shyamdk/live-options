@@ -349,12 +349,14 @@ function StrategyConditionsPanel({
 }) {
   const [stopLossDraft, setStopLossDraft] = useState("");
   const [plainTargetDraft, setPlainTargetDraft] = useState("");
+  const [minGapDraft, setMinGapDraft] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (config) setStopLossDraft(String(config.stopLossPercent));
     if (config) setPlainTargetDraft(String(config.plainTargetPercent ?? 0));
+    if (config) setMinGapDraft(String(config.minGapPercent ?? 0));
   }, [config]);
 
   async function save(updates: Partial<SimpleCrossoverConfig>) {
@@ -374,6 +376,12 @@ function StrategyConditionsPanel({
     const value = Number(plainTargetDraft);
     if (!config || !Number.isFinite(value) || value < 0 || value > 100 || value === config.plainTargetPercent) return;
     void save({ plainTargetPercent: value });
+  }
+
+  function saveMinGap() {
+    const value = Number(minGapDraft);
+    if (!config || !Number.isFinite(value) || value < 0 || value > 5 || value === config.minGapPercent) return;
+    void save({ minGapPercent: value });
   }
 
   function saveStopLoss() {
@@ -446,6 +454,29 @@ function StrategyConditionsPanel({
         Trade on Sideways days too
       </label>
       </div>
+
+      <h4 style={{ margin: "14px 0 6px", fontSize: 13 }}>Minimum EMA gap (what counts as a cross)</h4>
+      <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13 }}>
+        EMA8 must be at least
+        <input
+          type="number"
+          min={0}
+          max={5}
+          step={0.05}
+          value={minGapDraft}
+          onChange={(event) => setMinGapDraft(event.target.value)}
+          onBlur={saveMinGap}
+          onKeyDown={(event) => event.key === "Enter" && saveMinGap()}
+          disabled={!config || saving}
+          style={{ width: 76, fontSize: 12, padding: "2px 6px" }}
+        />
+        % of the premium away from EMA21 (0 = any cross)
+      </label>
+      <p className="pcr-oi-caption" style={{ margin: "4px 0 0" }}>
+        {config && config.minGapPercent > 0
+          ? `ON (${config.minGapPercent}%): enter only when EMA8 closes at least ${config.minGapPercent}% of the premium ABOVE EMA21 (on a ₹200 premium that is ₹${(2 * config.minGapPercent).toFixed(2)}); exit when it closes at least ${config.minGapPercent}% BELOW. Crosses by a few paise -- like trade #130 on 22 Oct (+0.11 then −0.21 on a ₹220 premium) -- are ignored. Each trade keeps the gap it entered with.`
+          : "OFF: any EMA8/EMA21 cross counts, however small (the earlier behaviour)."}
+      </p>
 
       <h4 style={{ margin: "14px 0 6px", fontSize: 13 }}>Candle timeframe</h4>
       <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
@@ -575,8 +606,8 @@ function PaperTradesSection({
                     <td>
                       {t.plainCrossover
                         ? t.plainTargetPercent
-                          ? `+${t.plainTargetPercent}% (${fmtNum(t.entryPremium * (1 + t.plainTargetPercent / 100))}) or cross-under`
-                          : "exit on cross-under"
+                          ? `+${t.plainTargetPercent}% (${fmtNum(t.entryPremium * (1 + t.plainTargetPercent / 100))}) or cross-under${t.minGapPercent ? ` (gap ${t.minGapPercent}%)` : ""}`
+                          : `exit on cross-under${t.minGapPercent ? ` (gap ${t.minGapPercent}%)` : ""}`
                         : `${t.target1Hit ? "+5% sold" : "+5% pending"} · ${t.target2Hit ? "+10% sold" : "+10% pending"}`}
                     </td>
                     <td style={{ color: (t.realizedPnl ?? 0) >= 0 ? "var(--green)" : "var(--red)" }}>{fmtSigned(t.realizedPnl)}</td>
@@ -903,31 +934,38 @@ function SimpleCrossoverChart({ data, trades }: { data: SimpleCrossoverData | nu
   );
 }
 
-// Paper-trade entries and every exit leg (staged targets included) on the
-// option this chart shows, with the reason for each -- shown on hover.
+// Paper-trade entries and every exit leg (staged targets included) for this
+// chart's side, labelled "Entry (price)" / "Exit (price)", with the reason for
+// each shown on hover. The chart follows today's ATM strike, so a trade on
+// another strike carries its strike in the label (its prices are that
+// strike's, not the candles shown).
 function tradeNotes(data: SimpleCrossoverData, trades: SimpleCrossoverTrade[]): TradeNote[] {
   const notes: TradeNote[] = [];
   for (const t of trades) {
-    if (t.strike !== data.strike || t.expiry !== data.expiry) continue;
+    if (data.side && t.side !== data.side) continue;
+    const otherStrike = t.strike !== data.strike || t.expiry !== data.expiry;
+    const tag = otherStrike ? ` ${t.strike}` : "";
+    const strikeNote = otherStrike ? [`Traded strike ${t.strike} (${t.expiry}) -- this chart shows ${data.strike ?? "—"}, so its candles are not this trade's prices`] : [];
     const tf = t.timeframeMinutes ?? 1;
     const lag = t.signalTime ? t.entryTime - (t.signalTime + tf * 60) : null;
     notes.push({
       time: t.entryTime,
       kind: "entry",
-      label: `Entry @ ${fmtNum(t.entryPremium)}`,
+      label: `Entry${tag} (${fmtNum(t.entryPremium)})`,
       color: "#168448",
       title: `Entry #${t.id} · BUY ${t.side} ${t.strike} × ${t.lots} lots @ ${fmtNum(t.entryPremium)}`,
       lines: [
         `${istTime(t.entryTime)}${t.plainCrossover ? " · Plain cross over" : ""}`,
         t.signalTime
-          ? `Why: EMA8 crossed above EMA21 on the ${tf}-min candle of ${istTime(t.signalTime)} (close ${fmtNum(t.signalClose)}, ${t.signalSource === "live" ? "live price" : "Dhan candle"}) · entered +${lag}s`
+          ? `Why: EMA8 ${t.minGapPercent ? `reached ${t.minGapPercent}% above` : "crossed above"} EMA21 on the ${tf}-min candle of ${istTime(t.signalTime)} (close ${fmtNum(t.signalClose)}, ${t.signalSource === "live" ? "live price" : "Dhan candle"}) · entered +${lag}s`
           : "Why: EMA8 crossed above EMA21",
         `Day direction ${t.dayDirection ?? "—"}${t.entryEmaGap != null ? ` · EMA gap ${fmtNum(t.entryEmaGap)}` : ""}${t.entryPcr != null ? ` · PCR ${fmtNum(t.entryPcr)}` : ""}`,
         t.plainCrossover
-          ? t.plainTargetPercent
-            ? `Exits at +${t.plainTargetPercent}% (${fmtNum(t.entryPremium * (1 + t.plainTargetPercent / 100))}), on the cross-under or at 15:30`
-            : "Exits only on the cross-under or 15:30"
+          ? `${t.plainTargetPercent
+              ? `Exits at +${t.plainTargetPercent}% (${fmtNum(t.entryPremium * (1 + t.plainTargetPercent / 100))}), on the cross-under or at 15:30`
+              : "Exits only on the cross-under or 15:30"}${t.minGapPercent ? ` · cross-under = EMA8 ${t.minGapPercent}% below EMA21` : ""}`
           : `Stop ${fmtNum(t.stopLossPrice)} · targets +5% / +10% then trail`,
+        ...strikeNote,
       ],
     });
     const legs = t.exitLegs.length
@@ -940,12 +978,13 @@ function tradeNotes(data: SimpleCrossoverData, trades: SimpleCrossoverTrade[]): 
       notes.push({
         time: leg.exitTime,
         kind: leg.lots < t.lots && leg.exitReason.startsWith("target") ? "adjust" : "exit",
-        label: `Exit @ ${fmtNum(leg.exitPremium)}`,
+        label: `Exit${tag} (${fmtNum(leg.exitPremium)})`,
         color: pnl >= 0 ? "#168448" : "#c93535",
         title: `${EXIT_REASON_LABEL[leg.exitReason] ?? leg.exitReason} #${t.id} · ${leg.lots} lot${leg.lots > 1 ? "s" : ""} @ ${fmtNum(leg.exitPremium)}`,
         lines: [
           `${istTime(leg.exitTime)} · ${fmtSigned(leg.exitPremium - t.entryPremium)} per unit · ₹${fmtNum(pnl)}`,
           `Why: ${EXIT_REASON_LABEL[leg.exitReason] ?? leg.exitReason}${leg.exitReason === "cross_under" ? " -- EMA8 crossed back below EMA21" : leg.exitReason === "eod" ? " -- 15:30 square-off" : ""}`,
+          ...strikeNote,
         ],
       });
     }

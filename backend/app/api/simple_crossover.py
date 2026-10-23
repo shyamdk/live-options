@@ -12,6 +12,7 @@ from app.services.simple_crossover import (
     get_runtime_config,
     list_trades_with_charges,
     set_day_direction_filter_enabled,
+    set_min_gap_percent,
     set_plain_crossover_enabled,
     set_plain_target_percent,
     set_stop_loss_percent,
@@ -33,6 +34,7 @@ class ConfigIn(BaseModel):
     timeframeMinutes: int | None = Field(default=None, ge=1, le=3)
     plainCrossover: bool | None = None
     plainTargetPercent: float | None = Field(default=None, ge=0, le=100)
+    minGapPercent: float | None = Field(default=None, ge=0, le=5)
 
 
 @router.get("/config", dependencies=[Depends(require_auth)])
@@ -52,6 +54,8 @@ async def update_config(body: ConfigIn) -> dict[str, Any]:
         set_plain_crossover_enabled(body.plainCrossover)
     if body.plainTargetPercent is not None:
         set_plain_target_percent(body.plainTargetPercent)
+    if body.minGapPercent is not None:
+        set_min_gap_percent(body.minGapPercent)
     if body.timeframeMinutes is not None:
         try:
             set_timeframe_minutes(body.timeframeMinutes)

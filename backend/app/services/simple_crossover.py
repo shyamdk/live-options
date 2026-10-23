@@ -87,6 +87,15 @@ PLAIN_CROSSOVER_SETTING_KEY = "plain_crossover"
 # trade at entry. Default 3% from the 16 Oct 2026 review of trades #80-#100.
 PLAIN_TARGET_PERCENT_SETTING_KEY = "plain_target_percent"
 DEFAULT_PLAIN_TARGET_PERCENT = 3.0
+# Minimum EMA gap: a cross only counts once EMA8 is at least this % of the
+# premium above EMA21 (entry) or below it (cross-under exit), so a cross by a
+# few paise -- e.g. trade #130 on 22 Oct 2026, +0.11 then -0.21 on a Rs 220
+# premium -- is ignored. 0 = any cross (the earlier behaviour). Stored on each
+# trade at entry.
+MIN_GAP_PERCENT_SETTING_KEY = "min_gap_percent"
+# Off by default: on 3-min candles the Jan 2025 - Mar 2026 back-test did best
+# with any cross (gap 0); on 1-min a 0.25% gap cut whipsaws (206 -> 42).
+DEFAULT_MIN_GAP_PERCENT = 0.0
 
 # Candle timeframe for the EMA8/EMA21 crossover. Dhan's intraday API has no
 # 3-minute interval, so 3m candles are built from 1m candles, aligned to the
@@ -190,6 +199,17 @@ def set_plain_target_percent(value: float) -> None:
     db.set_simple_crossover_setting(PLAIN_TARGET_PERCENT_SETTING_KEY, str(value))
 
 
+def get_min_gap_percent() -> float:
+    raw = db.get_simple_crossover_setting(MIN_GAP_PERCENT_SETTING_KEY)
+    return float(raw) if raw is not None else DEFAULT_MIN_GAP_PERCENT
+
+
+def set_min_gap_percent(value: float) -> None:
+    if not 0 <= value <= 5:
+        raise ValueError("minimum EMA gap % must be between 0 and 5")
+    db.set_simple_crossover_setting(MIN_GAP_PERCENT_SETTING_KEY, str(value))
+
+
 def get_stop_loss_percent() -> float:
     raw = db.get_simple_crossover_setting(STOP_LOSS_PERCENT_SETTING_KEY)
     return float(raw) if raw is not None else get_settings().simple_crossover_stop_loss_percent
@@ -211,6 +231,22 @@ def set_timeframe_minutes(value: int) -> None:
     db.set_simple_crossover_setting(TIMEFRAME_SETTING_KEY, str(value))
 
 
+def settings_comment(timeframe: int, min_gap: float, direction_label: str | None) -> str:
+    """The settings a trade entered under, saved as its comment, e.g.
+    "Plain cross over · 3m · target +3% · gap off · day direction Down (filter on)"."""
+    parts = ["Plain cross over" if is_plain_crossover_enabled() else f"Staged targets · stop {get_stop_loss_percent():g}%"]
+    parts.append(f"{timeframe}m")
+    if is_plain_crossover_enabled():
+        target = get_plain_target_percent()
+        parts.append(f"target +{target:g}%" if target > 0 else "no target")
+    parts.append(f"gap {min_gap:g}%" if min_gap > 0 else "gap off")
+    if is_day_direction_filter_enabled():
+        parts.append(f"day direction {direction_label or '—'} (filter on{', sideways on' if is_trade_on_sideways_enabled() else ''})")
+    else:
+        parts.append("day-direction filter off")
+    return " · ".join(parts)
+
+
 def get_runtime_config() -> dict[str, Any]:
     return {
         "dayDirectionFilterEnabled": is_day_direction_filter_enabled(),
@@ -219,6 +255,7 @@ def get_runtime_config() -> dict[str, Any]:
         "timeframeMinutes": get_timeframe_minutes(),
         "plainCrossover": is_plain_crossover_enabled(),
         "plainTargetPercent": get_plain_target_percent(),
+        "minGapPercent": get_min_gap_percent(),
     }
 
 
@@ -343,6 +380,22 @@ def detect_crossovers(
             continue
         crossovers.append({"time": times[i], "price": closes[i], "direction": direction, "rsi": rsi_values[i]})
     return crossovers
+
+
+def gap_percent_series(closes: list[float], ema_fast: list[float | None], ema_slow: list[float | None]) -> list[float | None]:
+    """(EMA8 - EMA21) as a % of each candle's close."""
+    return [
+        (f - s) / c * 100 if f is not None and s is not None and c else None
+        for c, f, s in zip(closes, ema_fast, ema_slow)
+    ]
+
+
+def gap_entry_signal(gaps: list[float | None], i: int, min_gap: float) -> bool:
+    """Candle i is the first one whose gap reaches +min_gap (the cross itself
+    may have happened a candle or two earlier)."""
+    if i < 1 or gaps[i] is None or gaps[i - 1] is None:
+        return False
+    return gaps[i - 1] < min_gap <= gaps[i]
 
 
 def touched_or_close_to_crossover(candle: dict[str, Any], ema_slow: float, max_gap_percent: float) -> bool:
@@ -580,16 +633,23 @@ async def _evaluate_entry(dhan: DhanService, settings: Settings, side: Side, now
     ema_slow = ema(closes, EMA_SLOW_PERIOD)
     rsi_values = rsi(closes, RSI_PERIOD)
 
-    # Only a crossover on the just-closed candle can trigger (see
+    # Only the just-closed candle can trigger (see
     # RECENT_CROSSOVER_LOOKBACK_CANDLES); never act on an older cross-over.
-    all_crossovers = detect_crossovers(times, closes, ema_fast, ema_slow, rsi_values)
-    recent_cutoff_index = len(ordered) - 1 - RECENT_CROSSOVER_LOOKBACK_CANDLES
-    crossover = next(
-        (item for item in reversed(all_crossovers) if times.index(item["time"]) >= recent_cutoff_index),
-        None,
-    )
-    if crossover is None or crossover["direction"] != "up":
-        return
+    min_gap = get_min_gap_percent()
+    if min_gap > 0:
+        last = len(ordered) - 1
+        if not gap_entry_signal(gap_percent_series(closes, ema_fast, ema_slow), last, min_gap):
+            return
+        crossover = {"time": times[last], "price": closes[last], "direction": "up", "rsi": rsi_values[last]}
+    else:
+        all_crossovers = detect_crossovers(times, closes, ema_fast, ema_slow, rsi_values)
+        recent_cutoff_index = len(ordered) - 1 - RECENT_CROSSOVER_LOOKBACK_CANDLES
+        crossover = next(
+            (item for item in reversed(all_crossovers) if times.index(item["time"]) >= recent_cutoff_index),
+            None,
+        )
+        if crossover is None or crossover["direction"] != "up":
+            return
     crossover_time = crossover["time"]
 
     if _handled_crossover_time.get(side) == crossover_time:
@@ -627,6 +687,8 @@ async def _evaluate_entry(dhan: DhanService, settings: Settings, side: Side, now
         signal_source="live" if live_minute is not None and crossover_time <= live_minute < crossover_time + timeframe * 60 else "dhan",
         plain_crossover=is_plain_crossover_enabled(),
         plain_target_percent=get_plain_target_percent() if is_plain_crossover_enabled() else None,
+        min_gap_percent=min_gap,
+        comment=settings_comment(timeframe, min_gap, direction["label"] if direction else None),
     )
     _handled_crossover_time[side] = crossover_time
     logger.warning(
@@ -748,17 +810,27 @@ async def _cross_under_exit(dhan: DhanService, trade: dict[str, Any], remaining_
     ema_fast = ema(closes, EMA_FAST_PERIOD)
     ema_slow = ema(closes, EMA_SLOW_PERIOD)
     rsi_values = rsi(closes, RSI_PERIOD)
-    recent_crossovers = detect_crossovers(times, closes, ema_fast, ema_slow, rsi_values)
     # Any cross-under on a candle after the crossover candle that triggered the
     # entry (older trades without signalTime: candles starting after entry).
+    # With a minimum gap (stored on the trade), a closed candle with EMA8 at
+    # least that % below EMA21 counts instead of any cross.
     after = int(trade.get("signalTime") or trade["entryTime"])
-    cross_under_after_entry = next(
-        (
-            cross for cross in reversed(recent_crossovers)
-            if cross["direction"] == "down" and cross["time"] > after
-        ),
-        None,
-    )
+    min_gap = float(trade.get("minGapPercent") or 0)
+    if min_gap > 0:
+        gaps = gap_percent_series(closes, ema_fast, ema_slow)
+        cross_under_after_entry = next(
+            (True for t, g in zip(times, gaps) if t > after and g is not None and g <= -min_gap),
+            None,
+        )
+    else:
+        recent_crossovers = detect_crossovers(times, closes, ema_fast, ema_slow, rsi_values)
+        cross_under_after_entry = next(
+            (
+                cross for cross in reversed(recent_crossovers)
+                if cross["direction"] == "down" and cross["time"] > after
+            ),
+            None,
+        )
     if cross_under_after_entry:
         _close_remaining(
             trade, lots=remaining_lots, exit_time=now_epoch,
