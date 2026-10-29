@@ -1,18 +1,24 @@
 :root {
-  --bg: #f6f7f9;
+  /* Ledger palette (OI Early Signal Ledger, Oct 2026): green-grey ground,
+     ink text, teal accent; the token names are kept so every page follows. */
+  --bg: #f4f6f5;
   --panel: #ffffff;
-  --line: #e1e5eb;
-  --line-soft: #edf0f4;
-  --text: #252a32;
-  --muted: #6f7785;
-  --blue: #2368b6;
-  --blue-soft: #edf5ff;
-  --green: #168448;
-  --green-soft: #eaf7ef;
-  --red: #c93535;
-  --red-soft: #fff0f0;
-  --amber: #a56513;
-  --amber-soft: #fff5df;
+  --panel-2: #eef2f1;
+  --line: #dbe1df;
+  --line-soft: #e8edeb;
+  --text: #17212b;
+  --muted: #5b6a72;
+  --blue: #0f6b78;
+  --blue-soft: #d9eef0;
+  --green: #1b7a4b;
+  --green-soft: #dcf1e5;
+  --red: #b23c35;
+  --red-soft: #f8e1de;
+  --amber: #9a6a12;
+  --amber-soft: #f8eedb;
+  --sans: var(--font-sans, "IBM Plex Sans"), ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: var(--font-mono, "IBM Plex Mono"), ui-monospace, "SFMono-Regular", Menlo, monospace;
+  --radius: 10px;
 }
 
 * {
@@ -25,7 +31,9 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
-  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-family: var(--sans);
+  font-size: 14px;
+  line-height: 1.5;
 }
 
 button,
@@ -138,7 +146,7 @@ button:disabled {
   width: 28px;
   height: 28px;
   border-radius: 50%;
-  background: #2f3846;
+  background: var(--blue);
   color: #fff;
   font-weight: 800;
 }
@@ -191,7 +199,7 @@ button:disabled {
 .nav-tabs a:hover,
 .nav-tabs a.active {
   background: var(--blue-soft);
-  color: #184f8d;
+  color: var(--blue);
 }
 
 .nav-icon {
@@ -406,10 +414,10 @@ button:disabled {
   align-items: center;
   justify-content: center;
   min-height: 34px;
-  border: 1px solid #bdd0e6;
+  border: 1px solid var(--line);
   border-radius: 7px;
   background: #fff;
-  color: #184f8d;
+  color: var(--blue);
 }
 
 .button {
@@ -1973,3 +1981,59 @@ td strong {
 .equity-news-card {
   margin: 0;
 }
+
+
+/* ------------------------------------------------------------------ ledger theme
+   The OI Early Signal Ledger look applied portal-wide: flat panels with
+   hairline borders, small uppercase labels with letter-spacing, figures in
+   Plex Mono with tabular digits, pill-shaped chips and badges, teal accent. */
+
+h1, h2, h3 { text-wrap: balance; }
+.page-header h1 { font-size: 26px; font-weight: 700; letter-spacing: -0.01em; }
+.page-header p { max-width: 90ch; }
+.section-title h2 { font-size: 15px; font-weight: 600; }
+.pcr-oi-section h3 { font-size: 13px; font-weight: 600; letter-spacing: 0.01em; }
+
+.sidebar { background: var(--panel); }
+.brand-mark { background: var(--blue); }
+.nav-tabs a { font-weight: 500; border-radius: 8px; }
+.nav-tabs a:hover { background: var(--panel-2); color: var(--text); }
+.nav-tabs a.active { background: var(--blue-soft); color: var(--blue); font-weight: 600; }
+
+.button, .icon-button { border-color: var(--line); border-radius: 8px; background: var(--panel); color: var(--blue); font-weight: 600; }
+.button:hover, .icon-button:hover { background: var(--blue-soft); border-color: var(--blue-soft); }
+.button.secondary { color: var(--text); }
+.button:focus-visible, .icon-button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible {
+  outline: 2px solid var(--blue); outline-offset: 2px;
+}
+
+.metric-grid { gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
+.metric-grid .metric { border: 0; border-radius: 0; }
+.metric { background: var(--panel); border-color: var(--line); border-radius: var(--radius); min-height: 0; gap: 2px; padding: 12px 14px; }
+.metric span { font-size: 11px; font-weight: 600; letter-spacing: 0.06em; color: var(--muted); }
+.metric > span:not(:first-child), .metric strong span { font-size: 12px; font-weight: 400; letter-spacing: 0; text-transform: none; font-family: var(--sans); }
+.pcr-oi-caption { font-style: normal; }
+.metric strong { font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: 18px; font-weight: 600; }
+.metric-compact strong { font-size: 15px; }
+
+table { font-variant-numeric: tabular-nums; }
+th { background: transparent; border-bottom: 1px solid var(--line); font-size: 11px; font-weight: 600; letter-spacing: 0.05em; color: var(--muted); white-space: nowrap; }
+td { border-bottom-color: var(--line-soft); }
+tbody tr:hover td { background: var(--panel-2); }
+td strong { font-weight: 600; }
+.num, .mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+.positive { color: var(--green); }
+.negative { color: var(--red); }
+
+.badge, .risk-pill, .status-live, .equity-sentiment-pill, .oi-analysis-speed-pill, .oi-upgraded-early-pill { border-radius: 999px; font-weight: 500; }
+.alert { border-radius: var(--radius); }
+.alert.error { border-color: color-mix(in srgb, var(--red) 35%, transparent); }
+.alert.warning { border-color: color-mix(in srgb, var(--amber) 35%, transparent); }
+.alert.success { border-color: color-mix(in srgb, var(--green) 35%, transparent); }
+
+.strategy-chart-card, .gb-panel, .ema5-panel, .field-panel, .oi-upgraded-card, .pcr-oi-signal-card, .equity-news-card, .gb-wall-card {
+  border-color: var(--line); border-radius: var(--radius); box-shadow: none;
+}
+.auth-panel { border-radius: var(--radius); box-shadow: 0 12px 32px rgba(23, 33, 43, 0.08); }
+
+input, select, textarea { border-color: var(--line); }

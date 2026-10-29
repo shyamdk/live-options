@@ -563,7 +563,7 @@ function niftyStrangleNotes(trades: NiftyStrangleTrade[]): TradeNote[] {
       time: t.entryTime,
       kind: "entry",
       label: `#${t.id} sell`,
-      color: "#c93535",
+      color: "#b23c35",
       title: `Entry #${t.id} · sold ${legs.map((l) => `${l.strike} ${l.optionType}`).join(" / ")} · ${t.lots} lots`,
       lines: [
         `${istTime(t.entryTime)} · NIFTY ${num(t.spot, 0)} · expiry ${day(t.expiry)}${t.trigger === "manual" ? " · manual" : ""}`,
@@ -578,7 +578,7 @@ function niftyStrangleNotes(trades: NiftyStrangleTrade[]): TradeNote[] {
         time: l.exitTime as number,
         kind: "exit",
         label: `${l.optionType} ${inr(l.pnl)}`,
-        color: (l.pnl ?? 0) >= 0 ? "#168448" : "#c93535",
+        color: (l.pnl ?? 0) >= 0 ? "#1b7a4b" : "#b23c35",
         title: `Exit #${t.id} · ${l.strike} ${l.optionType} @ ${num(l.exitPrice)} · ${inr(l.pnl)}`,
         lines: [`${istTime(l.exitTime)} · sold at ${num(l.entryPrice)}`, `Why: ${LEG_EXIT[l.exitReason ?? ""] ?? l.exitReason}`],
       }));
@@ -598,14 +598,14 @@ function SpotChart({ open, trades }: { open: NiftyStrangleTrade | null; trades: 
   useEffect(() => {
     if (!containerRef.current || chartRef.current) return;
     const chart = createChart(containerRef.current, {
-      layout: { background: { type: ColorType.Solid, color: "#ffffff" }, textColor: "#252a32" },
-      grid: { vertLines: { color: "#edf0f4" }, horzLines: { color: "#edf0f4" } },
+      layout: { background: { type: ColorType.Solid, color: "#ffffff" }, textColor: "#17212b" },
+      grid: { vertLines: { color: "#e8edeb" }, horzLines: { color: "#e8edeb" } },
       width: containerRef.current.clientWidth,
       height: 260,
       timeScale: { timeVisible: true, secondsVisible: false, tickMarkFormatter: (t: Time) => istTick(t) },
       localization: { timeFormatter: (t: Time) => istTick(t) },
     });
-    seriesRef.current = chart.addSeries(LineSeries, { color: "#2368b6", lineWidth: 2, title: "NIFTY" });
+    seriesRef.current = chart.addSeries(LineSeries, { color: "#0f6b78", lineWidth: 2, title: "NIFTY" });
     chartRef.current = chart;
     setHandles({ chart, series: seriesRef.current });
     const observer = new ResizeObserver(() => {
@@ -639,7 +639,7 @@ function SpotChart({ open, trades }: { open: NiftyStrangleTrade | null; trades: 
           .map((l) =>
             seriesRef.current!.createPriceLine({
               price: l.strike,
-              color: "#c93535",
+              color: "#b23c35",
               lineWidth: 1,
               lineStyle: 2,
               axisLabelVisible: true,

@@ -318,8 +318,8 @@ function AnimeshChart({ side, openTrade, trades }: { side: AnimeshSide; openTrad
   useEffect(() => {
     if (!containerRef.current || chartRef.current) return;
     const chart = createChart(containerRef.current, {
-      layout: { background: { type: ColorType.Solid, color: "#ffffff" }, textColor: "#252a32" },
-      grid: { vertLines: { color: "#edf0f4" }, horzLines: { color: "#edf0f4" } },
+      layout: { background: { type: ColorType.Solid, color: "#ffffff" }, textColor: "#17212b" },
+      grid: { vertLines: { color: "#e8edeb" }, horzLines: { color: "#e8edeb" } },
       width: containerRef.current.clientWidth,
       height: 420,
       timeScale: {
@@ -333,14 +333,14 @@ function AnimeshChart({ side, openTrade, trades }: { side: AnimeshSide; openTrad
     });
     const candleSeries = chart.addSeries(
       CandlestickSeries,
-      { upColor: "#168448", downColor: "#c93535", borderVisible: false, wickUpColor: "#168448", wickDownColor: "#c93535" },
+      { upColor: "#1b7a4b", downColor: "#b23c35", borderVisible: false, wickUpColor: "#1b7a4b", wickDownColor: "#b23c35" },
       0,
     );
-    const bandHighLine = chart.addSeries(LineSeries, { color: "#2368b6", lineWidth: 1 }, 0);
-    const bandLowLine = chart.addSeries(LineSeries, { color: "#2368b6", lineWidth: 1 }, 0);
+    const bandHighLine = chart.addSeries(LineSeries, { color: "#0f6b78", lineWidth: 1 }, 0);
+    const bandLowLine = chart.addSeries(LineSeries, { color: "#0f6b78", lineWidth: 1 }, 0);
     const bandMedianLine = chart.addSeries(LineSeries, { color: "#8ebae8", lineWidth: 1, lineStyle: LineStyle.Dotted }, 0);
-    const macdLine = chart.addSeries(LineSeries, { color: "#2368b6", lineWidth: 2 }, 1);
-    const signalLine = chart.addSeries(LineSeries, { color: "#a56513", lineWidth: 2 }, 1);
+    const macdLine = chart.addSeries(LineSeries, { color: "#0f6b78", lineWidth: 2 }, 1);
+    const signalLine = chart.addSeries(LineSeries, { color: "#9a6a12", lineWidth: 2 }, 1);
     const histogramSeries = chart.addSeries(HistogramSeries, {}, 1);
 
     chart.panes()[1]?.setStretchFactor(0.32);
@@ -389,7 +389,7 @@ function AnimeshChart({ side, openTrade, trades }: { side: AnimeshSide; openTrad
       candles
         .map((c, i) => ({ time: c.time as UTCTimestamp, value: histogram[i] }))
         .filter((point): point is { time: UTCTimestamp; value: number } => point.value !== null && point.value !== undefined)
-        .map((point) => ({ time: point.time, value: point.value, color: point.value >= 0 ? "#168448" : "#c93535" })),
+        .map((point) => ({ time: point.time, value: point.value, color: point.value >= 0 ? "#1b7a4b" : "#b23c35" })),
     );
   }, [candles, macd, signal, histogram, bandHigh, bandLow, bandMedian]);
 
@@ -398,12 +398,12 @@ function AnimeshChart({ side, openTrade, trades }: { side: AnimeshSide; openTrad
     if (!series) return;
     series.priceLines().forEach((line) => series.removePriceLine(line));
     if (!openTrade) return;
-    series.createPriceLine({ price: openTrade.entryIndexLevel, color: "#6f7785", title: "Entry" });
-    series.createPriceLine({ price: openTrade.initialSl, color: "#c93535", title: "SL" });
-    series.createPriceLine({ price: openTrade.target1, color: "#168448", title: "T1 (1R)" });
-    series.createPriceLine({ price: openTrade.target2, color: "#168448", title: "T2 (1.5R)" });
+    series.createPriceLine({ price: openTrade.entryIndexLevel, color: "#5b6a72", title: "Entry" });
+    series.createPriceLine({ price: openTrade.initialSl, color: "#b23c35", title: "SL" });
+    series.createPriceLine({ price: openTrade.target1, color: "#1b7a4b", title: "T1 (1R)" });
+    series.createPriceLine({ price: openTrade.target2, color: "#1b7a4b", title: "T2 (1.5R)" });
     if (openTrade.lot3TrailSl !== null && openTrade.lot3TrailSl !== undefined) {
-      series.createPriceLine({ price: openTrade.lot3TrailSl, color: "#a56513", title: "Trail SL" });
+      series.createPriceLine({ price: openTrade.lot3TrailSl, color: "#9a6a12", title: "Trail SL" });
     }
   }, [openTrade]);
 
@@ -590,7 +590,7 @@ function buildTradeNotes(trades: AnimeshTrade[], side: AnimeshSide): TradeNote[]
         time: t,
         kind: "entry",
         label: `Entry ${money(trade.entryPremium)}`,
-        color: side === "CE" ? "#168448" : "#c93535",
+        color: side === "CE" ? "#1b7a4b" : "#b23c35",
         title: `Entry ${trade.id} · ${trade.mode}`,
         lines: [
           `${noteTime(t)} · bought ${trade.strike ?? ""} ${side} @ ${money(trade.entryPremium)} × ${trade.entryQty ?? "—"}`,
@@ -607,7 +607,7 @@ function buildTradeNotes(trades: AnimeshTrade[], side: AnimeshSide): TradeNote[]
         time: t,
         kind: "exit",
         label: `L${leg.lotNumber} ${money(leg.exitPremium)}`,
-        color: pnl >= 0 ? "#168448" : "#c93535",
+        color: pnl >= 0 ? "#1b7a4b" : "#b23c35",
         title: `Exit lot ${leg.lotNumber} · ${trade.id} · P&L ${money(pnl)}`,
         lines: [
           `${noteTime(t)} · sold @ ${money(leg.exitPremium)} · index ${leg.exitIndexLevel ?? "—"}`,

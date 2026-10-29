@@ -51,8 +51,8 @@ const SESSION_REFRESH_MS = secondsToMs(process.env.NEXT_PUBLIC_SESSION_REFRESH_S
 const RISK_ALERT_REPEAT_MS = 15_000;
 const AWAITING_APPROVAL_KINDS = new Set(["stopLossSignal", "targetSignal", "orderFailed"]);
 const TRADE_CHART_REFRESH_MS = secondsToMs(process.env.NEXT_PUBLIC_TRADE_CHART_REFRESH_SECONDS, 20);
-const STRATEGY_PRICE_COLOR = "#2368b6";
-const STRATEGY_VWAP_COLOR = "#a56513";
+const STRATEGY_PRICE_COLOR = "#0f6b78";
+const STRATEGY_VWAP_COLOR = "#9a6a12";
 type StrategyInterval = "1" | "3" | "5";
 const STRATEGY_INTERVAL_OPTIONS: { value: StrategyInterval; label: string }[] = [
   { value: "1", label: "1m" },
@@ -1140,8 +1140,8 @@ function TradeChart({ trade }: { trade: LiveTrade }) {
   useEffect(() => {
     if (!containerRef.current || chartRef.current) return;
     const chart = createChart(containerRef.current, {
-      layout: { background: { type: ColorType.Solid, color: "#ffffff" }, textColor: "#252a32" },
-      grid: { vertLines: { color: "#edf0f4" }, horzLines: { color: "#edf0f4" } },
+      layout: { background: { type: ColorType.Solid, color: "#ffffff" }, textColor: "#17212b" },
+      grid: { vertLines: { color: "#e8edeb" }, horzLines: { color: "#e8edeb" } },
       width: containerRef.current.clientWidth,
       height: 260,
       timeScale: {
@@ -1152,11 +1152,11 @@ function TradeChart({ trade }: { trade: LiveTrade }) {
       localization: { timeFormatter: (time: Time) => formatIstTime(time) },
     });
     const candleSeries = chart.addSeries(CandlestickSeries, {
-      upColor: "#168448",
-      downColor: "#c93535",
+      upColor: "#1b7a4b",
+      downColor: "#b23c35",
       borderVisible: false,
-      wickUpColor: "#168448",
-      wickDownColor: "#c93535",
+      wickUpColor: "#1b7a4b",
+      wickDownColor: "#b23c35",
     });
     chartRef.current = chart;
     candleSeriesRef.current = candleSeries;
@@ -1187,16 +1187,16 @@ function TradeChart({ trade }: { trade: LiveTrade }) {
     series.priceLines().forEach((line) => series.removePriceLine(line));
     const entryPrice = trade.entryAvgPrice ?? trade.avgPrice;
     if (entryPrice !== null && entryPrice !== undefined) {
-      series.createPriceLine({ price: entryPrice, color: "#6f7785", title: "Entry" });
+      series.createPriceLine({ price: entryPrice, color: "#5b6a72", title: "Entry" });
     }
     if (trade.status === "CLOSED" && trade.exitAvgPrice !== null && trade.exitAvgPrice !== undefined) {
-      series.createPriceLine({ price: trade.exitAvgPrice, color: "#2368b6", title: "Exit" });
+      series.createPriceLine({ price: trade.exitAvgPrice, color: "#0f6b78", title: "Exit" });
     }
     if (trade.levels?.stopLoss !== null && trade.levels?.stopLoss !== undefined) {
-      series.createPriceLine({ price: trade.levels.stopLoss, color: "#c93535", title: "SL" });
+      series.createPriceLine({ price: trade.levels.stopLoss, color: "#b23c35", title: "SL" });
     }
     if (trade.levels?.target !== null && trade.levels?.target !== undefined) {
-      series.createPriceLine({ price: trade.levels.target, color: "#168448", title: "Target" });
+      series.createPriceLine({ price: trade.levels.target, color: "#1b7a4b", title: "Target" });
     }
   }, [trade.entryAvgPrice, trade.avgPrice, trade.exitAvgPrice, trade.status, trade.levels?.stopLoss, trade.levels?.target]);
 
@@ -1312,8 +1312,8 @@ function StrategyChartCard({ group }: { group: TagGroup }) {
   useEffect(() => {
     if (!expanded || !containerRef.current || chartRef.current) return;
     const chart = createChart(containerRef.current, {
-      layout: { background: { type: ColorType.Solid, color: "#ffffff" }, textColor: "#252a32" },
-      grid: { vertLines: { color: "#edf0f4" }, horzLines: { color: "#edf0f4" } },
+      layout: { background: { type: ColorType.Solid, color: "#ffffff" }, textColor: "#17212b" },
+      grid: { vertLines: { color: "#e8edeb" }, horzLines: { color: "#e8edeb" } },
       width: containerRef.current.clientWidth,
       height: 280,
       timeScale: { timeVisible: true, secondsVisible: false, tickMarkFormatter: (time: Time) => formatIstTime(time) },

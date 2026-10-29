@@ -626,14 +626,14 @@ function PayoffChart({ trade: t }: { trade: CalmTradeDetail }) {
             {inr(v)}
           </text>
         ))}
-        {vline(t.stopLow, "#c93535", "stop")}
-        {vline(t.stopHigh, "#c93535", "stop")}
+        {vline(t.stopLow, "#b23c35", "stop")}
+        {vline(t.stopHigh, "#b23c35", "stop")}
         {vline(t.peStrike, "#7a8494", `${t.peStrike} PE`, "2 2")}
         {vline(t.ceStrike, "#7a8494", `${t.ceStrike} CE`, "2 2")}
         <path d={path("expiry")} fill="none" stroke="#9aa3af" strokeWidth={1.5} />
-        <path d={path("today")} fill="none" stroke="#2368b6" strokeWidth={2} />
-        <line x1={x(spot)} x2={x(spot)} y1={pad.t} y2={H - pad.b} stroke="#2368b6" />
-        <text x={x(spot)} y={H - pad.b + 11} fontSize={9} fill="#2368b6" textAnchor="middle">
+        <path d={path("today")} fill="none" stroke="#0f6b78" strokeWidth={2} />
+        <line x1={x(spot)} x2={x(spot)} y1={pad.t} y2={H - pad.b} stroke="#0f6b78" />
+        <text x={x(spot)} y={H - pad.b + 11} fontSize={9} fill="#0f6b78" textAnchor="middle">
           NIFTY {num(spot, 0)}
         </text>
         {[xMin, (xMin + xMax) / 2, xMax].map((v) => (
@@ -641,7 +641,7 @@ function PayoffChart({ trade: t }: { trade: CalmTradeDetail }) {
             {num(v, 0)}
           </text>
         ))}
-        {h ? <circle cx={x(h.price)} cy={y(h.today)} r={3} fill="#2368b6" /> : null}
+        {h ? <circle cx={x(h.price)} cy={y(h.today)} r={3} fill="#0f6b78" /> : null}
       </svg>
     </div>
   );
@@ -655,14 +655,14 @@ function PremiumChart({ trade: t }: { trade: CalmTradeDetail }) {
   useEffect(() => {
     if (!ref.current || chartRef.current) return;
     const chart = createChart(ref.current, {
-      layout: { background: { type: ColorType.Solid, color: "#ffffff" }, textColor: "#252a32" },
-      grid: { vertLines: { color: "#edf0f4" }, horzLines: { color: "#edf0f4" } },
+      layout: { background: { type: ColorType.Solid, color: "#ffffff" }, textColor: "#17212b" },
+      grid: { vertLines: { color: "#e8edeb" }, horzLines: { color: "#e8edeb" } },
       width: ref.current.clientWidth,
       height: 240,
       timeScale: { timeVisible: true, secondsVisible: false, tickMarkFormatter: (tm: Time) => istTick(tm) },
       localization: { timeFormatter: (tm: Time) => istTick(tm) },
     });
-    seriesRef.current = chart.addSeries(LineSeries, { color: "#c93535", lineWidth: 2, title: "Premium" });
+    seriesRef.current = chart.addSeries(LineSeries, { color: "#b23c35", lineWidth: 2, title: "Premium" });
     chartRef.current = chart;
     const observer = new ResizeObserver(() => ref.current && chart.applyOptions({ width: ref.current.clientWidth }));
     observer.observe(ref.current);
@@ -685,10 +685,10 @@ function PremiumChart({ trade: t }: { trade: CalmTradeDetail }) {
     linesRef.current = [
       series.createPriceLine({ price: t.credit, color: "#7a8494", lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: "sold" }),
       ...(t.earlyTarget != null
-        ? [series.createPriceLine({ price: t.earlyTarget, color: "#168448", lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: "book early" })]
+        ? [series.createPriceLine({ price: t.earlyTarget, color: "#1b7a4b", lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: "book early" })]
         : []),
       ...(t.worst != null && t.backstop < t.worst * 1.6
-        ? [series.createPriceLine({ price: t.backstop, color: "#c93535", lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: "backstop" })]
+        ? [series.createPriceLine({ price: t.backstop, color: "#b23c35", lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: "backstop" })]
         : []),
     ];
     chartRef.current?.timeScale().fitContent();
@@ -757,7 +757,7 @@ function calmNotes(trades: CalmTrade[], config?: CalmConfig): TradeNote[] {
       time: t.entryTime,
       kind: "entry" as const,
       label: `#${t.id} sell ${num(t.credit)}`,
-      color: "#c93535",
+      color: "#b23c35",
       title: `Entry #${t.id} · sold ${t.peStrike} PE / ${t.ceStrike} CE · ${t.lots} lots`,
       lines: [
         `${istTime(t.entryTime)} · NIFTY ${num(t.entrySpot)}${t.trigger === "manual" ? " · manual entry" : ""}`,
@@ -774,7 +774,7 @@ function calmNotes(trades: CalmTrade[], config?: CalmConfig): TradeNote[] {
             time: t.exitTime,
             kind: "exit" as const,
             label: `exit ${inr(t.netPnl)}`,
-            color: t.netPnl >= 0 ? "#168448" : "#c93535",
+            color: t.netPnl >= 0 ? "#1b7a4b" : "#b23c35",
             title: `Exit #${t.id} · ${inr(t.netPnl)} net`,
             lines: [
               `${istTime(t.exitTime)} · NIFTY ${num(t.exitSpot)} · ${signed(t.points)} pts`,
@@ -797,14 +797,14 @@ function SpotChart({ state }: { state: CalmState | null }) {
   useEffect(() => {
     if (!containerRef.current || chartRef.current) return;
     const chart = createChart(containerRef.current, {
-      layout: { background: { type: ColorType.Solid, color: "#ffffff" }, textColor: "#252a32" },
-      grid: { vertLines: { color: "#edf0f4" }, horzLines: { color: "#edf0f4" } },
+      layout: { background: { type: ColorType.Solid, color: "#ffffff" }, textColor: "#17212b" },
+      grid: { vertLines: { color: "#e8edeb" }, horzLines: { color: "#e8edeb" } },
       width: containerRef.current.clientWidth,
       height: 260,
       timeScale: { timeVisible: true, secondsVisible: false, tickMarkFormatter: (t: Time) => istTick(t) },
       localization: { timeFormatter: (t: Time) => istTick(t) },
     });
-    seriesRef.current = chart.addSeries(LineSeries, { color: "#2368b6", lineWidth: 2, title: "NIFTY" });
+    seriesRef.current = chart.addSeries(LineSeries, { color: "#0f6b78", lineWidth: 2, title: "NIFTY" });
     chartRef.current = chart;
     setHandles({ chart, series: seriesRef.current });
     const observer = new ResizeObserver(() => {
@@ -832,8 +832,8 @@ function SpotChart({ state }: { state: CalmState | null }) {
     for (const l of linesRef.current) series.removePriceLine(l);
     linesRef.current = state.openTrade
       ? [
-          series.createPriceLine({ price: state.openTrade.stopHigh, color: "#c93535", lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: "stop" }),
-          series.createPriceLine({ price: state.openTrade.stopLow, color: "#c93535", lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: "stop" }),
+          series.createPriceLine({ price: state.openTrade.stopHigh, color: "#b23c35", lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: "stop" }),
+          series.createPriceLine({ price: state.openTrade.stopLow, color: "#b23c35", lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: "stop" }),
           series.createPriceLine({ price: state.openTrade.entrySpot, color: "#7a8494", lineWidth: 1, lineStyle: 3, axisLabelVisible: false, title: "entry" }),
         ]
       : [];

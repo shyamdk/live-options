@@ -18,7 +18,7 @@ export type TradeNote = {
 };
 
 const KIND_STYLE = {
-  entry: { position: "belowBar" as const, shape: "arrowUp" as const, color: "#2368b6" },
+  entry: { position: "belowBar" as const, shape: "arrowUp" as const, color: "#0f6b78" },
   exit: { position: "aboveBar" as const, shape: "arrowDown" as const, color: "#7a8494" },
   adjust: { position: "aboveBar" as const, shape: "circle" as const, color: "#b7791f" },
 };

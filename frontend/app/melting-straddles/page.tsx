@@ -28,7 +28,7 @@ import type {
 } from "@/types/melting";
 
 const REFRESH_MS = 10000;
-const TAG_COLOR: Record<string, string> = { LOWER: "#c93535", ATM: "#2368b6", HIGHER: "#168448" };
+const TAG_COLOR: Record<string, string> = { LOWER: "#b23c35", ATM: "#0f6b78", HIGHER: "#1b7a4b" };
 
 function inr(value: number | null | undefined): string {
   if (value === null || value === undefined || Number.isNaN(value)) return "—";
@@ -442,7 +442,7 @@ function meltingNotes(trades: MeltingTrade[]): TradeNote[] {
             time: f.time,
             kind: "entry" as const,
             label: `#${t.id} sell`,
-            color: "#c93535",
+            color: "#b23c35",
             title: `Entry #${t.id} · sold ${t.tag} ${t.strike} straddle × ${f.lots} lots @ ${num(f.combined)}`,
             lines: [
               `${istTime(f.time)} · CE ${num(f.cePrice)} + PE ${num(f.pePrice)} · ${t.mode}`,
@@ -454,7 +454,7 @@ function meltingNotes(trades: MeltingTrade[]): TradeNote[] {
             time: f.time,
             kind: f.action === "EXIT" ? ("exit" as const) : ("adjust" as const),
             label: f.action,
-            color: (f.points ?? 0) >= 0 ? "#168448" : "#c93535",
+            color: (f.points ?? 0) >= 0 ? "#1b7a4b" : "#b23c35",
             title: `${f.action === "EXIT" ? "Exit" : "Booked " + f.lots + " lot"} #${t.id} · ${inr(f.pnl)}`,
             lines: [`${istTime(f.time)} · bought back @ ${num(f.combined)} (CE ${num(f.cePrice)} + PE ${num(f.pePrice)})`, `Why: ${f.reason}`, `${signed((f.points ?? 0) / Math.max(f.lots, 1))} pts/lot`],
           },
@@ -472,14 +472,14 @@ function PremiumChart({ straddles, trades }: { straddles: MeltingStraddle[]; tra
   useEffect(() => {
     if (!containerRef.current || chartRef.current) return;
     const chart = createChart(containerRef.current, {
-      layout: { background: { type: ColorType.Solid, color: "#ffffff" }, textColor: "#252a32" },
-      grid: { vertLines: { color: "#edf0f4" }, horzLines: { color: "#edf0f4" } },
+      layout: { background: { type: ColorType.Solid, color: "#ffffff" }, textColor: "#17212b" },
+      grid: { vertLines: { color: "#e8edeb" }, horzLines: { color: "#e8edeb" } },
       width: containerRef.current.clientWidth,
       height: 260,
       timeScale: { timeVisible: true, secondsVisible: false, tickMarkFormatter: (t: Time) => istTick(t) },
       localization: { timeFormatter: (t: Time) => istTick(t) },
     });
-    const combined = chart.addSeries(LineSeries, { color: "#2368b6", lineWidth: 2, title: "Combined" });
+    const combined = chart.addSeries(LineSeries, { color: "#0f6b78", lineWidth: 2, title: "Combined" });
     const vwap = chart.addSeries(LineSeries, { color: "#b7791f", lineWidth: 1, lineStyle: 2, title: "VWAP" });
     seriesRef.current = { combined, vwap };
     chartRef.current = chart;

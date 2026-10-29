@@ -30,10 +30,10 @@ const CANDLE_REFRESH_MS = 60000;
 // values that don't need to come from an API.
 const UNDERLYING_SECURITY_ID: Record<"NIFTY" | "SENSEX", string> = { NIFTY: "13", SENSEX: "51" };
 
-export const NIFTY_COLOR = "#2368b6";
-export const SENSEX_COLOR = "#a56513";
-export const CE_COLOR = "#168448";
-export const PE_COLOR = "#c93535";
+export const NIFTY_COLOR = "#0f6b78";
+export const SENSEX_COLOR = "#9a6a12";
+export const CE_COLOR = "#1b7a4b";
+export const PE_COLOR = "#b23c35";
 const CE_MUTED = "#a9d4bb";
 const PE_MUTED = "#e3aeae";
 const BAND_COLOR = "#9aa4b2";
@@ -47,7 +47,7 @@ export function formatLakhs(value: number): string {
 }
 
 const CONFIDENCE_COLOR: Record<ConfidenceLevel, string> = {
-  low: "#6f7785",
+  low: "#5b6a72",
   medium: NIFTY_COLOR,
   high: SENSEX_COLOR,
   extreme: PE_COLOR,
@@ -541,8 +541,8 @@ export function PcrChart({
   useEffect(() => {
     if (!containerRef.current || chartRef.current) return;
     const chart = createChart(containerRef.current, {
-      layout: { background: { type: ColorType.Solid, color: "#ffffff" }, textColor: "#252a32" },
-      grid: { vertLines: { color: "#edf0f4" }, horzLines: { color: "#edf0f4" } },
+      layout: { background: { type: ColorType.Solid, color: "#ffffff" }, textColor: "#17212b" },
+      grid: { vertLines: { color: "#e8edeb" }, horzLines: { color: "#e8edeb" } },
       width: containerRef.current.clientWidth,
       height: height ?? 200,
       timeScale: { timeVisible: true, secondsVisible: false, tickMarkFormatter: (time: Time) => formatIstTime(time) },
@@ -621,8 +621,8 @@ export function IvChart({
   useEffect(() => {
     if (!containerRef.current || chartRef.current) return;
     const chart = createChart(containerRef.current, {
-      layout: { background: { type: ColorType.Solid, color: "#ffffff" }, textColor: "#252a32" },
-      grid: { vertLines: { color: "#edf0f4" }, horzLines: { color: "#edf0f4" } },
+      layout: { background: { type: ColorType.Solid, color: "#ffffff" }, textColor: "#17212b" },
+      grid: { vertLines: { color: "#e8edeb" }, horzLines: { color: "#e8edeb" } },
       width: containerRef.current.clientWidth,
       height: height ?? 220,
       timeScale: { timeVisible: true, secondsVisible: false, tickMarkFormatter: (time: Time) => formatIstTime(time) },
@@ -692,8 +692,8 @@ export function OiChangeChart({
   useEffect(() => {
     if (!containerRef.current || chartRef.current) return;
     const chart = createChart(containerRef.current, {
-      layout: { background: { type: ColorType.Solid, color: "#ffffff" }, textColor: "#252a32" },
-      grid: { vertLines: { color: "#edf0f4" }, horzLines: { color: "#edf0f4" } },
+      layout: { background: { type: ColorType.Solid, color: "#ffffff" }, textColor: "#17212b" },
+      grid: { vertLines: { color: "#e8edeb" }, horzLines: { color: "#e8edeb" } },
       width: containerRef.current.clientWidth,
       height: height ?? 220,
       timeScale: { timeVisible: true, secondsVisible: false, tickMarkFormatter: (time: Time) => formatIstTime(time) },
@@ -770,8 +770,8 @@ function RocChart({
   useEffect(() => {
     if (!containerRef.current || chartRef.current) return;
     const chart = createChart(containerRef.current, {
-      layout: { background: { type: ColorType.Solid, color: "#ffffff" }, textColor: "#252a32" },
-      grid: { vertLines: { color: "#edf0f4" }, horzLines: { color: "#edf0f4" } },
+      layout: { background: { type: ColorType.Solid, color: "#ffffff" }, textColor: "#17212b" },
+      grid: { vertLines: { color: "#e8edeb" }, horzLines: { color: "#e8edeb" } },
       width: containerRef.current.clientWidth,
       height: height ?? 180,
       timeScale: { timeVisible: true, secondsVisible: false, tickMarkFormatter: (time: Time) => formatIstTime(time) },
@@ -872,7 +872,7 @@ function ConfidenceBadge({ label, level }: { label: string; level: ConfidenceLev
 const SIGNAL_COLOR: Record<"buyCe" | "buyPe" | "neutral", string> = {
   buyCe: CE_COLOR,
   buyPe: PE_COLOR,
-  neutral: "#6f7785",
+  neutral: "#5b6a72",
 };
 
 const SIGNAL_LABEL: Record<"buyCe" | "buyPe" | "neutral", string> = {
@@ -1055,19 +1055,19 @@ function PriceSignalChart({
   useEffect(() => {
     if (!containerRef.current || chartRef.current) return;
     const chart = createChart(containerRef.current, {
-      layout: { background: { type: ColorType.Solid, color: "#ffffff" }, textColor: "#252a32" },
-      grid: { vertLines: { color: "#edf0f4" }, horzLines: { color: "#edf0f4" } },
+      layout: { background: { type: ColorType.Solid, color: "#ffffff" }, textColor: "#17212b" },
+      grid: { vertLines: { color: "#e8edeb" }, horzLines: { color: "#e8edeb" } },
       width: containerRef.current.clientWidth,
       height: height ?? 260,
       timeScale: { timeVisible: true, secondsVisible: false, tickMarkFormatter: (time: Time) => formatIstTime(time) },
       localization: { timeFormatter: (time: Time) => formatIstTime(time) },
     });
     const candleSeries = chart.addSeries(CandlestickSeries, {
-      upColor: "#168448",
-      downColor: "#c93535",
+      upColor: "#1b7a4b",
+      downColor: "#b23c35",
       borderVisible: false,
-      wickUpColor: "#168448",
-      wickDownColor: "#c93535",
+      wickUpColor: "#1b7a4b",
+      wickDownColor: "#b23c35",
     });
     candleSeriesRef.current = candleSeries;
     markersRef.current = createSeriesMarkers(candleSeries, []);
@@ -1226,7 +1226,7 @@ function SignalCard({ title, points }: { title: string; points: PcrOiSnapshot[] 
         <div className="pcr-oi-signal-headline">
           <span
             className="pcr-oi-signal-badge"
-            style={signal ? { background: SIGNAL_COLOR[signal], color: "#fff" } : { background: "#dde4ec", color: "#6f7785" }}
+            style={signal ? { background: SIGNAL_COLOR[signal], color: "#fff" } : { background: "#dde4ec", color: "#5b6a72" }}
           >
             {signal ? SIGNAL_LABEL[signal] : "Warming up"}
           </span>

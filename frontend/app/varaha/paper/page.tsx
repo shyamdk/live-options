@@ -417,14 +417,14 @@ function TradesChart({ trades, open }: { trades: VarahaPaperTrade[]; open: Varah
   useEffect(() => {
     if (!ref.current || chartRef.current) return;
     const chart = createChart(ref.current, {
-      layout: { background: { type: ColorType.Solid, color: "#ffffff" }, textColor: "#252a32" },
-      grid: { vertLines: { color: "#edf0f4" }, horzLines: { color: "#edf0f4" } },
+      layout: { background: { type: ColorType.Solid, color: "#ffffff" }, textColor: "#17212b" },
+      grid: { vertLines: { color: "#e8edeb" }, horzLines: { color: "#e8edeb" } },
       width: ref.current.clientWidth,
       height: 300,
       timeScale: { timeVisible: true, secondsVisible: false, tickMarkFormatter: tick },
       localization: { timeFormatter: tick },
     });
-    seriesRef.current = chart.addSeries(LineSeries, { color: "#2368b6", lineWidth: 2, title: "NIFTY" });
+    seriesRef.current = chart.addSeries(LineSeries, { color: "#0f6b78", lineWidth: 2, title: "NIFTY" });
     markersRef.current = createSeriesMarkers(seriesRef.current, []);
     chartRef.current = chart;
     const onMove = (param: MouseEventParams<Time>) => {
@@ -468,7 +468,7 @@ function TradesChart({ trades, open }: { trades: VarahaPaperTrade[]; open: Varah
             markers.push({
               time: k as UTCTimestamp,
               position: "belowBar" as const,
-              color: t.direction === "UP" ? "#168448" : t.direction === "DOWN" ? "#c93535" : "#2368b6",
+              color: t.direction === "UP" ? "#1b7a4b" : t.direction === "DOWN" ? "#b23c35" : "#0f6b78",
               shape: "arrowUp" as const,
               text: `#${t.id} ${SHORT_NAME[t.structure] ?? t.structure}`,
             });
@@ -476,7 +476,7 @@ function TradesChart({ trades, open }: { trades: VarahaPaperTrade[]; open: Varah
           if (t.exitTime && t.exitTime >= first) {
             const k = bucket(t.exitTime);
             notes.set(k, [...(notes.get(k) ?? []), { kind: "exit", trade: t }]);
-            markers.push({ time: k as UTCTimestamp, position: "aboveBar" as const, color: t.netPnl >= 0 ? "#168448" : "#c93535", shape: "arrowDown" as const, text: `#${t.id} ${inr(t.netPnl)}` });
+            markers.push({ time: k as UTCTimestamp, position: "aboveBar" as const, color: t.netPnl >= 0 ? "#1b7a4b" : "#b23c35", shape: "arrowDown" as const, text: `#${t.id} ${inr(t.netPnl)}` });
           }
         }
         notesRef.current = notes;
@@ -577,14 +577,14 @@ function PnlChart({ trade: t }: { trade: VarahaPaperTrade }) {
   useEffect(() => {
     if (!ref.current || chartRef.current) return;
     const chart = createChart(ref.current, {
-      layout: { background: { type: ColorType.Solid, color: "#ffffff" }, textColor: "#252a32" },
-      grid: { vertLines: { color: "#edf0f4" }, horzLines: { color: "#edf0f4" } },
+      layout: { background: { type: ColorType.Solid, color: "#ffffff" }, textColor: "#17212b" },
+      grid: { vertLines: { color: "#e8edeb" }, horzLines: { color: "#e8edeb" } },
       width: ref.current.clientWidth,
       height: 240,
       timeScale: { timeVisible: true, secondsVisible: false, tickMarkFormatter: tick },
       localization: { timeFormatter: tick },
     });
-    seriesRef.current = chart.addSeries(LineSeries, { color: "#2368b6", lineWidth: 2, title: "P&L ₹" });
+    seriesRef.current = chart.addSeries(LineSeries, { color: "#0f6b78", lineWidth: 2, title: "P&L ₹" });
     chartRef.current = chart;
     const observer = new ResizeObserver(() => ref.current && chart.applyOptions({ width: ref.current.clientWidth }));
     observer.observe(ref.current);
@@ -604,8 +604,8 @@ function PnlChart({ trade: t }: { trade: VarahaPaperTrade }) {
     series.setData((t.marks ?? []).filter((m) => (seen.has(m.time) ? false : (seen.add(m.time), true))).map((m) => ({ time: m.time as UTCTimestamp, value: m.pnl_points * mult })));
     for (const l of linesRef.current) series.removePriceLine(l);
     linesRef.current = [
-      series.createPriceLine({ price: t.target, color: "#168448", lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: "target" }),
-      series.createPriceLine({ price: t.stop, color: "#c93535", lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: "stop" }),
+      series.createPriceLine({ price: t.target, color: "#1b7a4b", lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: "target" }),
+      series.createPriceLine({ price: t.stop, color: "#b23c35", lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: "stop" }),
     ];
     chartRef.current?.timeScale().fitContent();
   }, [t]);

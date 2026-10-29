@@ -311,7 +311,7 @@ export default function EquityView() {
       <div className="toolbar" role="tablist" aria-label="Equity sections" style={{ marginBottom: 12 }}>
         <button
           className="button secondary"
-          style={activeTab === "portfolio" ? { background: "var(--accent, #2368b6)", color: "#fff" } : undefined}
+          style={activeTab === "portfolio" ? { background: "var(--accent, #0f6b78)", color: "#fff" } : undefined}
           onClick={() => setActiveTab("portfolio")}
         >
           <WalletCards size={15} style={{ verticalAlign: "-2px", marginRight: 6 }} />
@@ -319,7 +319,7 @@ export default function EquityView() {
         </button>
         <button
           className="button secondary"
-          style={activeTab === "history" ? { background: "var(--accent, #2368b6)", color: "#fff" } : undefined}
+          style={activeTab === "history" ? { background: "var(--accent, #0f6b78)", color: "#fff" } : undefined}
           onClick={() => setActiveTab("history")}
         >
           <History size={15} style={{ verticalAlign: "-2px", marginRight: 6 }} />
@@ -327,7 +327,7 @@ export default function EquityView() {
         </button>
         <button
           className="button secondary"
-          style={activeTab === "lowest" ? { background: "var(--accent, #2368b6)", color: "#fff" } : undefined}
+          style={activeTab === "lowest" ? { background: "var(--accent, #0f6b78)", color: "#fff" } : undefined}
           onClick={() => setActiveTab("lowest")}
         >
           <ArrowDownToLine size={15} style={{ verticalAlign: "-2px", marginRight: 6 }} />
@@ -335,7 +335,7 @@ export default function EquityView() {
         </button>
         <button
           className="button secondary"
-          style={activeTab === "transactions" ? { background: "var(--accent, #2368b6)", color: "#fff" } : undefined}
+          style={activeTab === "transactions" ? { background: "var(--accent, #0f6b78)", color: "#fff" } : undefined}
           onClick={() => setActiveTab("transactions")}
         >
           <RefreshCw size={15} style={{ verticalAlign: "-2px", marginRight: 6 }} />
@@ -343,7 +343,7 @@ export default function EquityView() {
         </button>
         <button
           className="button secondary"
-          style={activeTab === "options" ? { background: "var(--accent, #2368b6)", color: "#fff" } : undefined}
+          style={activeTab === "options" ? { background: "var(--accent, #0f6b78)", color: "#fff" } : undefined}
           onClick={() => setActiveTab("options")}
         >
           <LineChart size={15} style={{ verticalAlign: "-2px", marginRight: 6 }} />
@@ -351,7 +351,7 @@ export default function EquityView() {
         </button>
         <button
           className="button secondary"
-          style={activeTab === "research" ? { background: "var(--accent, #2368b6)", color: "#fff" } : undefined}
+          style={activeTab === "research" ? { background: "var(--accent, #0f6b78)", color: "#fff" } : undefined}
           onClick={() => setActiveTab("research")}
         >
           <Search size={15} style={{ verticalAlign: "-2px", marginRight: 6 }} />
@@ -651,14 +651,14 @@ function OptionsReportPanel({ report, error }: { report: EquityOptionsReportPayl
           <span className="pcr-oi-caption" style={{ margin: 0 }}>{report?.count ?? 0} option leg-days</span>
           <button
             className="button secondary"
-            style={grouping === "yearly" ? { background: "var(--accent, #2368b6)", color: "#fff" } : undefined}
+            style={grouping === "yearly" ? { background: "var(--accent, #0f6b78)", color: "#fff" } : undefined}
             onClick={() => setGrouping("yearly")}
           >
             Financial Year
           </button>
           <button
             className="button secondary"
-            style={grouping === "monthly" ? { background: "var(--accent, #2368b6)", color: "#fff" } : undefined}
+            style={grouping === "monthly" ? { background: "var(--accent, #0f6b78)", color: "#fff" } : undefined}
             onClick={() => setGrouping("monthly")}
           >
             Month

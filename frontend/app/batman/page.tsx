@@ -844,7 +844,7 @@ function batmanNotes(t: BatmanTrade): TradeNote[] {
       time: t.entryTime,
       kind: "entry",
       label: `#${t.id} entry`,
-      color: "#2368b6",
+      color: "#0f6b78",
       title: `Entry #${t.id} · Batman ${t.mode} · exp ${t.expiry}`,
       lines: [
         `${noteTime(t.entryTime)} · NIFTY ${num(t.spot, 0)} · ${t.trigger}`,
@@ -859,7 +859,7 @@ function batmanNotes(t: BatmanTrade): TradeNote[] {
       time: t.exitTime,
       kind: "exit",
       label: inr(t.netPnl),
-      color: t.netPnl >= 0 ? "#168448" : "#c93535",
+      color: t.netPnl >= 0 ? "#1b7a4b" : "#b23c35",
       title: `Exit #${t.id} · ${inr(t.netPnl)} net (${num(t.returnPercent)}%)`,
       lines: [`${noteTime(t.exitTime)}`, `Why: ${EXIT_LABEL[t.exitReason ?? ""] ?? t.exitReason}`],
     });
@@ -877,14 +877,14 @@ function MtmChart({ trade }: { trade: BatmanTrade }) {
   useEffect(() => {
     if (!containerRef.current || chartRef.current) return;
     const chart = createChart(containerRef.current, {
-      layout: { background: { type: ColorType.Solid, color: "#ffffff" }, textColor: "#252a32" },
-      grid: { vertLines: { color: "#edf0f4" }, horzLines: { color: "#edf0f4" } },
+      layout: { background: { type: ColorType.Solid, color: "#ffffff" }, textColor: "#17212b" },
+      grid: { vertLines: { color: "#e8edeb" }, horzLines: { color: "#e8edeb" } },
       width: containerRef.current.clientWidth,
       height: 220,
       timeScale: { timeVisible: true, secondsVisible: false, tickMarkFormatter: (t: Time) => istShort(t) },
       localization: { timeFormatter: (t: Time) => istShort(t) },
     });
-    seriesRef.current = chart.addSeries(LineSeries, { color: "#2368b6", lineWidth: 2, title: "MTM ₹" });
+    seriesRef.current = chart.addSeries(LineSeries, { color: "#0f6b78", lineWidth: 2, title: "MTM ₹" });
     chartRef.current = chart;
     setHandles({ chart, series: seriesRef.current });
     const observer = new ResizeObserver(() => {
@@ -907,8 +907,8 @@ function MtmChart({ trade }: { trade: BatmanTrade }) {
     series.setData(trade.mtmHistory.map((p) => ({ time: p.time as UTCTimestamp, value: p.mtm })));
     for (const line of linesRef.current) series.removePriceLine(line);
     linesRef.current = [
-      series.createPriceLine({ price: trade.targetAmount, color: "#168448", lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: "Target" }),
-      series.createPriceLine({ price: -trade.stopAmount, color: "#c93535", lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: "Stop" }),
+      series.createPriceLine({ price: trade.targetAmount, color: "#1b7a4b", lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: "Target" }),
+      series.createPriceLine({ price: -trade.stopAmount, color: "#b23c35", lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: "Stop" }),
     ];
   }, [trade]);
 

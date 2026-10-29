@@ -66,7 +66,7 @@ function fmtTimeOnly(epochSeconds: number): string {
   });
 }
 
-const DIRECTION_COLOR: Record<string, string> = { Up: "#168448", Down: "#c93535", Sideways: "#8391a3" };
+const DIRECTION_COLOR: Record<string, string> = { Up: "#1b7a4b", Down: "#b23c35", Sideways: "#8391a3" };
 const GAP_TREND_LABEL: Record<string, string> = { increasing: "Increasing", decreasing: "Decreasing", flat: "Flat" };
 const EXIT_REASON_LABEL: Record<string, string> = {
   cross_under: "Cross-under",
@@ -163,7 +163,7 @@ export default function SimpleCrossoverPage() {
                   key={s}
                   type="button"
                   className="button secondary"
-                  style={s === side ? { background: "var(--accent, #2368b6)", color: "#fff" } : undefined}
+                  style={s === side ? { background: "var(--accent, #0f6b78)", color: "#fff" } : undefined}
                   onClick={() => {
                     setSide(s);
                     setAutoSelected(false);
@@ -295,7 +295,7 @@ function SideMarketPanel({
         </div>
         <div className="metric metric-compact" style={{ flex: "1 1 150px" }}>
           <span>Last crossover</span>
-          <strong style={{ color: lastCrossover ? (lastCrossover.direction === "up" ? "#168448" : "#c93535") : undefined }}>
+          <strong style={{ color: lastCrossover ? (lastCrossover.direction === "up" ? "#1b7a4b" : "#b23c35") : undefined }}>
             {lastCrossover ? `${lastCrossover.direction === "up" ? "Over" : "Under"} @ ${fmtNum(lastCrossover.price)}` : "—"}
           </strong>
           <span className="pcr-oi-caption">{lastCrossover ? fmtDateTime(lastCrossover.time) : ""}</span>
@@ -322,7 +322,7 @@ function SideMarketPanel({
         </div>
         <div className="metric metric-compact" style={{ flex: "1 1 150px" }}>
           <span>EMA gap (8 − 21)</span>
-          <strong style={{ color: current?.gap != null ? (current.gap >= 0 ? "#168448" : "#c93535") : undefined }}>
+          <strong style={{ color: current?.gap != null ? (current.gap >= 0 ? "#1b7a4b" : "#b23c35") : undefined }}>
             {fmtSigned(current?.gap)}
           </strong>
           <span className="pcr-oi-caption">
@@ -486,7 +486,7 @@ function StrategyConditionsPanel({
             type="button"
             className="button secondary"
             disabled={!config || saving}
-            style={config?.timeframeMinutes === minutes ? { background: "var(--accent, #2368b6)", color: "#fff" } : undefined}
+            style={config?.timeframeMinutes === minutes ? { background: "var(--accent, #0f6b78)", color: "#fff" } : undefined}
             onClick={() => config?.timeframeMinutes !== minutes && void save({ timeframeMinutes: minutes })}
           >
             {minutes} min
@@ -795,19 +795,19 @@ function SimpleCrossoverChart({ data, trades }: { data: SimpleCrossoverData | nu
   useEffect(() => {
     if (!containerRef.current || chartRef.current) return;
     const chart = createChart(containerRef.current, {
-      layout: { background: { type: ColorType.Solid, color: "#ffffff" }, textColor: "#252a32" },
-      grid: { vertLines: { color: "#edf0f4" }, horzLines: { color: "#edf0f4" } },
+      layout: { background: { type: ColorType.Solid, color: "#ffffff" }, textColor: "#17212b" },
+      grid: { vertLines: { color: "#e8edeb" }, horzLines: { color: "#e8edeb" } },
       width: containerRef.current.clientWidth,
       height: containerRef.current.clientHeight || 320,
       timeScale: { timeVisible: true, secondsVisible: false, tickMarkFormatter: (time: Time) => formatIstTime(time) },
       localization: { timeFormatter: (time: Time) => formatIstTime(time) },
     });
     const candleSeries = chart.addSeries(CandlestickSeries, {
-      upColor: "#168448",
-      downColor: "#c93535",
+      upColor: "#1b7a4b",
+      downColor: "#b23c35",
       borderVisible: false,
-      wickUpColor: "#168448",
-      wickDownColor: "#c93535",
+      wickUpColor: "#1b7a4b",
+      wickDownColor: "#b23c35",
     });
     const emaFast = chart.addSeries(LineSeries, { color: "#e58a1a", lineWidth: 2, title: "EMA8" });
     const emaSlow = chart.addSeries(LineSeries, { color: "#2f8f3e", lineWidth: 2, title: "EMA21" });
@@ -852,8 +852,8 @@ function SimpleCrossoverChart({ data, trades }: { data: SimpleCrossoverData | nu
     );
 
     const rsiSeries = chart.addSeries(LineSeries, { color: "#7b5fc7", lineWidth: 2, title: "RSI(8)" }, 2);
-    rsiSeries.createPriceLine({ price: 70, color: "#c93535", lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: "70" });
-    rsiSeries.createPriceLine({ price: 30, color: "#168448", lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: "30" });
+    rsiSeries.createPriceLine({ price: 70, color: "#b23c35", lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: "70" });
+    rsiSeries.createPriceLine({ price: 30, color: "#1b7a4b", lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: "30" });
     const rsiSmaSeries = chart.addSeries(LineSeries, { color: "#2b8fd6", lineWidth: 2, title: "RSI SMA(5)" }, 2);
 
     chart.panes()[1]?.setHeight(80);
@@ -952,7 +952,7 @@ function tradeNotes(data: SimpleCrossoverData, trades: SimpleCrossoverTrade[]): 
       time: t.entryTime,
       kind: "entry",
       label: `Entry${tag} (${fmtNum(t.entryPremium)})`,
-      color: "#168448",
+      color: "#1b7a4b",
       title: `Entry #${t.id} · BUY ${t.side} ${t.strike} × ${t.lots} lots @ ${fmtNum(t.entryPremium)}`,
       lines: [
         `${istTime(t.entryTime)}${t.plainCrossover ? " · Plain cross over" : ""}`,
@@ -979,7 +979,7 @@ function tradeNotes(data: SimpleCrossoverData, trades: SimpleCrossoverTrade[]): 
         time: leg.exitTime,
         kind: leg.lots < t.lots && leg.exitReason.startsWith("target") ? "adjust" : "exit",
         label: `Exit${tag} (${fmtNum(leg.exitPremium)})`,
-        color: pnl >= 0 ? "#168448" : "#c93535",
+        color: pnl >= 0 ? "#1b7a4b" : "#b23c35",
         title: `${EXIT_REASON_LABEL[leg.exitReason] ?? leg.exitReason} #${t.id} · ${leg.lots} lot${leg.lots > 1 ? "s" : ""} @ ${fmtNum(leg.exitPremium)}`,
         lines: [
           `${istTime(leg.exitTime)} · ${fmtSigned(leg.exitPremium - t.entryPremium)} per unit · ₹${fmtNum(pnl)}`,

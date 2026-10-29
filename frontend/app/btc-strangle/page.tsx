@@ -680,15 +680,15 @@ function StrategyChart({ trade }: { trade: BtcStrangleTrade }) {
   useEffect(() => {
     if (!containerRef.current || chartRef.current) return;
     const chart = createChart(containerRef.current, {
-      layout: { background: { type: ColorType.Solid, color: "#ffffff" }, textColor: "#252a32" },
-      grid: { vertLines: { color: "#edf0f4" }, horzLines: { color: "#edf0f4" } },
+      layout: { background: { type: ColorType.Solid, color: "#ffffff" }, textColor: "#17212b" },
+      grid: { vertLines: { color: "#e8edeb" }, horzLines: { color: "#e8edeb" } },
       width: containerRef.current.clientWidth,
       height: 260,
       timeScale: { timeVisible: true, secondsVisible: false, tickMarkFormatter: (t: Time) => istTime(t) },
       localization: { timeFormatter: (t: Time) => istTime(t) },
     });
-    priceRef.current = chart.addSeries(LineSeries, { color: "#2368b6", lineWidth: 2, title: "Strangle price" });
-    vwapRef.current = chart.addSeries(LineSeries, { color: "#a56513", lineWidth: 2, title: "VWAP" });
+    priceRef.current = chart.addSeries(LineSeries, { color: "#0f6b78", lineWidth: 2, title: "Strangle price" });
+    vwapRef.current = chart.addSeries(LineSeries, { color: "#9a6a12", lineWidth: 2, title: "VWAP" });
     chartRef.current = chart;
     const observer = new ResizeObserver(() => {
       if (containerRef.current) chart.applyOptions({ width: containerRef.current.clientWidth });
@@ -712,7 +712,7 @@ function StrategyChart({ trade }: { trade: BtcStrangleTrade }) {
         if (creditLineRef.current) priceRef.current.removePriceLine(creditLineRef.current);
         creditLineRef.current = priceRef.current.createPriceLine({
           price: data.entryCredit,
-          color: "#168448",
+          color: "#1b7a4b",
           lineWidth: 1,
           lineStyle: 2,
           axisLabelVisible: true,
@@ -764,7 +764,7 @@ function btcStrangleNotes(trades: BtcStrangleTrade[]): TradeNote[] {
       time: t.entryTime,
       kind: "entry",
       label: `#${t.id} sell`,
-      color: "#c93535",
+      color: "#b23c35",
       title: `Entry #${t.id} · sold ${legs.map((l) => `${l.strike} ${l.optionType}`).join(" / ")}${variant}`,
       lines: [
         `${noteTime(t.entryTime)} IST · BTC ${num(t.spot, 0)} · expiry ${t.expiryCode} · ${t.mode}`,
@@ -779,7 +779,7 @@ function btcStrangleNotes(trades: BtcStrangleTrade[]): TradeNote[] {
         time: l.exitTime as number,
         kind: "exit",
         label: `${l.optionType} ${usd(l.pnl ?? null, 0)}`,
-        color: (l.pnl ?? 0) >= 0 ? "#168448" : "#c93535",
+        color: (l.pnl ?? 0) >= 0 ? "#1b7a4b" : "#b23c35",
         title: `Exit #${t.id} · ${l.strike} ${l.optionType} @ ${num(l.exitPrice)} · ${usd(l.pnl ?? null)}`,
         lines: [`${noteTime(l.exitTime)} IST · sold at ${num(l.entryPrice)}`, `Why: ${EXIT_REASON_LABEL[l.exitReason ?? ""] ?? l.exitReason}`],
       }));
@@ -803,19 +803,19 @@ function SpotChart({ trades }: { trades: BtcStrangleTrade[] }) {
   useEffect(() => {
     if (!containerRef.current || chartRef.current) return;
     const chart = createChart(containerRef.current, {
-      layout: { background: { type: ColorType.Solid, color: "#ffffff" }, textColor: "#252a32" },
-      grid: { vertLines: { color: "#edf0f4" }, horzLines: { color: "#edf0f4" } },
+      layout: { background: { type: ColorType.Solid, color: "#ffffff" }, textColor: "#17212b" },
+      grid: { vertLines: { color: "#e8edeb" }, horzLines: { color: "#e8edeb" } },
       width: containerRef.current.clientWidth,
       height: 320,
       timeScale: { timeVisible: true, secondsVisible: false, tickMarkFormatter: (t: Time) => istTime(t) },
       localization: { timeFormatter: (t: Time) => istTime(t) },
     });
     seriesRef.current = chart.addSeries(CandlestickSeries, {
-      upColor: "#168448",
-      downColor: "#c93535",
+      upColor: "#1b7a4b",
+      downColor: "#b23c35",
       borderVisible: false,
-      wickUpColor: "#168448",
-      wickDownColor: "#c93535",
+      wickUpColor: "#1b7a4b",
+      wickDownColor: "#b23c35",
       // Keep the open short strikes inside the price scale, not just the
       // candles, so both strike lines are always visible.
       autoscaleInfoProvider: (original: () => { priceRange: { minValue: number; maxValue: number } | null } | null) => {
@@ -865,7 +865,7 @@ function SpotChart({ trades }: { trades: BtcStrangleTrade[] }) {
         linesRef.current = data.strikes.map((s) =>
           series.createPriceLine({
             price: s.strike,
-            color: "#c93535",
+            color: "#b23c35",
             lineWidth: 1,
             lineStyle: 2,
             axisLabelVisible: true,

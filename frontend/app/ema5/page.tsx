@@ -343,8 +343,8 @@ function Ema5Chart({ side, openTrade, trades }: { side: Ema5Side; openTrade: Ema
   useEffect(() => {
     if (!containerRef.current || chartRef.current) return;
     const chart = createChart(containerRef.current, {
-      layout: { background: { type: ColorType.Solid, color: "#ffffff" }, textColor: "#252a32" },
-      grid: { vertLines: { color: "#edf0f4" }, horzLines: { color: "#edf0f4" } },
+      layout: { background: { type: ColorType.Solid, color: "#ffffff" }, textColor: "#17212b" },
+      grid: { vertLines: { color: "#e8edeb" }, horzLines: { color: "#e8edeb" } },
       width: containerRef.current.clientWidth,
       height: 340,
       timeScale: {
@@ -357,13 +357,13 @@ function Ema5Chart({ side, openTrade, trades }: { side: Ema5Side; openTrade: Ema
       },
     });
     const candleSeries = chart.addSeries(CandlestickSeries, {
-      upColor: "#168448",
-      downColor: "#c93535",
+      upColor: "#1b7a4b",
+      downColor: "#b23c35",
       borderVisible: false,
-      wickUpColor: "#168448",
-      wickDownColor: "#c93535",
+      wickUpColor: "#1b7a4b",
+      wickDownColor: "#b23c35",
     });
-    const emaLine = chart.addSeries(LineSeries, { color: "#2368b6", lineWidth: 2 });
+    const emaLine = chart.addSeries(LineSeries, { color: "#0f6b78", lineWidth: 2 });
     chartRef.current = chart;
     candleSeriesRef.current = candleSeries;
     emaSeriesRef.current = emaLine;
@@ -401,12 +401,12 @@ function Ema5Chart({ side, openTrade, trades }: { side: Ema5Side; openTrade: Ema
     if (!series) return;
     series.priceLines().forEach((line) => series.removePriceLine(line));
     if (!openTrade) return;
-    series.createPriceLine({ price: openTrade.entryIndexLevel, color: "#6f7785", title: "Entry" });
-    series.createPriceLine({ price: openTrade.initialSl, color: "#c93535", title: "SL" });
-    series.createPriceLine({ price: openTrade.target1, color: "#168448", title: "T1 (1R)" });
-    series.createPriceLine({ price: openTrade.target2, color: "#168448", title: "T2 (2R)" });
+    series.createPriceLine({ price: openTrade.entryIndexLevel, color: "#5b6a72", title: "Entry" });
+    series.createPriceLine({ price: openTrade.initialSl, color: "#b23c35", title: "SL" });
+    series.createPriceLine({ price: openTrade.target1, color: "#1b7a4b", title: "T1 (1R)" });
+    series.createPriceLine({ price: openTrade.target2, color: "#1b7a4b", title: "T2 (2R)" });
     if (openTrade.lot3TrailSl !== null && openTrade.lot3TrailSl !== undefined) {
-      series.createPriceLine({ price: openTrade.lot3TrailSl, color: "#a56513", title: "Trail SL" });
+      series.createPriceLine({ price: openTrade.lot3TrailSl, color: "#9a6a12", title: "Trail SL" });
     }
   }, [openTrade]);
 
@@ -586,7 +586,7 @@ function buildTradeNotes(trades: Ema5Trade[], side: Ema5Side): TradeNote[] {
         time: t,
         kind: "entry",
         label: `Entry ${money(trade.entryPremium)}`,
-        color: side === "CE" ? "#168448" : "#c93535",
+        color: side === "CE" ? "#1b7a4b" : "#b23c35",
         title: `Entry ${trade.id} · ${trade.mode}`,
         lines: [
           `${noteTime(t)} · bought ${trade.strike ?? ""} ${side} @ ${money(trade.entryPremium)} × ${trade.entryQty ?? "—"}`,
@@ -603,7 +603,7 @@ function buildTradeNotes(trades: Ema5Trade[], side: Ema5Side): TradeNote[] {
         time: t,
         kind: "exit",
         label: `L${leg.lotNumber} ${money(leg.exitPremium)}`,
-        color: pnl >= 0 ? "#168448" : "#c93535",
+        color: pnl >= 0 ? "#1b7a4b" : "#b23c35",
         title: `Exit lot ${leg.lotNumber} · ${trade.id} · P&L ${money(pnl)}`,
         lines: [
           `${noteTime(t)} · sold @ ${money(leg.exitPremium)} · index ${leg.exitIndexLevel ?? "—"}`,

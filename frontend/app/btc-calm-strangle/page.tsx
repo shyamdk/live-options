@@ -460,12 +460,12 @@ function PayoffChart({ trade: t }: { trade: BtcCalmTradeDetail }) {
           </g>
         ))}
         <path d={path("expiry")} fill="none" stroke="#9aa3af" strokeWidth={1.5} />
-        <path d={path("today")} fill="none" stroke="#2368b6" strokeWidth={2} />
-        <line x1={x(spot)} x2={x(spot)} y1={pad.t} y2={H - pad.b} stroke="#2368b6" />
-        <text x={x(spot)} y={H - 6} fontSize={9} fill="#2368b6" textAnchor="middle">
+        <path d={path("today")} fill="none" stroke="#0f6b78" strokeWidth={2} />
+        <line x1={x(spot)} x2={x(spot)} y1={pad.t} y2={H - pad.b} stroke="#0f6b78" />
+        <text x={x(spot)} y={H - 6} fontSize={9} fill="#0f6b78" textAnchor="middle">
           BTC {num(spot, 0)}
         </text>
-        {h ? <circle cx={x(h.price)} cy={y(h.today)} r={3} fill="#2368b6" /> : null}
+        {h ? <circle cx={x(h.price)} cy={y(h.today)} r={3} fill="#0f6b78" /> : null}
       </svg>
     </div>
   );
@@ -479,14 +479,14 @@ function PremiumChart({ trade: t }: { trade: BtcCalmTradeDetail }) {
   useEffect(() => {
     if (!ref.current || chartRef.current) return;
     const chart = createChart(ref.current, {
-      layout: { background: { type: ColorType.Solid, color: "#ffffff" }, textColor: "#252a32" },
-      grid: { vertLines: { color: "#edf0f4" }, horzLines: { color: "#edf0f4" } },
+      layout: { background: { type: ColorType.Solid, color: "#ffffff" }, textColor: "#17212b" },
+      grid: { vertLines: { color: "#e8edeb" }, horzLines: { color: "#e8edeb" } },
       width: ref.current.clientWidth,
       height: 220,
       timeScale: { timeVisible: true, secondsVisible: false, tickMarkFormatter: tick },
       localization: { timeFormatter: tick },
     });
-    seriesRef.current = chart.addSeries(LineSeries, { color: "#c93535", lineWidth: 2, title: "Premium" });
+    seriesRef.current = chart.addSeries(LineSeries, { color: "#b23c35", lineWidth: 2, title: "Premium" });
     chartRef.current = chart;
     const observer = new ResizeObserver(() => ref.current && chart.applyOptions({ width: ref.current.clientWidth }));
     observer.observe(ref.current);
@@ -506,7 +506,7 @@ function PremiumChart({ trade: t }: { trade: BtcCalmTradeDetail }) {
     for (const l of linesRef.current) series.removePriceLine(l);
     linesRef.current = [
       series.createPriceLine({ price: t.credit, color: "#7a8494", lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: "sold" }),
-      ...(t.earlyTarget != null ? [series.createPriceLine({ price: t.earlyTarget, color: "#168448", lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: "book early" })] : []),
+      ...(t.earlyTarget != null ? [series.createPriceLine({ price: t.earlyTarget, color: "#1b7a4b", lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: "book early" })] : []),
     ];
     chartRef.current?.timeScale().fitContent();
   }, [t]);
@@ -521,7 +521,7 @@ function btcCalmNotes(trades: BtcCalmTrade[], config?: BtcCalmConfig): TradeNote
         time: t.entryTime,
         kind: "entry" as const,
         label: `#${t.id} ${t.book === "early" ? "06:00" : "13:30"}`,
-        color: "#c93535",
+        color: "#b23c35",
         title: `Entry #${t.id} [${book}] · sold ${t.peStrike} PE / ${t.ceStrike} CE`,
         lines: [
           `${istTime(t.entryTime)} IST · BTC ${num(t.entrySpot, 0)}${t.trigger === "manual" ? " · manual entry" : ""}`,
@@ -538,7 +538,7 @@ function btcCalmNotes(trades: BtcCalmTrade[], config?: BtcCalmConfig): TradeNote
               time: t.exitTime,
               kind: "exit" as const,
               label: usd(t.netPnl, 0),
-              color: t.netPnl >= 0 ? "#168448" : "#c93535",
+              color: t.netPnl >= 0 ? "#1b7a4b" : "#b23c35",
               title: `Exit #${t.id} [${book}] · ${usd(t.netPnl)} net`,
               lines: [
                 `${istTime(t.exitTime)} IST · BTC ${num(t.exitSpot, 0)} · ${num(t.points)} per BTC`,
@@ -561,8 +561,8 @@ function SpotChart({ state, trades }: { state: BtcCalmState | null; trades: BtcC
   useEffect(() => {
     if (!ref.current || chartRef.current) return;
     const chart = createChart(ref.current, {
-      layout: { background: { type: ColorType.Solid, color: "#ffffff" }, textColor: "#252a32" },
-      grid: { vertLines: { color: "#edf0f4" }, horzLines: { color: "#edf0f4" } },
+      layout: { background: { type: ColorType.Solid, color: "#ffffff" }, textColor: "#17212b" },
+      grid: { vertLines: { color: "#e8edeb" }, horzLines: { color: "#e8edeb" } },
       width: ref.current.clientWidth,
       height: 260,
       timeScale: { timeVisible: true, secondsVisible: false, tickMarkFormatter: tick },
@@ -593,8 +593,8 @@ function SpotChart({ state, trades }: { state: BtcCalmState | null; trades: BtcC
     const o = Object.values(state.books).map((b) => b.openTrade).find(Boolean) ?? null;
     linesRef.current = o
       ? [
-          series.createPriceLine({ price: o.stopHigh, color: "#c93535", lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: "stop" }),
-          series.createPriceLine({ price: o.stopLow, color: "#c93535", lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: "stop" }),
+          series.createPriceLine({ price: o.stopHigh, color: "#b23c35", lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: "stop" }),
+          series.createPriceLine({ price: o.stopLow, color: "#b23c35", lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: "stop" }),
         ]
       : [];
     chartRef.current?.timeScale().fitContent();
