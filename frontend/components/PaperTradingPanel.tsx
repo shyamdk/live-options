@@ -147,6 +147,11 @@ export default function PaperTradingPanel() {
           <div className="pcr-oi-section">
             <h3>Settings</h3>
             <p className="pcr-oi-caption">Applied to new entries only — open trades keep the levels they were entered with.</p>
+            <p className="pcr-oi-caption">
+              Entry rules (from 29 Oct 2026): the early signal must show on two snapshots in a row; after a trade closes, the
+              signal has to switch off before the next entry; no new entries after 14:30; everything still open is squared off
+              at 15:15 (trades were previously carried overnight by mistake).
+            </p>
             <div className="paper-trading-settings-grid">
               {SETTINGS_FIELDS.map((field) => (
                 <label key={field.key} className="level-field">
@@ -235,7 +240,7 @@ export default function PaperTradingPanel() {
           <div className="pcr-oi-section">
             <h3>Closed Trades ({closedTrades.length})</h3>
             <p className="pcr-oi-caption">
-              Total realized P&amp;L:{" "}
+              Total realized P&amp;L (before charges):{" "}
               <strong style={{ color: totalRealized >= 0 ? "var(--green)" : "var(--red)" }}>
                 {moneyFormat.format(totalRealized)}
               </strong>

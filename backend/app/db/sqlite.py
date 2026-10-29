@@ -2380,6 +2380,16 @@ def create_paper_trade(
         return int(cur.lastrowid)
 
 
+def last_paper_trade_close(underlying: str, signal_type: str) -> int | None:
+    """Epoch when the latest closed paper trade of this (underlying, signal) closed."""
+    with _DB_LOCK, _connect() as conn:
+        row = conn.execute(
+            "SELECT MAX(closed_at) FROM paper_trades WHERE underlying = ? AND signal_type = ? AND status = 'closed'",
+            (underlying, signal_type),
+        ).fetchone()
+    return int(row[0]) if row and row[0] else None
+
+
 def get_open_paper_trade(underlying: str, signal_type: str) -> dict[str, Any] | None:
     with _DB_LOCK, _connect() as conn:
         row = conn.execute(

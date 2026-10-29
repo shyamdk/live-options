@@ -164,6 +164,11 @@ class Settings(BaseSettings):
     paper_trading_poll_interval_seconds: int = 60
     paper_trading_session_start_time: str = "09:15"
     paper_trading_session_end_time: str = "15:30"
+    # OI early-signal paper trades (29 Oct 2026 review): square off at 15:15
+    # (the old 15:30 check could never fire, so trades were carried
+    # overnight) and take no new entries after 14:30.
+    paper_trading_square_off_time: str = "15:15"
+    paper_trading_last_entry_time: str = "14:30"
 
     # pStrategy-Nifty: paper-only, buys ATM CE/PE on a pStrategy-style
     # momentum breakout in NIFTY spot at 1m/3m. Off by default like every

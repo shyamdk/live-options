@@ -104,11 +104,23 @@ async def _maybe_enter_early_signal(dhan: DhanService, settings: Settings, sessi
     confirmation gate up front."""
     if db.get_open_paper_trade("NIFTY", "earlySignal"):
         return
+    if now_ist().time() >= _parse_hhmm(settings.paper_trading_last_entry_time):
+        return
     enriched = await get_upgraded_nifty_signal(session_date)
     if not enriched:
         return
     signal = enriched[-1].get("earlySignal")
     if signal not in ("buyCe", "buyPe"):
+        return
+    # 29 Oct 2026 review (replay of 13 Aug - 22 Oct): entering on a single
+    # snapshot, and re-entering on the same still-active signal right after
+    # an exit, were the biggest losers. Require the signal on the last two
+    # snapshots, and after a trade closes, a snapshot with no signal before
+    # the next entry.
+    if len(enriched) < 2 or enriched[-2].get("earlySignal") != signal:
+        return
+    last_close = db.last_paper_trade_close("NIFTY", "earlySignal")
+    if last_close and last_close >= enriched[0]["time"] and not any(p["time"] > last_close and p.get("earlySignal") == "noTrade" for p in enriched):
         return
     side = "CE" if signal == "buyCe" else "PE"
     await _open_trade(dhan, settings, "NIFTY", side, "earlySignal")
@@ -173,7 +185,9 @@ async def _manage_open_trades(dhan: DhanService, settings: Settings, now: dateti
     except Exception:
         return
 
-    is_eod = now.time() >= _parse_hhmm(settings.paper_trading_session_end_time)
+    # The loop only runs until the session end, so the square-off has to be
+    # earlier than that to ever fire (it used to be the session end itself).
+    is_eod = now.time() >= _parse_hhmm(settings.paper_trading_square_off_time)
     now_epoch = now_ist_epoch()
 
     for trade in open_trades:
