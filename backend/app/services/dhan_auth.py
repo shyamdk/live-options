@@ -221,7 +221,9 @@ async def generate_dhan_access_token(settings: Settings | None = None) -> str:
         message = payload.get("message") or payload.get("remarks") or payload.get("error") or str(payload)
         if "once every 2 minutes" in str(message).lower() and settings.dhan_access_token:
             return settings.dhan_access_token
-        raise DhanAuthError(f"Dhan token generation failed: {message}")
+        from app.services.dhan_health import describe_auth_failure
+
+        raise DhanAuthError(describe_auth_failure(f"Dhan token generation failed: {message}"))
 
     return str(access_token)
 

@@ -372,6 +372,8 @@ class Settings(BaseSettings):
     varaha_paper_enabled: bool = True
     # Price alerts + date reminders (app/services/alerts.py): portal alarm + Telegram.
     alerts_monitor_enabled: bool = True
+    # Daily Dhan Data API plan check + Telegram alerts on login/data failures.
+    dhan_health_monitor_enabled: bool = True
     # Equity-Swing (app/services/equity_swing.py): weekly NIFTY 200 momentum
     # rotation. Paper by default; live orders go to Angel One only when the
     # page's mode is live AND both switches below are true.

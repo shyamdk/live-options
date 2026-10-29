@@ -8,6 +8,7 @@ from typing import Any
 import httpx
 
 from app.core.config import Settings, get_settings
+from app.services.dhan_health import describe_401
 from app.services.dhan_auth import DhanAuthError, get_dhan_access_token
 
 
@@ -271,13 +272,14 @@ class DhanService:
         return _looks_like_invalid_token(_response_json(response))
 
     def _api_error(self, response: httpx.Response, context: str) -> DhanApiError:
+        payload: Any = None
         try:
             payload = response.json()
             detail = payload.get("message") or payload.get("remarks") or payload.get("error") or str(payload)
-        except ValueError:
+        except (ValueError, AttributeError):
             detail = response.text[:220]
         if response.status_code == 401:
-            detail = "401 Unauthorized from Dhan. Check DHAN_ACCESS_TOKEN and DHAN_CLIENT_ID."
+            detail = describe_401(payload)  # Dhan's own reason + what to do (e.g. Data API plan lapsed)
         return DhanApiError(f"{context}: {detail}", response.status_code)
 
     def _raise_status_failure(self, payload: Any, context: str) -> None:

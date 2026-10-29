@@ -44,6 +44,7 @@ import httpx
 
 from app.core.config import get_settings
 from app.services.dhan import DhanService
+from app.services.dhan_auth import is_invalid_token_response
 
 DB_PATH = Path(__file__).resolve().parents[1] / "data" / "history" / "market_history.sqlite3"
 IST = timezone(timedelta(hours=5, minutes=30))
@@ -188,7 +189,7 @@ async def _post(client: httpx.AsyncClient, dhan: DhanService, path: str, body: d
             headers = await dhan._headers(require_client_id=True, force_refresh=refresh)
             refresh = False
             r = await client.post(f"{dhan.settings.dhan_base_url}{path}", headers=headers, json=body)
-            if r.status_code == 401:  # expired token: adopt the shared/refreshed one and retry
+            if is_invalid_token_response(r):  # expired token (401, or 400 DH-906): adopt the shared/refreshed one
                 refresh = True
                 continue
             if r.status_code == 429 or "DH-904" in r.text or "Too many" in r.text:
