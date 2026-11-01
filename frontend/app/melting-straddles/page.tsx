@@ -184,6 +184,8 @@ export default function MeltingStraddlesPage() {
         </div>
       ) : null}
 
+      <PaperTotals trades={closed} />
+
       <StatusStrip state={state} />
 
       <CollapsibleSection id="melting-straddles" title="Today's straddles" aside={<span className="pcr-oi-caption">combined premium = CE + PE · VWAP = VWAP(CE) + VWAP(PE)</span>}>
@@ -242,6 +244,39 @@ export default function MeltingStraddlesPage() {
 
       <SettingsSection config={config ?? null} onSaved={load} />
     </section>
+  );
+}
+
+// Running totals of every closed paper trade, so the page answers "how is
+// this doing overall" without adding up the daily table by hand.
+function PaperTotals({ trades }: { trades: MeltingTrade[] }) {
+  const paper = trades.filter((t) => t.mode === "paper");
+  if (!paper.length) return null;
+  const sum = (rows: MeltingTrade[], key: "grossPnl" | "charges" | "netPnl") => rows.reduce((a, t) => a + (t[key] ?? 0), 0);
+  const gross = sum(paper, "grossPnl");
+  const charges = sum(paper, "charges");
+  const net = sum(paper, "netPnl");
+  const wins = paper.filter((t) => t.netPnl > 0).length;
+  const days = [...new Set(paper.map((t) => t.day))].sort();
+  const byIndex = ["NIFTY", "SENSEX"]
+    .map((ix) => ({ ix, rows: paper.filter((t) => t.indexName === ix) }))
+    .filter((g) => g.rows.length);
+  return (
+    <div className="metric-grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 150px), 1fr))" }}>
+      <Metric label="Paper trades" value={String(paper.length)} caption={`${wins} won · ${days.length} days (${dayLabel(days[0])} – ${dayLabel(days[days.length - 1])})`} />
+      <Metric label="Gross P&L" value={inr(gross)} caption="before charges" color={tone(gross)} />
+      <Metric label="Charges" value={inr(charges)} caption={gross > 0 ? `${Math.round((charges / gross) * 100)}% of gross` : "brokerage, STT, exchange, GST"} />
+      <Metric label="Net P&L" value={inr(net)} caption={`${inr(net / paper.length)} per trade`} color={tone(net)} />
+      {byIndex.map(({ ix, rows }) => (
+        <Metric
+          key={ix}
+          label={`${ix} net`}
+          value={inr(sum(rows, "netPnl"))}
+          caption={`${rows.length} trades · gross ${inr(sum(rows, "grossPnl"))} · charges ${inr(sum(rows, "charges"))}`}
+          color={tone(sum(rows, "netPnl"))}
+        />
+      ))}
+    </div>
   );
 }
 
