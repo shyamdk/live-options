@@ -17,6 +17,7 @@ from app.api.mantra import router as mantra_router
 from app.api.melting import router as melting_router
 from app.api.nifty_strangle import router as nifty_strangle_router
 from app.api.calm_strangle import router as calm_strangle_router
+from app.api.disha import router as disha_router
 from app.api.btc_calm import router as btc_calm_router
 from app.api.varaha_paper import router as varaha_paper_router
 from app.api.alerts import router as alerts_router
@@ -195,6 +196,7 @@ app.include_router(mantra_router, prefix=settings.api_prefix)
 app.include_router(melting_router, prefix=settings.api_prefix)
 app.include_router(nifty_strangle_router, prefix=settings.api_prefix)
 app.include_router(calm_strangle_router, prefix=settings.api_prefix)
+app.include_router(disha_router, prefix=settings.api_prefix)
 app.include_router(btc_calm_router, prefix=settings.api_prefix)
 app.include_router(varaha_paper_router, prefix=settings.api_prefix)
 app.include_router(alerts_router, prefix=settings.api_prefix)

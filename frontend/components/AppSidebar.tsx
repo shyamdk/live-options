@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  Compass,
   Bitcoin,
   BookOpenText,
   Moon,
@@ -43,6 +44,7 @@ const navItems = [
   { href: "/equity", label: "Equity", short: "EQ", icon: WalletCards },
   { href: "/equity-swing", label: "Equity-Swing", short: "ES", icon: TrendingUp },
   { href: "/trade-journals", label: "Trade Journals", short: "TJ", icon: BookOpenText },
+  { href: "/disha", label: "Disha - NM", short: "DI", icon: Compass },
   { href: "/oi-upgraded", label: "OI - Upgraded", short: "OU", icon: RadioTower },
   { href: "/oi-improvements", label: "OI Improvements", short: "IM", icon: Lightbulb },
   { href: "/simple-crossover", label: "Simple Cross Over", short: "SC", icon: Waypoints },

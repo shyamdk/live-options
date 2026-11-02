@@ -30,6 +30,7 @@ import type { SimpleCrossoverConfig, SimpleCrossoverData, SimpleCrossoverSide, S
 import type { ThetaRuntimeConfig, ThetaSession, ThetaSessionDetail, ThetaState } from "@/types/theta";
 import type { VarahaPaperConfig, VarahaPaperState, VarahaPaperTrade } from "@/types/varaha-paper";
 import type { BtcCalmConfig, BtcCalmState, BtcCalmTrade, BtcCalmTradeDetail } from "@/types/btc-calm";
+import type { DishaState } from "@/types/disha";
 import type { CalmConfig, CalmState, CalmTrade, CalmTradeDetail } from "@/types/calm-strangle";
 import type { NiftyStrangleConfig, NiftyStranglePlan, NiftyStrangleTrade } from "@/types/nifty-strangle";
 import type { MeltingConfig, MeltingDaySummary, MeltingState, MeltingTag, MeltingTrade } from "@/types/melting";
@@ -859,6 +860,10 @@ export async function closeNiftyStrangleLeg(legId: number): Promise<{ status: st
 
 export async function getNiftyStrangleSpotChart(): Promise<{ candles: { time: number; close: number }[]; error?: string }> {
   return apiJson("/api/nifty-strangle/spot-chart", undefined, "Failed to load the NIFTY chart");
+}
+
+export async function getDishaState(): Promise<DishaState> {
+  return apiJson<DishaState>("/api/disha/state", undefined, "Failed to load Disha");
 }
 
 export async function getCalmState(): Promise<CalmState> {
