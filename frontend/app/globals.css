@@ -1189,6 +1189,18 @@ td strong {
   background: #fbfcfd;
 }
 
+/* Closed-trades summary inside the subsection row (not the count badge). */
+.subsection-row .subsection-summary {
+  margin-left: 12px;
+  font-style: normal;
+  font-weight: 400;
+  font-size: 12px;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--muted);
+}
+.subsection-row .subsection-summary strong { font-family: var(--mono); font-weight: 600; }
+
 .totals-row td {
   font-weight: 600;
   border-top: 2px solid #dde3ec;

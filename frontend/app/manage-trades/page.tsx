@@ -1053,10 +1053,10 @@ function ClosedSubsectionRow({
       <td colSpan={colSpan}>
         {open ? <ChevronDown size={13} style={{ verticalAlign: "-2px" }} /> : <ChevronRight size={13} style={{ verticalAlign: "-2px" }} />} Closed Trades{" "}
         <span>{count}</span>
-        <span style={{ marginLeft: 12, fontWeight: 400, textTransform: "none", letterSpacing: 0 }}>
+        <em className="subsection-summary">
           P&amp;L <strong className={tone(pnl)}>{money(pnl)}</strong> · charges {money(charges)} · net <strong className={tone(net)}>{money(net)}</strong>
           {open ? "" : " · click to show"}
-        </span>
+        </em>
       </td>
     </tr>
   );
@@ -1581,7 +1581,11 @@ function groupOptionsByTag(openTrades: LiveTrade[], closedTrades: LiveTrade[], s
   }
 
   const groups = Array.from(map.values());
+  // Tags with open positions first, fully closed tags last; untagged at the
+  // end of each of those two blocks; otherwise alphabetical.
   groups.sort((a, b) => {
+    const aClosed = a.openTrades.length === 0, bClosed = b.openTrades.length === 0;
+    if (aClosed !== bClosed) return aClosed ? 1 : -1;
     if (a.tag === UNTAGGED) return b.tag === UNTAGGED ? 0 : 1;
     if (b.tag === UNTAGGED) return -1;
     return a.tag.localeCompare(b.tag);
