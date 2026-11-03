@@ -20,6 +20,7 @@ import {
   exitTag,
   updateSuggestConfig,
   getDhanSession,
+  getDishaState,
   getLiveTrades,
   getTradeCandles,
   loginDhan,
@@ -29,6 +30,8 @@ import {
 import { isMarketHoursNow } from "@/lib/marketHours";
 import type { DhanSession, LiveTrade, LiveTradeSnapshot, MarketCandle, SuggestConfig, TagSummary } from "@/types/live";
 import VarahaPayoffChart from "@/components/VarahaPayoffChart";
+import DishaTagHint from "@/components/DishaTagHint";
+import type { DishaState } from "@/types/disha";
 import PcrOiPanel from "@/components/PcrOiPanel";
 
 type DraftLevels = {
@@ -63,6 +66,18 @@ const STRATEGY_INTERVAL_OPTIONS: { value: StrategyInterval; label: string }[] = 
 export default function ManageTradesPage() {
   const [session, setSession] = useState<DhanSession | null>(null);
   const [snapshot, setSnapshot] = useState<LiveTradeSnapshot | null>(null);
+  // Disha morning context for the per-tag hints; refreshed once a minute.
+  const [disha, setDisha] = useState<DishaState | null>(null);
+  useEffect(() => {
+    let alive = true;
+    const load = () => getDishaState().then((d) => alive && setDisha(d)).catch(() => undefined);
+    void load();
+    const id = window.setInterval(load, 60_000);
+    return () => {
+      alive = false;
+      window.clearInterval(id);
+    };
+  }, []);
   const [drafts, setDrafts] = useState<Record<string, DraftLevels>>({});
   const [loading, setLoading] = useState(true);
   const [savingId, setSavingId] = useState<string | null>(null);
@@ -334,6 +349,7 @@ export default function ManageTradesPage() {
           expandedIds={expandedIds}
           onToggleExpand={toggleExpand}
           suggestThreshold={snapshot?.suggestConfig?.enabled ? snapshot.suggestConfig.thresholdPercent : null}
+          disha={disha}
         />
       ))}
 
@@ -378,6 +394,7 @@ function TradeTable({ title, trades, closedTrades, loading }: { title: string; t
     );
   const totalPercent = totalInvested ? (totalPnl / totalInvested) * 100 : null;
   const [expanded, toggleExpanded] = useSectionExpanded(`equity:${title}`);
+  const [showClosed, toggleClosed] = useSectionExpanded(`closed:equity:${title}`);
   return (
     <section className="table-section">
       <SectionToggleTitle title={title} count={totalRows} expanded={expanded} onToggle={toggleExpanded}>
@@ -421,8 +438,18 @@ function TradeTable({ title, trades, closedTrades, loading }: { title: string; t
                 <td>{trade.productType || "-"}</td>
               </tr>
             ))}
-            {closedTrades.length ? <ClosedSubsectionRow colSpan={9} count={closedTrades.length} /> : null}
-            {closedTrades.map((trade) => {
+            {closedTrades.length ? (
+              <ClosedSubsectionRow
+                colSpan={9}
+                count={closedTrades.length}
+                pnl={sumField(closedTrades, "dayPnl")}
+                charges={sumField(closedTrades, "estimatedCharges")}
+                net={sumField(closedTrades, "estimatedNetPnl")}
+                open={showClosed}
+                onToggle={toggleClosed}
+              />
+            ) : null}
+            {(showClosed ? closedTrades : []).map((trade) => {
               const closedQty = trade.closedQty ?? trade.absQty ?? 0;
               const entryPrice = trade.entryAvgPrice ?? trade.avgPrice ?? 0;
               return (
@@ -481,8 +508,10 @@ function TagGroupTable({
   expandedIds,
   onToggleExpand,
   suggestThreshold,
+  disha,
 }: {
   suggestThreshold: number | null;
+  disha: DishaState | null;
   group: TagGroup;
   drafts: Record<string, DraftLevels>;
   savingId: string | null;
@@ -504,6 +533,10 @@ function TagGroupTable({
   const groupRemaining = group.summary?.remainingPremium ?? sumField(allRows, "profitRemaining");
 
   const [expanded, toggleExpanded] = useSectionExpanded(`tag:${group.tag}`);
+  const [showClosed, toggleClosed] = useSectionExpanded(`closed:${group.tag}`);
+  const closedPnl = sumField(group.closedTrades, "dayPnl");
+  const closedCharges = sumField(group.closedTrades, "estimatedCharges");
+  const closedNet = sumField(group.closedTrades, "estimatedNetPnl");
   return (
     <section className="table-section">
       <SectionToggleTitle title={group.tag} count={totalRows} expanded={expanded} onToggle={toggleExpanded} />
@@ -517,6 +550,7 @@ function TagGroupTable({
         </span>
         <span>Remaining Premium: {money(groupRemaining)}</span>
       </div>
+      {group.openTrades.length ? <DishaTagHint trades={group.openTrades} disha={disha} /> : null}
       {group.summary?.suggestion && group.openTrades.length ? (
         <SuggestionBanner group={group} onAccept={() => onExitTag(group, true)} />
       ) : null}
@@ -649,8 +683,18 @@ function TagGroupTable({
                 </Fragment>
               );
             })}
-            {group.closedTrades.length ? <ClosedSubsectionRow colSpan={columnCount} count={group.closedTrades.length} /> : null}
-            {group.closedTrades.map((trade) => (
+            {group.closedTrades.length ? (
+              <ClosedSubsectionRow
+                colSpan={columnCount}
+                count={group.closedTrades.length}
+                pnl={closedPnl}
+                charges={closedCharges}
+                net={closedNet}
+                open={showClosed}
+                onToggle={toggleClosed}
+              />
+            ) : null}
+            {(showClosed ? group.closedTrades : []).map((trade) => (
               <ClosedOptionRow
                 key={trade.id}
                 trade={trade}
@@ -1001,10 +1045,19 @@ function SectionToggleTitle({
   );
 }
 
-function ClosedSubsectionRow({ colSpan, count }: { colSpan: number; count: number }) {
+function ClosedSubsectionRow({
+  colSpan, count, pnl, charges, net, open, onToggle,
+}: { colSpan: number; count: number; pnl: number; charges: number; net: number; open: boolean; onToggle: () => void }) {
   return (
-    <tr className="subsection-row">
-      <td colSpan={colSpan}>Closed Trades <span>{count}</span></td>
+    <tr className="subsection-row" style={{ cursor: "pointer" }} onClick={onToggle} title={open ? "Hide closed trades" : "Show closed trades"}>
+      <td colSpan={colSpan}>
+        {open ? <ChevronDown size={13} style={{ verticalAlign: "-2px" }} /> : <ChevronRight size={13} style={{ verticalAlign: "-2px" }} />} Closed Trades{" "}
+        <span>{count}</span>
+        <span style={{ marginLeft: 12, fontWeight: 400, textTransform: "none", letterSpacing: 0 }}>
+          P&amp;L <strong className={tone(pnl)}>{money(pnl)}</strong> · charges {money(charges)} · net <strong className={tone(net)}>{money(net)}</strong>
+          {open ? "" : " · click to show"}
+        </span>
+      </td>
     </tr>
   );
 }
