@@ -582,6 +582,53 @@ def summarize(trade: dict[str, Any]) -> dict[str, Any]:
     return trade
 
 
+_book_cache: dict[str, Any] = {"at": 0.0, "data": None}
+
+
+def _num(value: Any) -> float | None:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+async def broker_book() -> dict[str, Any]:
+    """For Manage Trades: Angel One positions + this page's open / today's spreads.
+    Read only; cached 10 s (Angel allows ~1 position call a second)."""
+    if not _angel_configured():
+        return {"configured": False}
+    if _book_cache["data"] and time.time() - _book_cache["at"] < 10:
+        return _book_cache["data"]
+    config = get_config()
+    payload: dict[str, Any] = {"configured": True, "mode": _mode(config), "liveOrdersAllowed": config["liveOrdersAllowed"], "positions": []}
+    try:
+        from app.services.angel_broker import AngelBroker
+
+        for p in await AngelBroker().positions():
+            payload["positions"].append({
+                "symbol": p.get("tradingsymbol"), "token": str(p.get("symboltoken") or ""), "exchange": p.get("exchange"),
+                "product": p.get("producttype"), "netQty": int(float(p.get("netqty") or 0)),
+                "buyQty": int(float(p.get("buyqty") or 0)) + int(float(p.get("cfbuyqty") or 0)),
+                "sellQty": int(float(p.get("sellqty") or 0)) + int(float(p.get("cfsellqty") or 0)),
+                "buyAvg": _num(p.get("totalbuyavgprice") or p.get("buyavgprice")),
+                "sellAvg": _num(p.get("totalsellavgprice") or p.get("sellavgprice")),
+                "ltp": _num(p.get("ltp")), "pnl": _num(p.get("pnl")),
+            })
+    except Exception as exc:
+        payload["error"] = f"Angel One positions unavailable: {exc}"
+    today = now_ist().date()
+    trades = []
+    for t in db.list_turtle_trades(limit=50):
+        exit_day = datetime.fromtimestamp(t["exitTime"], IST).date() if t.get("exitTime") else None
+        if t["status"] == "OPEN" or exit_day == today:
+            trades.append(summarize(t))
+    payload["trades"] = trades
+    payload["openNet"] = round(sum(t["netPnl"] for t in trades if t["status"] == "OPEN" and t.get("mode") == "live"), 2)
+    payload["dayPnl"] = round(sum(p["pnl"] or 0 for p in payload["positions"]), 2)
+    _book_cache.update(at=time.time(), data=payload)
+    return payload
+
+
 def list_trades() -> list[dict[str, Any]]:
     return [summarize(t) for t in db.list_turtle_trades()]
 

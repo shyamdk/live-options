@@ -28,6 +28,11 @@ async def update_config(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+@router.get("/broker-book", dependencies=[Depends(require_auth)])
+async def broker_book() -> dict[str, Any]:
+    return await turtle.broker_book()
+
+
 @router.get("/trades", dependencies=[Depends(require_auth)])
 async def trades() -> dict[str, Any]:
     return {"trades": turtle.list_trades()}

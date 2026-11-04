@@ -121,6 +121,10 @@ class AngelBroker:
                         "filledQty": int(float(row.get("filledshares") or 0)), "text": row.get("text")}
         return None
 
+    async def positions(self) -> list[dict[str, Any]]:
+        """Net positions (today's plus carried-forward); [] when there are none."""
+        return await self._call("GET", "/rest/secure/angelbroking/order/v1/getPosition") or []
+
     async def funds(self) -> dict[str, Any]:
         return await self._call("GET", "/rest/secure/angelbroking/user/v1/getRMS") or {}
 

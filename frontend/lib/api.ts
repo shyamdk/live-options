@@ -35,7 +35,7 @@ import type { CalmConfig, CalmState, CalmTrade, CalmTradeDetail } from "@/types/
 import type { NiftyStrangleConfig, NiftyStranglePlan, NiftyStrangleTrade } from "@/types/nifty-strangle";
 import type { MeltingConfig, MeltingDaySummary, MeltingState, MeltingTag, MeltingTrade } from "@/types/melting";
 import type { MantraAlarm, MantraConfig, MantraMode, MantraPlan, MantraTrade } from "@/types/mantra";
-import type { TurtleAlarm, TurtleConfig, TurtleState, TurtleTrade } from "@/types/turtle";
+import type { TurtleA1Book, TurtleAlarm, TurtleConfig, TurtleState, TurtleTrade } from "@/types/turtle";
 import type { BatmanAnalysis, BatmanConfig, BatmanMode, BatmanPreview, BatmanTrade } from "@/types/batman";
 import type { BtcSpotChart, BtcStrangleChart, BtcStrangleConfig, BtcStranglePreview, BtcStrangleTrade } from "@/types/btc-strangle";
 import type {
@@ -767,6 +767,10 @@ export async function acknowledgeTurtleAlarm(id: number): Promise<{ status: stri
 }
 
 // Define Turtle A1 (paper + live on Angel One)
+export async function getTurtleA1Book(): Promise<TurtleA1Book> {
+  return apiJson<TurtleA1Book>("/api/define-turtle-a1/broker-book", undefined, "Failed to load Angel One positions");
+}
+
 export async function getTurtleA1State(): Promise<TurtleState> {
   return apiJson<TurtleState>("/api/define-turtle-a1/state", undefined, "Failed to load Define Turtle A1");
 }

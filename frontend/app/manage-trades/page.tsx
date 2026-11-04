@@ -22,12 +22,14 @@ import {
   getDhanSession,
   getDishaState,
   getLiveTrades,
+  getTurtleA1Book,
   getTradeCandles,
   loginDhan,
   saveTagLevels,
   saveTradeLevels,
 } from "@/lib/api";
 import { isMarketHoursNow } from "@/lib/marketHours";
+import type { TurtleA1Book } from "@/types/turtle";
 import type { DhanSession, LiveTrade, LiveTradeSnapshot, MarketCandle, SuggestConfig, TagSummary } from "@/types/live";
 import VarahaPayoffChart from "@/components/VarahaPayoffChart";
 import DishaTagHint from "@/components/DishaTagHint";
@@ -353,6 +355,8 @@ export default function ManageTradesPage() {
         />
       ))}
 
+      <AngelA1Section />
+
       {groupsByTag.some((group) => group.openTrades.length > 0 && isStrangleTag(group.tag)) ? (
         <div className="pcr-oi-section">
           <h3>Strategy Charts</h3>
@@ -369,6 +373,147 @@ export default function ManageTradesPage() {
       ) : null}
 
       {!loading && !closedTrades.length && !optionTrades.length && !snapshot?.groups.equity.length ? <div className="empty-state">No positions returned by Dhan.</div> : null}
+    </section>
+  );
+}
+
+/**
+ * Angel One account (Define Turtle A1's live orders): Angel's net positions plus
+ * A1's open / today's spreads. Read only -- spreads are closed from the A1 page.
+ */
+function AngelA1Section() {
+  const [book, setBook] = useState<TurtleA1Book | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [expanded, toggleExpanded] = useSectionExpanded("angel:a1");
+  useEffect(() => {
+    let alive = true;
+    const load = () =>
+      getTurtleA1Book()
+        .then((b) => {
+          if (alive) {
+            setBook(b);
+            setError(null);
+          }
+        })
+        .catch((exc) => alive && setError(exc instanceof Error ? exc.message : "Angel One unavailable"));
+    load();
+    const id = window.setInterval(load, 15000);
+    return () => {
+      alive = false;
+      window.clearInterval(id);
+    };
+  }, []);
+  if (!book?.configured && !error) return null;
+  const positions = book?.positions ?? [];
+  const trades = book?.trades ?? [];
+  const legOf = (token: string) => {
+    const t = trades.find((x) => x.mode === "live" && (x.shortSecurityId === token || x.longSecurityId === token));
+    return t ? `A1 #${t.id} ${t.shortSecurityId === token ? "short" : "hedge"}` : "not from A1";
+  };
+  return (
+    <section className="table-section">
+      <SectionToggleTitle title="Angel One · Define Turtle A1" count={positions.length + trades.length} expanded={expanded} onToggle={toggleExpanded}>
+        <div style={{ fontSize: 13, color: "var(--muted)", whiteSpace: "nowrap", marginLeft: 6 }}>
+          Day P&amp;L (Angel) <strong className={tone(book?.dayPnl)}>{money(book?.dayPnl)}</strong>
+        </div>
+      </SectionToggleTitle>
+      <div className="gb-status-row" style={{ flexWrap: "wrap" }}>
+        <span className={book?.mode === "live" ? "status-live on" : "status-live"}>A1 mode {book?.mode === "live" ? "LIVE" : "paper"}</span>
+        <span>
+          Open live spreads net (since entry): <strong className={tone(book?.openNet)}>{money(book?.openNet)}</strong>
+        </span>
+        <a href="/define-turtle-a1" className="pcr-oi-caption">
+          Manage on the Define Turtle A1 page <SquareArrowOutUpRight size={11} />
+        </a>
+      </div>
+      {error || book?.error ? <div className="alert warning">{error || book?.error}</div> : null}
+      {expanded ? (
+        <>
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>A1 spread</th>
+                  <th>Mode</th>
+                  <th>Status</th>
+                  <th>Lots</th>
+                  <th>Credit</th>
+                  <th>Now (cost)</th>
+                  <th>Decay</th>
+                  <th>Days left</th>
+                  <th>Net since entry</th>
+                </tr>
+              </thead>
+              <tbody>
+                {trades.length ? (
+                  trades.map((t) => (
+                    <tr key={t.id}>
+                      <td>
+                        #{t.id} {t.shortStrike}/{t.longStrike} PE · {t.expiry}
+                        {t.needsAttention ? <div className="negative" style={{ fontSize: 12 }}>{t.needsAttention}</div> : null}
+                      </td>
+                      <td className={t.mode === "live" ? "negative" : ""} style={{ fontWeight: t.mode === "live" ? 600 : undefined }}>
+                        {t.mode === "live" ? "LIVE" : "paper"}
+                      </td>
+                      <td>{t.status === "OPEN" ? "open" : `closed · ${t.exitReason ?? ""}`}</td>
+                      <td>{t.lots}</td>
+                      <td>{money(t.creditPoints)}</td>
+                      <td>{t.status === "OPEN" ? money(t.lastCost) : "-"}</td>
+                      <td>{t.status === "OPEN" && t.lastDecay !== null ? plainPercent(t.lastDecay) : "-"}</td>
+                      <td>{t.status === "OPEN" ? t.daysToExpiry : "-"}</td>
+                      <td className={tone(t.netPnl)}>{money(t.netPnl)}</td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td colSpan={9} className="pcr-oi-caption">
+                      No A1 spread open or closed today.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+          <div className="table-wrap" style={{ marginTop: 10 }}>
+            <table>
+              <thead>
+                <tr>
+                  <th>Angel position</th>
+                  <th>Leg</th>
+                  <th>Product</th>
+                  <th>Net qty</th>
+                  <th>Buy avg</th>
+                  <th>Sell avg</th>
+                  <th>LTP</th>
+                  <th>P&amp;L (Angel)</th>
+                </tr>
+              </thead>
+              <tbody>
+                {positions.length ? (
+                  positions.map((p) => (
+                    <tr key={`${p.token}-${p.product}`}>
+                      <td>{p.symbol}</td>
+                      <td>{legOf(p.token)}</td>
+                      <td>{p.product}</td>
+                      <td className={p.netQty < 0 ? "negative" : p.netQty > 0 ? "positive" : ""}>{p.netQty === 0 ? "0 (closed)" : p.netQty}</td>
+                      <td>{money(p.buyAvg)}</td>
+                      <td>{money(p.sellAvg)}</td>
+                      <td>{money(p.ltp)}</td>
+                      <td className={tone(p.pnl)}>{money(p.pnl)}</td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td colSpan={8} className="pcr-oi-caption">
+                      No positions in the Angel One account today.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </>
+      ) : null}
     </section>
   );
 }
