@@ -344,6 +344,9 @@ class Settings(BaseSettings):
     turtle_monitor_enabled: bool = True
     turtle_live_order_enabled: bool = False
     turtle_live_order_product_type: str = "MARGIN"
+    # which account live Define Turtle orders go to: "dhan" or "angel" (Angel One,
+    # CARRYFORWARD product; needs the ANGEL_* credentials below). Market data stays on Dhan.
+    turtle_live_broker: str = "dhan"
 
     # Batman (docs/sources/batman-option-strategy-guide.pdf): NIFTY 1:3:2 double ratio
     # spread, monthly per the rulebook + a weekly variant. Paper only.

@@ -9,8 +9,10 @@ RSI < 50 on a minute close, or <= 3 calendar days to expiry -- the calendar
 exit raises an unmissable alarm on the page plus Telegram.
 
 Live orders (Nov 2026): with TURTLE_LIVE_ORDER_ENABLED + LIVE_ORDER_ENABLED on the
-server and the page's mode set to live, new spreads place real Dhan MARKET orders
-(MARGIN product -- held overnight). Entry buys the hedge put first, then sells the
+server and the page's mode set to live, new spreads place real MARKET orders on
+the account named by TURTLE_LIVE_BROKER: Dhan (MARGIN product) or Angel One
+(CARRYFORWARD) -- both held overnight; market data always comes from Dhan. The
+trade records its broker, so its exit goes to the same account. Entry buys the hedge put first, then sells the
 short put; if the short sell fails the hedge is sold straight back. Exit buys the
 short back first, then sells the hedge. A leg that fails on exit leaves the trade
 OPEN with needs_attention set and is retried every minute; it is marked CLOSED
@@ -90,11 +92,23 @@ def get_config() -> dict[str, Any]:
     config["lots"] = max(int(config["capital"] // config["capitalPerLot"]), 0)
     config["lotSize"] = LOT_SIZE
     config["liveOrdersAllowed"] = _live_allowed()
+    config["broker"] = _broker()
     return config
+
+
+def _broker() -> str:
+    return "angel" if str(get_settings().turtle_live_broker).lower() == "angel" else "dhan"
+
+
+def _angel_configured() -> bool:
+    s = get_settings()
+    return bool(s.angel_api_key and s.angel_client_id and s.angel_pin and s.angel_totp_secret)
 
 
 def _live_allowed() -> bool:
     settings = get_settings()
+    if _broker() == "angel" and not _angel_configured():
+        return False
     return bool(settings.turtle_live_order_enabled and settings.live_order_enabled)
 
 
@@ -111,7 +125,8 @@ def update_config(updates: dict[str, Any]) -> dict[str, Any]:
             if value not in ("paper", "live"):
                 raise ValueError("mode must be paper or live")
             if value == "live" and not _live_allowed():
-                raise ValueError("Live orders are switched off on the server (TURTLE_LIVE_ORDER_ENABLED / LIVE_ORDER_ENABLED).")
+                raise ValueError("Live orders are switched off on the server (TURTLE_LIVE_ORDER_ENABLED / LIVE_ORDER_ENABLED"
+                                 + (", or the ANGEL_* credentials are missing)." if _broker() == "angel" else ")."))
         db.set_turtle_setting(key, ("1" if value else "0") if isinstance(default, bool) else str(value))
     return get_config()
 
@@ -231,8 +246,11 @@ async def state() -> dict[str, Any]:
 # ---------------------------------------------------------------- live orders
 
 
-async def _order(side: str, security_id: str | None, qty: int, correlation: str) -> dict[str, Any]:
-    """One MARKET order (up to 3 attempts) and its traded price. ok=False if not sent."""
+async def _order(side: str, security_id: str | None, qty: int, correlation: str, *, broker: str = "dhan",
+                 expiry: str | None = None, strike: float | None = None) -> dict[str, Any]:
+    """One MARKET order on `broker` and its traded price. ok=False if not placed."""
+    if broker == "angel":
+        return await _angel_order(side, security_id, qty, correlation, expiry, strike)
     if not security_id:
         return {"ok": False, "orderId": None, "price": None, "message": "no security id"}
     settings = get_settings()
@@ -254,6 +272,40 @@ async def _order(side: str, security_id: str | None, qty: int, correlation: str)
     if status in ("REJECTED", "CANCELLED", "EXPIRED"):
         return {"ok": False, "orderId": order_id, "price": None, "message": f"order {order_id} {status}"}
     return {"ok": True, "orderId": order_id, "price": price, "message": "sent" if price else "sent (fill price not confirmed -- quote used)"}
+
+
+async def _angel_order(side: str, security_id: str | None, qty: int, correlation: str, expiry: str | None, strike: float | None) -> dict[str, Any]:
+    from app.services.angel_broker import AngelBroker, nifty_option
+
+    try:
+        symbol, token = await nifty_option(date.fromisoformat(str(expiry)), float(strike or 0), "PE")
+        if security_id and str(security_id) != token:
+            return {"ok": False, "orderId": None, "price": None, "message": f"token mismatch: Angel {symbol} = {token}, Dhan id {security_id}"}
+        broker = AngelBroker()
+        order_id = None
+        for attempt in range(2):
+            try:
+                order_id = await broker.place_option_market_order(symbol=symbol, token=token, side=side, qty=qty, tag=f"{correlation}{attempt}")
+                break
+            except Exception as exc:
+                last_error = exc
+                await asyncio.sleep(0.6)
+        if not order_id:
+            return {"ok": False, "orderId": None, "price": None, "message": f"Angel {symbol}: {last_error}"}
+        for _ in range(10):
+            await asyncio.sleep(1)
+            try:
+                info = await broker.order_fill(order_id)
+            except Exception:
+                info = None
+            status = str((info or {}).get("status") or "").lower()
+            if status == "complete" and info.get("avgPrice"):
+                return {"ok": True, "orderId": order_id, "price": float(info["avgPrice"]), "message": f"Angel {symbol} filled"}
+            if status in ("rejected", "cancelled"):
+                return {"ok": False, "orderId": order_id, "price": None, "message": f"Angel {symbol} {status}: {info.get('text')}"}
+        return {"ok": True, "orderId": order_id, "price": None, "message": f"Angel {symbol} sent (fill not confirmed in 10 s -- quote used; check the order book)"}
+    except Exception as exc:
+        return {"ok": False, "orderId": None, "price": None, "message": f"Angel: {exc}"}
 
 
 async def _traded_price(orders: DhanOrderService, order_id: str | None) -> tuple[float | None, str | None]:
@@ -315,17 +367,19 @@ async def enter(trigger: str, signal: dict[str, Any] | None = None) -> dict[str,
         return {"status": "skipped", "message": "Spread would not be a credit at current quotes."}
     mode = _mode(config)
     qty = int(config["lots"]) * LOT_SIZE
-    order_ids: dict[str, str | None] = {"short_order_id": None, "long_order_id": None}
+    order_ids: dict[str, str | None] = {"short_order_id": None, "long_order_id": None, "broker": None}
     if mode == "live":
         tag = f"DT{int(time.time()) % 10000000}"
-        hedge = await _order("BUY", (long_q or {}).get("securityId"), qty, f"{tag}LE")
+        broker = _broker()
+        leg = lambda strike: {"broker": broker, "expiry": expiry.isoformat(), "strike": strike}
+        hedge = await _order("BUY", (long_q or {}).get("securityId"), qty, f"{tag}LE", **leg(long_strike))
         if not hedge["ok"]:
             text = f"LIVE entry skipped: hedge BUY {long_strike:.0f} PE failed ({hedge['message']}). No position taken."
             await _notify(f"🚨 Define Turtle {text}")
             return {"status": "failed", "message": text}
-        short = await _order("SELL", (short_q or {}).get("securityId"), qty, f"{tag}SE")
+        short = await _order("SELL", (short_q or {}).get("securityId"), qty, f"{tag}SE", **leg(short_strike))
         if not short["ok"]:
-            undo = await _order("SELL", (long_q or {}).get("securityId"), qty, f"{tag}LU")
+            undo = await _order("SELL", (long_q or {}).get("securityId"), qty, f"{tag}LU", **leg(long_strike))
             text = (f"LIVE entry failed: short SELL {short_strike:.0f} PE failed ({short['message']}); "
                     f"hedge sold back: {undo['message']}. CHECK DHAN POSITIONS.")
             db.create_turtle_alarm(kind="live_error", trade_id=None, title="LIVE entry failed", message=text)
@@ -333,7 +387,7 @@ async def enter(trigger: str, signal: dict[str, Any] | None = None) -> dict[str,
             return {"status": "failed", "message": text}
         long_fill, short_fill = hedge["price"] or long_fill, short["price"] or short_fill
         credit = round(short_fill - long_fill, 2)
-        order_ids = {"short_order_id": short["orderId"], "long_order_id": hedge["orderId"]}
+        order_ids = {"short_order_id": short["orderId"], "long_order_id": hedge["orderId"], "broker": broker}
     trade_id = db.create_turtle_trade(
         mode=mode, **order_ids,
         status="OPEN", trigger=trigger, signal_time=(signal or {}).get("time"), signal_rsi=(signal or {}).get("rsi"),
@@ -345,7 +399,7 @@ async def enter(trigger: str, signal: dict[str, Any] | None = None) -> dict[str,
     )
     trade = summarize(next(t for t in db.list_turtle_trades(limit=5) if t["id"] == trade_id))
     await _notify(
-        f"🐢 Define Turtle #{trade_id} entered ({'LIVE ORDERS' if mode == 'live' else 'paper'}, {trigger})\n"
+        f"🐢 Define Turtle #{trade_id} entered ({'LIVE ORDERS on ' + ('Angel One' if order_ids['broker'] == 'angel' else 'Dhan') if mode == 'live' else 'paper'}, {trigger})\n"
         f"SELL {trade['lots']}L {short_strike:.0f} PE @ {short_fill} / BUY {long_strike:.0f} PE @ {long_fill} -- exp {expiry}\n"
         f"Credit {credit} pts (₹{trade['credit']:,.0f}), max loss ₹{trade['maxLoss']:,.0f}, "
         f"P&F RSI {(signal or {}).get('rsi')}"
@@ -363,8 +417,9 @@ async def _close(trade: dict[str, Any], quotes: dict[tuple[float, str], dict[str
     qty = int(trade["lots"]) * int(trade["lotSize"])
     if trade.get("mode") == "live":
         tag = f"DT{trade['id']}X{int(time.time()) % 100000}"
+        leg = lambda strike: {"broker": trade.get("broker") or "dhan", "expiry": trade["expiry"], "strike": float(strike)}
         if short_exit is None:  # buy the short back first -- never leave it naked
-            res = await _order("BUY", trade.get("shortSecurityId"), qty, f"{tag}S")
+            res = await _order("BUY", trade.get("shortSecurityId"), qty, f"{tag}S", **leg(trade["shortStrike"]))
             if not res["ok"]:
                 text = f"LIVE exit ({reason}): BUY back {trade['shortStrike']:.0f} PE failed ({res['message']}). Retrying every minute -- CHECK DHAN."
                 _attention(trade["id"], text)
@@ -373,7 +428,7 @@ async def _close(trade: dict[str, Any], quotes: dict[tuple[float, str], dict[str
             short_exit = res["price"] or _fill(short_q, "BUY") or float(trade.get("lastCost") or 0) + (_fill(long_q, "SELL") or 0)
             db.update_turtle_trade(trade["id"], short_exit=short_exit, short_exit_order_id=res["orderId"], exit_reason=reason)
         if long_exit is None:
-            res = await _order("SELL", trade.get("longSecurityId"), qty, f"{tag}L")
+            res = await _order("SELL", trade.get("longSecurityId"), qty, f"{tag}L", **leg(trade["longStrike"]))
             if not res["ok"]:
                 text = f"LIVE exit ({reason}): short is closed, but SELL of the {trade['longStrike']:.0f} PE hedge failed ({res['message']}). Retrying -- CHECK DHAN."
                 _attention(trade["id"], text)

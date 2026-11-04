@@ -2,6 +2,7 @@ export interface TurtleConfig {
   enabled: boolean;
   mode: "paper" | "live";
   liveOrdersAllowed: boolean;
+  broker: "dhan" | "angel";
   capital: number;
   capitalPerLot: number;
   boxPercent: number;
@@ -73,6 +74,7 @@ export interface TurtleTrade {
   shortOrderId?: string | null;
   longOrderId?: string | null;
   needsAttention?: string | null;
+  broker?: "dhan" | "angel" | null;
 }
 
 export interface TurtleAlarm {

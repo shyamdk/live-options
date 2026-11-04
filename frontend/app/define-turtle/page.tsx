@@ -122,8 +122,8 @@ export default function DefineTurtlePage() {
           </h1>
           <p>
             NIFTY Point &amp; Figure RSI(14) &gt; 50 + Turtle Follow-Through → next-week put credit spread (sell ATM, buy 300
-            lower). Exits: 75% decay, RSI &lt; 50, or 3 days before expiry. Paper by default; in Live mode new spreads place real Dhan MARKET
-            orders (MARGIN, hedge bought first, short bought back first) -- see docs/strategies/define-turtle.md.
+            lower). Exits: 75% decay, RSI &lt; 50, or 3 days before expiry. Paper by default; in Live mode new spreads place real MARKET orders
+            on the broker set on the server (Dhan MARGIN or Angel One CARRYFORWARD; hedge bought first, short bought back first) -- see docs/strategies/define-turtle.md.
           </p>
         </div>
         <div className="toolbar" style={{ alignItems: "center" }}>
@@ -131,7 +131,7 @@ export default function DefineTurtlePage() {
             className={`status-live ${liveNow ? "" : "on"}`}
             style={{ whiteSpace: "nowrap", ...(liveNow ? { background: "#fde8e8", color: "var(--red)", borderColor: "var(--red)" } : {}) }}
           >
-            {liveNow ? "LIVE ORDERS" : "PAPER"}
+            {liveNow ? `LIVE ORDERS · ${config?.broker === "angel" ? "Angel One" : "Dhan"}` : "PAPER"}
           </span>
           <span className={`status-live ${config?.enabled ? "on" : ""}`} style={{ whiteSpace: "nowrap" }}>
             {config?.enabled ? "Auto entry on" : "Auto entry paused"}
@@ -507,7 +507,7 @@ function TradesTable({ trades }: { trades: TurtleTrade[] }) {
             <tr key={t.id}>
               <td>{t.id}</td>
               <td>{ist(t.entryTime)}</td>
-              <td style={t.mode === "live" ? { color: "var(--red)", fontWeight: 600 } : undefined}>{t.mode === "live" ? "LIVE" : "paper"}</td>
+              <td style={t.mode === "live" ? { color: "var(--red)", fontWeight: 600 } : undefined}>{t.mode === "live" ? `LIVE · ${t.broker === "angel" ? "Angel" : "Dhan"}` : "paper"}</td>
               <td>
                 {t.trigger}
                 {t.signalRsi ? ` (RSI ${num(t.signalRsi, 1)})` : ""}
@@ -617,17 +617,17 @@ function SettingsSection({ config, onSaved }: { config: TurtleConfig | null; onS
           type="button"
           className={`button ${config.mode === "live" ? "" : "secondary"}`}
           onClick={() => {
-            if (window.confirm(`Switch Define Turtle to LIVE: the next signal will place real Dhan market orders for ${config.lots} lots (${config.lots * config.lotSize} qty per leg). Spreads already open stay paper. Continue?`)) save({ mode: "live" });
+            if (window.confirm(`Switch Define Turtle to LIVE: the next signal will place real ${config.broker === "angel" ? "Angel One" : "Dhan"} market orders for ${config.lots} lots (${config.lots * config.lotSize} qty per leg). Spreads already open stay paper. Continue?`)) save({ mode: "live" });
           }}
           disabled={saving || !config.liveOrdersAllowed}
-          title={config.liveOrdersAllowed ? "" : "Set TURTLE_LIVE_ORDER_ENABLED=true (and LIVE_ORDER_ENABLED=true) on the server first"}
+          title={config.liveOrdersAllowed ? "" : "Set TURTLE_LIVE_ORDER_ENABLED=true (and LIVE_ORDER_ENABLED=true, plus the ANGEL_* keys for Angel One) on the server first"}
         >
           Live
         </button>
         <span className="pcr-oi-caption">
           {config.liveOrdersAllowed
-            ? `Live orders are allowed on the server -- MARGIN (overnight) market orders, ${config.lots} lots.`
-            : "Live orders are switched off on the server (TURTLE_LIVE_ORDER_ENABLED)."}
+            ? `Live orders go to ${config.broker === "angel" ? "Angel One (CARRYFORWARD)" : "Dhan (MARGIN)"} -- overnight market orders, ${config.lots} lots (${config.lots * config.lotSize} qty per leg). Market data stays on Dhan.`
+            : `Live orders are switched off on the server (TURTLE_LIVE_ORDER_ENABLED${config.broker === "angel" ? ", or the ANGEL_* keys are missing" : ""}). Broker: ${config.broker === "angel" ? "Angel One" : "Dhan"}.`}
         </span>
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(190px, 1fr))", gap: 12 }}>

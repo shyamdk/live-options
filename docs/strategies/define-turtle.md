@@ -91,7 +91,12 @@ Strike Back. (Live orders: see below.)
 Paper by default. Real Dhan orders need `TURTLE_LIVE_ORDER_ENABLED=true` and
 `LIVE_ORDER_ENABLED=true` on the server **and** the page's mode set to Live.
 
-- Product MARGIN (NRML) -- spreads are held overnight. MARKET orders, `lots` from
+- Broker: `TURTLE_LIVE_BROKER=dhan` (default, product MARGIN) or `angel` (Angel One,
+  product CARRYFORWARD; needs `ANGEL_API_KEY`, `ANGEL_CLIENT_ID`, `ANGEL_PIN`,
+  `ANGEL_TOTP_SECRET`). Angel symbols come from its public scrip master; the token
+  must equal Dhan's security id or the order is refused. Market data stays on Dhan.
+  Each trade records its broker, so exits go to the account that opened it.
+- Spreads are held overnight (MARGIN / CARRYFORWARD = NRML). MARKET orders, `lots` from
   capital / capital per lot (6 lots = 390 qty per leg, under the 1,800 freeze).
 - Entry: BUY the hedge put first, then SELL the ATM put. If the short sell fails,
   the hedge is sold straight back and an alarm is raised.

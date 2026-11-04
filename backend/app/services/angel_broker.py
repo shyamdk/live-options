@@ -1,14 +1,18 @@
-"""Angel One SmartAPI client -- only what Equity-Swing needs for live orders:
-login (client id + PIN + TOTP), CNC market orders, order status, funds and
-holdings. Paper trading never calls this.
+"""Angel One SmartAPI client: login (client id + PIN + TOTP), CNC equity market
+orders (Equity-Swing), NFO option market orders (Define Turtle), order status,
+funds and holdings. Paper trading never calls this.
 
 NSE equity symbol tokens are NSE's own tokens, the same ids Dhan uses as
 security ids (RELIANCE = 2885 on both).
+NFO option tokens are NSE's too (NIFTY 17 Nov 2026 23900 PE = 45317 on both);
+the trading symbol (NIFTY17NOV2623900PE) comes from Angel's public scrip master,
+downloaded once a day.
 """
 
 from __future__ import annotations
 
 import time
+from datetime import date
 from typing import Any
 
 import httpx
@@ -16,7 +20,9 @@ import httpx
 from app.core.config import Settings, get_settings
 
 BASE = "https://apiconnect.angelone.in"
+SCRIP_MASTER = "https://margincalculator.angelbroking.com/OpenAPI_File/files/OpenAPIScripMaster.json"
 _session: dict[str, Any] = {"jwt": None, "at": 0.0}
+_nifty_options: dict[str, Any] = {"day": None, "map": {}}
 
 
 class AngelError(RuntimeError):
@@ -27,6 +33,23 @@ def _totp(secret: str) -> str:
     import pyotp
 
     return pyotp.TOTP(secret).now()
+
+
+async def nifty_option(expiry: date, strike: float, side: str) -> tuple[str, str]:
+    """(trading symbol, token) of a NIFTY index option from Angel's scrip master."""
+    today = date.today().isoformat()
+    if _nifty_options["day"] != today or not _nifty_options["map"]:
+        async with httpx.AsyncClient(timeout=120) as client:
+            rows = (await client.get(SCRIP_MASTER)).json()
+        mapping = {}
+        for r in rows:
+            if r.get("exch_seg") == "NFO" and r.get("name") == "NIFTY" and r.get("instrumenttype") == "OPTIDX":
+                mapping[(r["expiry"].upper(), round(float(r["strike"]) / 100, 2), r["symbol"][-2:])] = (r["symbol"], str(r["token"]))
+        _nifty_options.update(day=today, map=mapping)
+    key = (expiry.strftime("%d%b%Y").upper(), round(float(strike), 2), side.upper())
+    if key not in _nifty_options["map"]:
+        raise AngelError(f"NIFTY {expiry} {strike:g} {side} not in Angel's scrip master")
+    return _nifty_options["map"][key]
 
 
 class AngelBroker:
@@ -76,6 +99,16 @@ class AngelBroker:
         data = await self._call("POST", "/rest/secure/angelbroking/order/v1/placeOrder", {
             "variety": "NORMAL", "tradingsymbol": f"{symbol}-EQ", "symboltoken": str(token), "transactiontype": side,
             "exchange": "NSE", "ordertype": "MARKET", "producttype": "DELIVERY", "duration": "DAY", "quantity": str(int(qty)),
+            "ordertag": tag[:20],
+        })
+        return str(data["orderid"])
+
+    async def place_option_market_order(self, *, symbol: str, token: str, side: str, qty: int, tag: str,
+                                        product: str = "CARRYFORWARD") -> str:
+        """NFO market order; CARRYFORWARD = NRML (held overnight)."""
+        data = await self._call("POST", "/rest/secure/angelbroking/order/v1/placeOrder", {
+            "variety": "NORMAL", "tradingsymbol": symbol, "symboltoken": str(token), "transactiontype": side,
+            "exchange": "NFO", "ordertype": "MARKET", "producttype": product, "duration": "DAY", "quantity": str(int(qty)),
             "ordertag": tag[:20],
         })
         return str(data["orderid"])
