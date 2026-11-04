@@ -23,10 +23,7 @@ async def config() -> dict[str, Any]:
 
 @router.put("/config", dependencies=[Depends(require_auth)])
 async def update_config(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
-    try:
-        return turtle.update_config(body)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return turtle.update_config(body)
 
 
 @router.get("/trades", dependencies=[Depends(require_auth)])

@@ -337,16 +337,13 @@ class Settings(BaseSettings):
     melting_live_order_product_type: str = "INTRADAY"
 
     # Define Turtle (docs/strategies/define-turtle.md): NIFTY P&F RSI + Turtle Follow-Through
-    # -> next-week put credit spread. Paper by default; real Dhan orders need BOTH
-    # turtle_live_order_enabled (env kill switch) AND the page's mode set to live,
-    # plus the global live_order_enabled switch (orders.py). Positions are held
-    # overnight, so the product type is MARGIN (NRML), never INTRADAY.
+    # -> next-week put credit spread. Paper only.
     turtle_monitor_enabled: bool = True
-    turtle_live_order_enabled: bool = False
-    turtle_live_order_product_type: str = "MARGIN"
-    # which account live Define Turtle orders go to: "dhan" or "angel" (Angel One,
-    # CARRYFORWARD product; needs the ANGEL_* credentials below). Market data stays on Dhan.
-    turtle_live_broker: str = "dhan"
+    # Define Turtle A1: same rules, own trades; paper or live on Angel One (CARRYFORWARD).
+    # Live needs turtle_a1_live_order_enabled AND live_order_enabled AND the ANGEL_*
+    # credentials AND the page's mode set to live. Market data stays on Dhan.
+    turtle_a1_monitor_enabled: bool = True
+    turtle_a1_live_order_enabled: bool = False
 
     # Batman (docs/sources/batman-option-strategy-guide.pdf): NIFTY 1:3:2 double ratio
     # spread, monthly per the rulebook + a weekly variant. Paper only.

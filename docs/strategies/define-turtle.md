@@ -86,23 +86,26 @@ No other stop (decision 6). Every entry/exit is also sent to Telegram.
 Bearish call spreads (40–50% booking), Bank Nifty / Sensex / MidSelect, Renko strategies,
 Strike Back. (Live orders: see below.)
 
-## Live orders (Nov 2026)
+## Define Turtle A1 -- paper + live on Angel One (Nov 2026)
 
-Paper by default. Real Dhan orders need `TURTLE_LIVE_ORDER_ENABLED=true` and
-`LIVE_ORDER_ENABLED=true` on the server **and** the page's mode set to Live.
+The Define Turtle page stays paper (Dhan data). The **Define Turtle A1** page
+(`app/services/turtle_a1.py`, `turtle_a1_*` tables) runs the same rules with its
+own trades, settings and alarms, so a spread open on the paper page does not
+block it. Defaults to 2 lots (capital Rs 3L). Market data comes from Dhan; live
+orders go to Angel One.
 
-- Broker: `TURTLE_LIVE_BROKER=dhan` (default, product MARGIN) or `angel` (Angel One,
-  product CARRYFORWARD; needs `ANGEL_API_KEY`, `ANGEL_CLIENT_ID`, `ANGEL_PIN`,
-  `ANGEL_TOTP_SECRET`). Angel symbols come from its public scrip master; the token
-  must equal Dhan's security id or the order is refused. Market data stays on Dhan.
-  Each trade records its broker, so exits go to the account that opened it.
-- Spreads are held overnight (MARGIN / CARRYFORWARD = NRML). MARKET orders, `lots` from
-  capital / capital per lot (6 lots = 390 qty per leg, under the 1,800 freeze).
+Real orders need `TURTLE_A1_LIVE_ORDER_ENABLED=true`, `LIVE_ORDER_ENABLED=true`
+and `ANGEL_API_KEY`, `ANGEL_CLIENT_ID`, `ANGEL_PIN`, `ANGEL_TOTP_SECRET` on the
+server **and** the A1 page's mode set to Live.
+
+- Angel One NFO MARKET orders, product CARRYFORWARD (NRML) -- held overnight.
+  Symbols come from Angel's public scrip master; the token must equal Dhan's
+  security id or the order is refused.
 - Entry: BUY the hedge put first, then SELL the ATM put. If the short sell fails,
   the hedge is sold straight back and an alarm is raised.
 - Exit: BUY the short put back first, then SELL the hedge. If a leg fails, the
   trade stays OPEN with `needs_attention`, an alarm and Telegram fire, and the
   remaining leg is retried every minute. CLOSED only when both legs are out.
-- Each trade records its own mode: spreads opened in paper stay paper.
-- Recorded entry/exit prices are Dhan's average traded prices (quote if Dhan
-  has not confirmed the fill within ~8 s).
+- Each trade records its own mode and broker: spreads opened in paper stay paper.
+- Recorded prices are Angel's average fill price (the quote if Angel has not
+  confirmed the fill within ~10 s).

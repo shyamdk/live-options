@@ -56,6 +56,7 @@ const navItems = [
   { href: "/calm-strangle-or", label: "Calm Strangle - OR", short: "CO", icon: Waves },
   { href: "/batman", label: "Batman", short: "BM", icon: Moon },
   { href: "/define-turtle", label: "Define Turtle", short: "DT", icon: Turtle },
+  { href: "/define-turtle-a1", label: "Define Turtle A1", short: "A1", icon: Turtle },
   { href: "/mantra-theta-gainers", label: "Mantra - Theta Gainers", short: "MT", icon: InfinityIcon },
   { href: "/melting-straddles", label: "Melting Straddles", short: "MS", icon: Droplets },
   { href: "/melting-straddles-gap", label: "Melting Straddles - Gap", short: "MG", icon: Droplets },

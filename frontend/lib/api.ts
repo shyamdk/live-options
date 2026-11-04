@@ -766,6 +766,35 @@ export async function acknowledgeTurtleAlarm(id: number): Promise<{ status: stri
   return apiJson(`/api/define-turtle/alarms/${id}/ack`, { method: "POST" }, "Failed to acknowledge alarm");
 }
 
+// Define Turtle A1 (paper + live on Angel One)
+export async function getTurtleA1State(): Promise<TurtleState> {
+  return apiJson<TurtleState>("/api/define-turtle-a1/state", undefined, "Failed to load Define Turtle A1");
+}
+
+export async function getTurtleA1Trades(): Promise<{ trades: TurtleTrade[] }> {
+  return apiJson<{ trades: TurtleTrade[] }>("/api/define-turtle-a1/trades", undefined, "Failed to load Define Turtle A1 trades");
+}
+
+export async function updateTurtleA1Config(updates: Partial<TurtleConfig>): Promise<TurtleConfig> {
+  return apiJson<TurtleConfig>("/api/define-turtle-a1/config", { method: "PUT", body: JSON.stringify(updates) }, "Failed to save settings");
+}
+
+export async function enterTurtleA1Now(): Promise<{ status: string; message?: string; trade?: TurtleTrade }> {
+  return apiJson("/api/define-turtle-a1/enter", { method: "POST" }, "Entry failed");
+}
+
+export async function closeTurtleA1Trade(id: number): Promise<{ status: string; message?: string }> {
+  return apiJson(`/api/define-turtle-a1/trades/${id}/close`, { method: "POST" }, "Close failed");
+}
+
+export async function getTurtleA1Alarms(): Promise<{ alarms: TurtleAlarm[] }> {
+  return apiJson<{ alarms: TurtleAlarm[] }>("/api/define-turtle-a1/alarms", undefined, "Failed to load alarms");
+}
+
+export async function acknowledgeTurtleA1Alarm(id: number): Promise<{ status: string }> {
+  return apiJson(`/api/define-turtle-a1/alarms/${id}/ack`, { method: "POST" }, "Failed to acknowledge alarm");
+}
+
 export async function getMantraConfig(mode: MantraMode): Promise<MantraConfig> {
   return apiJson<MantraConfig>(`/api/mantra/${mode}/config`, undefined, "Failed to load Mantra settings");
 }

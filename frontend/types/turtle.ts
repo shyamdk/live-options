@@ -1,8 +1,8 @@
 export interface TurtleConfig {
   enabled: boolean;
-  mode: "paper" | "live";
-  liveOrdersAllowed: boolean;
-  broker: "dhan" | "angel";
+  mode?: "paper" | "live"; // Define Turtle A1 only
+  liveOrdersAllowed?: boolean;
+  broker?: "dhan" | "angel";
   capital: number;
   capitalPerLot: number;
   boxPercent: number;
@@ -70,7 +70,7 @@ export interface TurtleTrade {
   grossPnl: number;
   charges: number;
   netPnl: number;
-  mode: "paper" | "live";
+  mode?: "paper" | "live";
   shortOrderId?: string | null;
   longOrderId?: string | null;
   needsAttention?: string | null;
