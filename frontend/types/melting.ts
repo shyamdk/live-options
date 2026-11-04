@@ -28,6 +28,8 @@ export interface MeltingConfig {
   anchorLookback: number;
   tallMultiple: number;
   signalMaxAgeMinutes: number;
+  gapFilter?: boolean; // Melting Straddles - Gap only
+  gapPercent?: number;
   NIFTY: MeltingIndexConfig;
   SENSEX: MeltingIndexConfig;
   liveOrdersAllowed: boolean;
@@ -47,6 +49,7 @@ export interface MeltingDay {
   stops: number;
   brakedAt: number | null;
   brakeReason: string | null;
+  gapPercent?: number | null; // Melting Straddles - Gap only
 }
 
 export interface MeltingQuote {

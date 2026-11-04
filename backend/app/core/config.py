@@ -331,6 +331,8 @@ class Settings(BaseSettings):
     # (env kill switch) AND the page's mode set to live, plus the global
     # live_order_enabled switch (orders.py).
     melting_monitor_enabled: bool = True
+    # Melting Straddles - Gap (gap filter), paper only
+    melting_gap_monitor_enabled: bool = True
     melting_live_order_enabled: bool = False
     melting_live_order_product_type: str = "INTRADAY"
 

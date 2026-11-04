@@ -834,6 +834,39 @@ export async function getMeltingDays(): Promise<{ days: MeltingDaySummary[] }> {
   return apiJson<{ days: MeltingDaySummary[] }>("/api/melting/days", undefined, "Failed to load daily P&L");
 }
 
+// Melting Straddles - Gap (gap filter, paper only)
+export async function getMeltingGapState(): Promise<MeltingState> {
+  return apiJson<MeltingState>("/api/melting-gap/state", undefined, "Failed to load Melting Straddles - Gap");
+}
+
+export async function updateMeltingGapConfig(updates: Record<string, unknown>): Promise<MeltingConfig> {
+  return apiJson<MeltingConfig>("/api/melting-gap/config", { method: "PUT", body: JSON.stringify(updates) }, "Failed to save Melting Straddles - Gap settings");
+}
+
+export async function getMeltingGapTrades(): Promise<{ trades: MeltingTrade[] }> {
+  return apiJson<{ trades: MeltingTrade[] }>("/api/melting-gap/trades", undefined, "Failed to load Melting Straddles - Gap trades");
+}
+
+export async function getMeltingGapTrade(id: number): Promise<MeltingTrade> {
+  return apiJson<MeltingTrade>(`/api/melting-gap/trades/${id}`, undefined, "Failed to load the trade");
+}
+
+export async function closeMeltingGapTrade(id: number): Promise<{ status: string; message?: string }> {
+  return apiJson(`/api/melting-gap/trades/${id}/close`, { method: "POST" }, "Failed to close the straddle");
+}
+
+export async function squareOffMeltingGap(): Promise<{ status: string; closed: number }> {
+  return apiJson("/api/melting-gap/square-off", { method: "POST" }, "Square-off failed");
+}
+
+export async function enterMeltingGapNow(tag: MeltingTag): Promise<{ status: string; message?: string; tradeId?: number }> {
+  return apiJson(`/api/melting-gap/enter/${tag}`, { method: "POST" }, "Entry failed");
+}
+
+export async function getMeltingGapDays(): Promise<{ days: MeltingDaySummary[] }> {
+  return apiJson<{ days: MeltingDaySummary[] }>("/api/melting-gap/days", undefined, "Failed to load daily P&L");
+}
+
 export async function getNiftyStranglePlan(): Promise<NiftyStranglePlan> {
   return apiJson<NiftyStranglePlan>("/api/nifty-strangle/plan", undefined, "Failed to load the NIFTY Strangle plan");
 }

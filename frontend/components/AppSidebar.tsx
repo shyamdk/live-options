@@ -58,6 +58,7 @@ const navItems = [
   { href: "/define-turtle", label: "Define Turtle", short: "DT", icon: Turtle },
   { href: "/mantra-theta-gainers", label: "Mantra - Theta Gainers", short: "MT", icon: InfinityIcon },
   { href: "/melting-straddles", label: "Melting Straddles", short: "MS", icon: Droplets },
+  { href: "/melting-straddles-gap", label: "Melting Straddles - Gap", short: "MG", icon: Droplets },
 ];
 
 const STORAGE_KEY = "live-options-sidebar-collapsed";
