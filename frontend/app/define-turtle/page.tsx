@@ -169,7 +169,7 @@ export default function DefineTurtlePage() {
       </CollapsibleSection>
 
       <CollapsibleSection id="turtle-pnl" title="Daily P&L">
-        <DailyTotalsTable rows={groupDailyTotals(closed, (t) => t.exitTime, (t) => t.grossPnl, (t) => t.netPnl)} />
+        <DailyTotalsTable rows={groupDailyTotals(closed, (t) => t.exitTime, (t) => t.grossPnl, (t) => t.netPnl)} cumulative />
       </CollapsibleSection>
 
       <CollapsibleSection id="turtle-trades" title={`All trades (${trades.length})`} defaultOpen={false}>
@@ -449,8 +449,20 @@ function OpenSpread({ trade, config, busy, onClose }: { trade: TurtleTrade; conf
   );
 }
 
+/** Running total of net P&L over closed trades, oldest first: trade id -> cumulative net. */
+function cumulativeNet(trades: { id: number; status: string; entryTime: number; netPnl: number }[]): Map<number, number> {
+  const out = new Map<number, number>();
+  let total = 0;
+  for (const t of [...trades].filter((x) => x.status === "CLOSED").sort((a, b) => a.entryTime - b.entryTime || a.id - b.id)) {
+    total += t.netPnl;
+    out.set(t.id, total);
+  }
+  return out;
+}
+
 function TradesTable({ trades }: { trades: TurtleTrade[] }) {
   if (!trades.length) return <p className="pcr-oi-caption" style={{ margin: 0 }}>No trades yet.</p>;
+  const cum = cumulativeNet(trades);
   return (
     <div style={{ overflowX: "auto" }}>
       <table>
@@ -467,6 +479,7 @@ function TradesTable({ trades }: { trades: TurtleTrade[] }) {
             <th>Gross</th>
             <th>Charges</th>
             <th>Net</th>
+            <th>Cumulative net</th>
           </tr>
         </thead>
         <tbody>
@@ -492,6 +505,7 @@ function TradesTable({ trades }: { trades: TurtleTrade[] }) {
               <td style={{ color: tone(t.netPnl) }}>
                 <strong>{inr(t.netPnl)}</strong>
               </td>
+              <td style={{ color: tone(cum.get(t.id)) }}>{cum.has(t.id) ? inr(cum.get(t.id)) : "—"}</td>
             </tr>
           ))}
         </tbody>

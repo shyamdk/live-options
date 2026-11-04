@@ -70,13 +70,25 @@ export function DailyTotalsTable({
   rows,
   label = "Day",
   formatAmount = fmtInrSigned,
+  cumulative = false,
 }: {
   rows: DailyTotalRow[];
   label?: string;
   formatAmount?: (value: number) => string;
+  /** Add a running total of net P&L (oldest day first), shown on each day's row. */
+  cumulative?: boolean;
 }) {
   if (rows.length === 0) return null;
   const hasAnyNet = rows.some((r) => r.net !== null);
+  const runningNet = new Map<string, number>();
+  if (cumulative && hasAnyNet) {
+    let total = 0;
+    for (const r of [...rows].sort((a, b) => (a.dateKey < b.dateKey ? -1 : 1))) {
+      total += r.net ?? 0;
+      runningNet.set(r.dateKey, total);
+    }
+  }
+  const showCumulative = runningNet.size > 0;
   return (
     <div style={{ overflowX: "auto", margin: "8px 0 16px" }}>
       <table>
@@ -86,6 +98,7 @@ export function DailyTotalsTable({
             <th>Trades</th>
             <th>Gross P&amp;L</th>
             {hasAnyNet ? <th>Net P&amp;L</th> : null}
+            {showCumulative ? <th>Cumulative net</th> : null}
           </tr>
         </thead>
         <tbody>
@@ -97,6 +110,11 @@ export function DailyTotalsTable({
               {hasAnyNet ? (
                 <td style={{ color: (r.net ?? 0) >= 0 ? "var(--green)" : "var(--red)" }}>
                   {r.net !== null ? formatAmount(r.net) : <span className="pcr-oi-caption">—</span>}
+                </td>
+              ) : null}
+              {showCumulative ? (
+                <td style={{ color: (runningNet.get(r.dateKey) ?? 0) >= 0 ? "var(--green)" : "var(--red)", fontWeight: 600 }}>
+                  {formatAmount(runningNet.get(r.dateKey) ?? 0)}
                 </td>
               ) : null}
             </tr>

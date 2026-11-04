@@ -179,7 +179,7 @@ export default function CalmStranglePage() {
       </CollapsibleSection>
 
       <CollapsibleSection id="calm-pnl" title="Daily P&L">
-        <DailyTotalsTable rows={groupDailyTotals(closed, (t) => t.exitTime, (t) => t.grossPnl, (t) => t.netPnl)} />
+        <DailyTotalsTable rows={groupDailyTotals(closed, (t) => t.exitTime, (t) => t.grossPnl, (t) => t.netPnl)} cumulative />
         <BacktestReference trades={closed} />
       </CollapsibleSection>
 
@@ -323,12 +323,24 @@ function OpenPosition({ trade: t, busy, onClose }: { trade: CalmTradeDetail; bus
   );
 }
 
+/** Running total of net P&L over closed trades, oldest first: trade id -> cumulative net. */
+function cumulativeNet(trades: { id: number; status: string; entryTime: number; netPnl: number }[]): Map<number, number> {
+  const out = new Map<number, number>();
+  let total = 0;
+  for (const t of [...trades].filter((x) => x.status === "CLOSED").sort((a, b) => a.entryTime - b.entryTime || a.id - b.id)) {
+    total += t.netPnl;
+    out.set(t.id, total);
+  }
+  return out;
+}
+
 function TradesTable({ trades, showDay = false }: { trades: CalmTrade[]; showDay?: boolean }) {
   const [open, setOpen] = useState<number | null>(null);
   if (!trades.length) return <p className="pcr-oi-caption" style={{ margin: 0 }}>No trades yet.</p>;
   const net = trades.reduce((a, t) => a + t.netPnl, 0);
   const wins = trades.filter((t) => t.status === "CLOSED" && t.netPnl > 0).length;
   const closedN = trades.filter((t) => t.status === "CLOSED").length;
+  const cum = cumulativeNet(trades);
   return (
     <div style={{ overflowX: "auto", width: 0, minWidth: "100%" }}>
       <p className="pcr-oi-caption" style={{ marginTop: 0 }}>
@@ -354,6 +366,7 @@ function TradesTable({ trades, showDay = false }: { trades: CalmTrade[]; showDay
             <th>Gross</th>
             <th>Charges</th>
             <th>Net</th>
+            <th>Cumulative net</th>
           </tr>
         </thead>
         <tbody>
@@ -382,10 +395,11 @@ function TradesTable({ trades, showDay = false }: { trades: CalmTrade[]; showDay
                 <td style={{ color: tone(t.netPnl) }}>
                   <strong>{inr(t.netPnl)}</strong>
                 </td>
+                <td style={{ color: tone(cum.get(t.id)) }}>{cum.has(t.id) ? inr(cum.get(t.id)) : "—"}</td>
               </tr>
               {open === t.id ? (
                 <tr>
-                  <td colSpan={showDay ? 16 : 15} style={{ background: "var(--panel)" }}>
+                  <td colSpan={showDay ? 17 : 16} style={{ background: "var(--panel)" }}>
                     <div className="pcr-oi-caption" style={{ fontStyle: "normal" }}>
                       {(["PE", "CE"] as const).map((s) => (
                         <div key={s}>
