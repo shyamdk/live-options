@@ -355,7 +355,7 @@ class Settings(BaseSettings):
     # btc_strangle_live_order_enabled (env kill switch) AND the page's mode
     # set to live. Every value below except the kill switch is only a
     # bootstrap default -- the page's settings (DB) override them.
-    btc_strangle_monitor_enabled: bool = True
+    btc_strangle_monitor_enabled: bool = False  # archived Nov 2026
     btc_strangle_live_order_enabled: bool = False
     btc_strangle_poll_interval_seconds: int = 15
     btc_strangle_entry_time: str = "22:30"

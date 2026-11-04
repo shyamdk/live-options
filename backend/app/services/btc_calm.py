@@ -360,6 +360,8 @@ async def _monitor() -> None:
     now = datetime.now(IST)
     now_epoch = int(time.time())
     open_trades = db.list_btc_calm_trades(status="OPEN")
+    if not open_trades and not config["enabled"]:
+        return  # auto entry off and nothing to manage (archived Nov 2026) -- no Delta calls
     minute = (now_epoch // 60) * 60 - 60
     fresh_minute = minute > int(_runtime.get("minute") or 0)
     if not open_trades and not fresh_minute:

@@ -2,10 +2,8 @@
 
 import {
   Compass,
-  Bitcoin,
   BookOpenText,
   Moon,
-  MoonStar,
   Infinity as InfinityIcon,
   BellRing,
   Droplets,
@@ -20,7 +18,6 @@ import {
   RadioTower,
   Shapes,
   WalletCards,
-  Waypoints,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -32,7 +29,10 @@ import { useEffect, useState } from "react";
 //    exist and run (see .env's *_MONITOR_ENABLED flags; OI Analysis has none
 //    of its own, since its pcr_oi feed is shared with OI Upgraded/OI
 //    Improvements, which stay active). Re-add the entry + flip the flag to
-//    unarchive.
+//    unarchive. Also Simple Cross Over, BTC Strangle and BTC Calm Strangle
+//    (Nov 2026: no edge in backtests or paper) -- their monitors are off
+//    (SIMPLE_CROSSOVER_MONITOR_ENABLED / btc_strangle_monitor_enabled default;
+//    BTC Calm's auto entry is off, so its monitor idles); pages keep the history.
 // 2. Crypto-Swing, pStrategy, Nifty-Swing, pStrategy-Nifty, PE-CE Crossover:
 //    physically moved to /archive at the repo root -- no page, no route, no
 //    background monitor exists in the running app at all. Unarchiving means
@@ -47,10 +47,7 @@ const navItems = [
   { href: "/disha", label: "Disha - NM", short: "DI", icon: Compass },
   { href: "/oi-upgraded", label: "OI - Upgraded", short: "OU", icon: RadioTower },
   { href: "/oi-improvements", label: "OI Improvements", short: "IM", icon: Lightbulb },
-  { href: "/simple-crossover", label: "Simple Cross Over", short: "SC", icon: Waypoints },
   { href: "/varaha", label: "Varaha", short: "VA", icon: Shapes },
-  { href: "/btc-strangle", label: "BTC Strangle", short: "BS", icon: Bitcoin },
-  { href: "/btc-calm-strangle", label: "BTC Calm Strangle", short: "BC", icon: MoonStar },
   { href: "/nifty-strangle", label: "NIFTY Strangle", short: "NS", icon: Spline },
   { href: "/calm-strangle", label: "Calm Strangle", short: "CS", icon: Waves },
   { href: "/calm-strangle-or", label: "Calm Strangle - OR", short: "CO", icon: Waves },
