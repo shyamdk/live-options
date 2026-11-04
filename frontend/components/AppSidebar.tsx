@@ -53,6 +53,7 @@ const navItems = [
   { href: "/btc-calm-strangle", label: "BTC Calm Strangle", short: "BC", icon: MoonStar },
   { href: "/nifty-strangle", label: "NIFTY Strangle", short: "NS", icon: Spline },
   { href: "/calm-strangle", label: "Calm Strangle", short: "CS", icon: Waves },
+  { href: "/calm-strangle-or", label: "Calm Strangle - OR", short: "CO", icon: Waves },
   { href: "/batman", label: "Batman", short: "BM", icon: Moon },
   { href: "/define-turtle", label: "Define Turtle", short: "DT", icon: Turtle },
   { href: "/mantra-theta-gainers", label: "Mantra - Theta Gainers", short: "MT", icon: InfinityIcon },

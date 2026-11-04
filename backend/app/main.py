@@ -17,6 +17,7 @@ from app.api.mantra import router as mantra_router
 from app.api.melting import router as melting_router
 from app.api.nifty_strangle import router as nifty_strangle_router
 from app.api.calm_strangle import router as calm_strangle_router
+from app.api.calm_or import router as calm_or_router
 from app.api.disha import router as disha_router
 from app.api.btc_calm import router as btc_calm_router
 from app.api.varaha_paper import router as varaha_paper_router
@@ -53,6 +54,7 @@ from app.services.mantra import start_mantra_task, stop_mantra_task
 from app.services.melting import start_melting_task, stop_melting_task
 from app.services.nifty_strangle import start_nifty_strangle_task, stop_nifty_strangle_task
 from app.services.calm_strangle import start_calm_strangle_task, stop_calm_strangle_task
+from app.services.calm_or import start_calm_or_task, stop_calm_or_task
 from app.services.btc_calm import start_btc_calm_task, stop_btc_calm_task
 from app.services.varaha_paper import start_varaha_paper_task, stop_varaha_paper_task
 from app.services.alerts import start_alerts_task, stop_alerts_task
@@ -93,6 +95,7 @@ mantra_task = None
 melting_task = None
 nifty_strangle_task = None
 calm_strangle_task = None
+calm_or_task = None
 btc_calm_task = None
 varaha_paper_task = None
 alerts_task = None
@@ -110,7 +113,7 @@ app.add_middleware(
 
 @app.on_event("startup")
 async def startup() -> None:
-    global risk_order_monitor_task, spot_distance_monitor_task, gamma_blast_task, journal_insights_task, ema5_task, animesh_task, credit_spread_task, theta_task, market_news_task, market_calendar_task, pcr_oi_task, paper_trading_task, oi_upgraded_task, simple_crossover_task, varaha_task, btc_strangle_task, batman_task, turtle_task, mantra_task, melting_task, nifty_strangle_task, calm_strangle_task, btc_calm_task, varaha_paper_task, alerts_task, equity_swing_task, dhan_health_task
+    global risk_order_monitor_task, spot_distance_monitor_task, gamma_blast_task, journal_insights_task, ema5_task, animesh_task, credit_spread_task, theta_task, market_news_task, market_calendar_task, pcr_oi_task, paper_trading_task, oi_upgraded_task, simple_crossover_task, varaha_task, btc_strangle_task, batman_task, turtle_task, mantra_task, melting_task, nifty_strangle_task, calm_strangle_task, calm_or_task, btc_calm_task, varaha_paper_task, alerts_task, equity_swing_task, dhan_health_task
     init_db()
     spot_distance_monitor_task = start_spot_distance_monitor_task()
     risk_order_monitor_task = start_risk_order_monitor_task()
@@ -134,6 +137,7 @@ async def startup() -> None:
     melting_task = start_melting_task()
     nifty_strangle_task = start_nifty_strangle_task()
     calm_strangle_task = start_calm_strangle_task()
+    calm_or_task = start_calm_or_task()
     btc_calm_task = start_btc_calm_task()
     varaha_paper_task = start_varaha_paper_task()
     alerts_task = start_alerts_task()
@@ -165,6 +169,7 @@ async def shutdown() -> None:
     await stop_melting_task(melting_task)
     await stop_nifty_strangle_task(nifty_strangle_task)
     await stop_calm_strangle_task(calm_strangle_task)
+    await stop_calm_or_task(calm_or_task)
     await stop_btc_calm_task(btc_calm_task)
     await stop_varaha_paper_task(varaha_paper_task)
     await stop_alerts_task(alerts_task)
@@ -196,6 +201,7 @@ app.include_router(mantra_router, prefix=settings.api_prefix)
 app.include_router(melting_router, prefix=settings.api_prefix)
 app.include_router(nifty_strangle_router, prefix=settings.api_prefix)
 app.include_router(calm_strangle_router, prefix=settings.api_prefix)
+app.include_router(calm_or_router, prefix=settings.api_prefix)
 app.include_router(disha_router, prefix=settings.api_prefix)
 app.include_router(btc_calm_router, prefix=settings.api_prefix)
 app.include_router(varaha_paper_router, prefix=settings.api_prefix)

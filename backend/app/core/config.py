@@ -314,6 +314,8 @@ class Settings(BaseSettings):
     # calm_strangle_live_order_enabled AND page mode live (+ live_order_enabled).
     calm_strangle_monitor_enabled: bool = True
     calm_strangle_live_order_enabled: bool = False
+    # Calm Strangle - OR (opening-range filter), paper only
+    calm_or_monitor_enabled: bool = True
 
     # NIFTY Strangle: BTC Strangle's rules on NIFTY weekly options -- sell an
     # OTM CE + PE at spot +- multiplier x ATM straddle at 15:15 the trading

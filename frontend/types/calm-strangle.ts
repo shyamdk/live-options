@@ -1,4 +1,7 @@
 export interface CalmConfig {
+  /** Calm Strangle - OR only: enter only inside the 09:15-orEnd opening range */
+  orFilter?: boolean;
+  orEnd?: string;
   enabled: boolean;
   mode: "paper" | "live";
   lots: number;
@@ -35,6 +38,11 @@ export interface CalmLegPreview {
 }
 
 export interface CalmSnapshot {
+  /** Calm Strangle - OR only */
+  orHigh?: number | null;
+  orLow?: number | null;
+  orReady?: boolean;
+  insideOr?: boolean;
   error?: string;
   time?: number;
   expiry?: string;

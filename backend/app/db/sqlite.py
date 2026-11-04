@@ -1101,6 +1101,87 @@ def init_db() -> None:
             )
             """
         )
+        # Calm Strangle - OR (opening-range filter): same tables under its own prefix
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS calm_or_trades (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                day TEXT NOT NULL,
+                expiry TEXT NOT NULL,
+                dte INTEGER NOT NULL,
+                mode TEXT NOT NULL,
+                trigger TEXT NOT NULL,
+                entry_time INTEGER NOT NULL,
+                entry_spot REAL NOT NULL,
+                straddle REAL NOT NULL,
+                calm_range REAL,
+                atm_strike REAL NOT NULL,
+                ce_strike REAL NOT NULL,
+                pe_strike REAL NOT NULL,
+                ce_security_id TEXT NOT NULL,
+                pe_security_id TEXT NOT NULL,
+                lots INTEGER NOT NULL,
+                lot_size INTEGER NOT NULL,
+                entry_ce REAL NOT NULL,
+                entry_pe REAL NOT NULL,
+                credit REAL NOT NULL,
+                entry_quotes TEXT,
+                stop_low REAL NOT NULL,
+                stop_high REAL NOT NULL,
+                backstop REAL NOT NULL,
+                status TEXT NOT NULL,
+                exit_time INTEGER,
+                exit_reason TEXT,
+                exit_ce REAL,
+                exit_pe REAL,
+                exit_spot REAL,
+                exit_quotes TEXT,
+                charges REAL NOT NULL DEFAULT 0,
+                last_ce REAL,
+                last_pe REAL,
+                last_spot REAL,
+                last_update INTEGER,
+                best REAL,
+                worst REAL,
+                order_ids TEXT,
+                notes TEXT
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS calm_or_marks (
+                trade_id INTEGER NOT NULL,
+                time INTEGER NOT NULL,
+                combined REAL NOT NULL,
+                spot REAL,
+                PRIMARY KEY (trade_id, time)
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS calm_or_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                day TEXT NOT NULL,
+                trade_id INTEGER,
+                time INTEGER NOT NULL,
+                kind TEXT NOT NULL,
+                text TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS calm_or_settings (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+        _add_column_if_missing(conn, "calm_or_trades", "early_target", "REAL")
+
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS nifty_strangle_trades (
@@ -4639,22 +4720,22 @@ def calm_insert(table: str, values: dict[str, Any]) -> int:
     return _mantra_insert(table, values)
 
 
-def calm_update_trade(trade_id: int, **values: Any) -> None:
-    _mantra_update("calm_strangle_trades", trade_id, values)
+def calm_update_trade(trade_id: int, prefix: str = "calm_strangle", **values: Any) -> None:
+    _mantra_update(f"{prefix}_trades", trade_id, values)
 
 
-def list_calm_trades(*, day: str | None = None, status: str | None = None, limit: int = 1000) -> list[dict[str, Any]]:
+def list_calm_trades(*, day: str | None = None, status: str | None = None, limit: int = 1000, prefix: str = "calm_strangle") -> list[dict[str, Any]]:
     clauses, params = [], []
     if day:
         clauses.append("day = ?"); params.append(day)
     if status:
         clauses.append("status = ?"); params.append(status)
     where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
-    return _melting_rows(f"SELECT * FROM calm_strangle_trades {where} ORDER BY entry_time DESC, id DESC LIMIT ?", (*params, limit))
+    return _melting_rows(f"SELECT * FROM {prefix}_trades {where} ORDER BY entry_time DESC, id DESC LIMIT ?", (*params, limit))
 
 
-def list_calm_events(day: str, limit: int = 300) -> list[dict[str, Any]]:
-    return _melting_rows("SELECT * FROM calm_strangle_events WHERE day = ? ORDER BY time DESC, id DESC LIMIT ?", (day, limit))
+def list_calm_events(day: str, limit: int = 300, prefix: str = "calm_strangle") -> list[dict[str, Any]]:
+    return _melting_rows(f"SELECT * FROM {prefix}_events WHERE day = ? ORDER BY time DESC, id DESC LIMIT ?", (day, limit))
 
 
 def swing_insert(table: str, values: dict[str, Any]) -> int:
@@ -4729,17 +4810,17 @@ def set_manage_setting(key: str, value: str) -> None:
         conn.commit()
 
 
-def get_calm_setting(key: str) -> str | None:
-    rows = _melting_rows("SELECT value FROM calm_strangle_settings WHERE key = ?", (key,))
+def get_calm_setting(key: str, prefix: str = "calm_strangle") -> str | None:
+    rows = _melting_rows(f"SELECT value FROM {prefix}_settings WHERE key = ?", (key,))
     return rows[0]["value"] if rows else None
 
 
-def set_calm_setting(key: str, value: str) -> None:
+def set_calm_setting(key: str, value: str, prefix: str = "calm_strangle") -> None:
     now = datetime.now().isoformat(timespec="seconds")
     with _DB_LOCK, _connect() as conn:
         conn.execute(
-            """
-            INSERT INTO calm_strangle_settings (key, value, updated_at) VALUES (?, ?, ?)
+            f"""
+            INSERT INTO {prefix}_settings (key, value, updated_at) VALUES (?, ?, ?)
             ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
             """,
             (key, value, now),
@@ -4747,19 +4828,19 @@ def set_calm_setting(key: str, value: str) -> None:
         conn.commit()
 
 
-def add_calm_mark(trade_id: int, time_epoch: int, combined: float, spot: float | None) -> None:
+def add_calm_mark(trade_id: int, time_epoch: int, combined: float, spot: float | None, prefix: str = "calm_strangle") -> None:
     with _DB_LOCK, _connect() as conn:
-        conn.execute("INSERT OR REPLACE INTO calm_strangle_marks (trade_id, time, combined, spot) VALUES (?, ?, ?, ?)",
+        conn.execute(f"INSERT OR REPLACE INTO {prefix}_marks (trade_id, time, combined, spot) VALUES (?, ?, ?, ?)",
                      (trade_id, time_epoch, combined, spot))
         conn.commit()
 
 
-def list_calm_marks(trade_id: int) -> list[dict[str, Any]]:
-    return _melting_rows("SELECT time, combined, spot FROM calm_strangle_marks WHERE trade_id = ? ORDER BY time", (trade_id,))
+def list_calm_marks(trade_id: int, prefix: str = "calm_strangle") -> list[dict[str, Any]]:
+    return _melting_rows(f"SELECT time, combined, spot FROM {prefix}_marks WHERE trade_id = ? ORDER BY time", (trade_id,))
 
 
-def get_calm_trade(trade_id: int) -> dict[str, Any] | None:
-    rows = _melting_rows("SELECT * FROM calm_strangle_trades WHERE id = ?", (trade_id,))
+def get_calm_trade(trade_id: int, prefix: str = "calm_strangle") -> dict[str, Any] | None:
+    rows = _melting_rows(f"SELECT * FROM {prefix}_trades WHERE id = ?", (trade_id,))
     return rows[0] if rows else None
 
 

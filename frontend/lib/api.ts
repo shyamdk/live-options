@@ -862,6 +862,30 @@ export async function getNiftyStrangleSpotChart(): Promise<{ candles: { time: nu
   return apiJson("/api/nifty-strangle/spot-chart", undefined, "Failed to load the NIFTY chart");
 }
 
+export async function getCalmOrState(): Promise<CalmState> {
+  return apiJson<CalmState>("/api/calm-strangle-or/state", undefined, "Failed to load Calm Strangle - OR");
+}
+
+export async function updateCalmOrConfig(updates: Partial<CalmConfig>): Promise<CalmConfig> {
+  return apiJson<CalmConfig>("/api/calm-strangle-or/config", { method: "PUT", body: JSON.stringify(updates) }, "Failed to save Calm Strangle - OR settings");
+}
+
+export async function getCalmOrTrades(): Promise<{ trades: CalmTrade[] }> {
+  return apiJson<{ trades: CalmTrade[] }>("/api/calm-strangle-or/trades", undefined, "Failed to load Calm Strangle - OR trades");
+}
+
+export async function enterCalmOrNow(): Promise<{ status: string; message?: string }> {
+  return apiJson("/api/calm-strangle-or/enter", { method: "POST" }, "Calm Strangle - OR entry failed");
+}
+
+export async function closeCalmOrTrade(id: number): Promise<{ status: string; message?: string }> {
+  return apiJson(`/api/calm-strangle-or/trades/${id}/close`, { method: "POST" }, "Failed to close the strangle");
+}
+
+export async function getCalmOrTrade(id: number): Promise<CalmTradeDetail> {
+  return apiJson<CalmTradeDetail>(`/api/calm-strangle-or/trades/${id}`, undefined, "Failed to load the trade");
+}
+
 export async function getDishaState(): Promise<DishaState> {
   return apiJson<DishaState>("/api/disha/state", undefined, "Failed to load Disha");
 }
