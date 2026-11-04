@@ -17,6 +17,7 @@ import {
   updateNiftyStrangleConfig,
 } from "@/lib/api";
 import type { NiftyStrangleConfig, NiftyStranglePlan, NiftyStrangleTrade } from "@/types/nifty-strangle";
+import { cumulativeNet } from "@/lib/cumulative";
 
 const REFRESH_MS = 15000;
 const PLAN_REFRESH_MS = 120000;
@@ -508,6 +509,7 @@ function TradesTable({ trades }: { trades: NiftyStrangleTrade[] }) {
             <th>Gross</th>
             <th>Charges</th>
             <th>Net</th>
+            <th>Cumulative net</th>
             <th>Status</th>
           </tr>
         </thead>
@@ -539,6 +541,7 @@ function TradesTable({ trades }: { trades: NiftyStrangleTrade[] }) {
                 <td style={{ color: tone(t.netPnl) }}>
                   <strong>{inr(t.netPnl)}</strong>
                 </td>
+                <td style={{ color: (cumulativeNet(trades, (x) => x.id, (x) => x.entryTime, (x) => x.netPnl, (x) => String(x.status ?? "closed").toUpperCase() === "CLOSED").get(t.id) ?? 0) >= 0 ? "var(--green)" : "var(--red)" }}>{cumulativeNet(trades, (x) => x.id, (x) => x.entryTime, (x) => x.netPnl, (x) => String(x.status ?? "closed").toUpperCase() === "CLOSED").get(t.id) != null ? inr(cumulativeNet(trades, (x) => x.id, (x) => x.entryTime, (x) => x.netPnl, (x) => String(x.status ?? "closed").toUpperCase() === "CLOSED").get(t.id) as number) : "—"}</td>
                 <td>{t.status}</td>
               </tr>
             );

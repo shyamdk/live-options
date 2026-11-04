@@ -20,6 +20,7 @@ import {
   updateBatmanConfig,
 } from "@/lib/api";
 import type { BatmanAnalysis, BatmanConfig, BatmanMode, BatmanPreview, BatmanTrade } from "@/types/batman";
+import { cumulativeNet } from "@/lib/cumulative";
 
 const REFRESH_MS = 60000;
 const EXIT_LABEL: Record<string, string> = {
@@ -948,6 +949,7 @@ function TradesTable({ trades }: { trades: BatmanTrade[] }) {
             <th>Return</th>
             <th>Charges</th>
             <th>Net</th>
+            <th>Cumulative net</th>
           </tr>
         </thead>
         <tbody>
@@ -972,6 +974,7 @@ function TradesTable({ trades }: { trades: BatmanTrade[] }) {
               <td style={{ color: tone(t.netPnl) }}>
                 <strong>{inr(t.netPnl)}</strong>
               </td>
+              <td style={{ color: (cumulativeNet(trades, (x) => x.id, (x) => x.entryTime, (x) => x.netPnl, (x) => String(x.status ?? "closed").toUpperCase() === "CLOSED").get(t.id) ?? 0) >= 0 ? "var(--green)" : "var(--red)" }}>{cumulativeNet(trades, (x) => x.id, (x) => x.entryTime, (x) => x.netPnl, (x) => String(x.status ?? "closed").toUpperCase() === "CLOSED").get(t.id) != null ? inr(cumulativeNet(trades, (x) => x.id, (x) => x.entryTime, (x) => x.netPnl, (x) => String(x.status ?? "closed").toUpperCase() === "CLOSED").get(t.id) as number) : "—"}</td>
             </tr>
           ))}
         </tbody>

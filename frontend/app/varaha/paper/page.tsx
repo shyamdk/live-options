@@ -18,6 +18,7 @@ import {
   updateVarahaPaperConfig,
 } from "@/lib/api";
 import type { VarahaPaperConfig, VarahaPaperDecision, VarahaPaperState, VarahaPaperTrade } from "@/types/varaha-paper";
+import { cumulativeNet } from "@/lib/cumulative";
 
 const REFRESH_MS = 30000;
 const DIRECTION_LABEL: Record<string, string> = { UP: "UP (bullish)", DOWN: "DOWN (bearish)", NO_CLEAR_DIRECTION: "Flat / no clear direction" };
@@ -643,6 +644,7 @@ function TradesTable({ trades }: { trades: VarahaPaperTrade[] }) {
             <th>Gross</th>
             <th>Charges</th>
             <th>Net</th>
+            <th>Cumulative net</th>
           </tr>
         </thead>
         <tbody>
@@ -669,10 +671,11 @@ function TradesTable({ trades }: { trades: VarahaPaperTrade[] }) {
                 <td style={{ color: tone(t.netPnl) }}>
                   <strong>{inr(t.netPnl)}</strong>
                 </td>
+                <td style={{ color: (cumulativeNet(trades, (x) => x.id, (x) => x.entryTime, (x) => x.netPnl, (x) => String(x.status ?? "closed").toUpperCase() === "CLOSED").get(t.id) ?? 0) >= 0 ? "var(--green)" : "var(--red)" }}>{cumulativeNet(trades, (x) => x.id, (x) => x.entryTime, (x) => x.netPnl, (x) => String(x.status ?? "closed").toUpperCase() === "CLOSED").get(t.id) != null ? inr(cumulativeNet(trades, (x) => x.id, (x) => x.entryTime, (x) => x.netPnl, (x) => String(x.status ?? "closed").toUpperCase() === "CLOSED").get(t.id) as number) : "—"}</td>
               </tr>
               {open === t.id ? (
                 <tr>
-                  <td colSpan={14} style={{ background: "var(--panel)" }}>
+                  <td colSpan={15} style={{ background: "var(--panel)" }}>
                     {t.needsAttention ? <div className="alert error">{t.needsAttention}</div> : null}
                     <DecisionMetrics d={t.decision} />
                     <p className="pcr-oi-caption">{t.decision.why}</p>

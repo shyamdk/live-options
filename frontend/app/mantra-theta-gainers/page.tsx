@@ -20,6 +20,7 @@ import {
   updateMantraConfig,
 } from "@/lib/api";
 import type { MantraAlarm, MantraConfig, MantraMode, MantraPlan, MantraTrade } from "@/types/mantra";
+import { cumulativeNet } from "@/lib/cumulative";
 
 const REFRESH_MS = 20000;
 const PLAN_REFRESH_MS = 120000;
@@ -628,6 +629,7 @@ function TradesTable({ trades }: { trades: MantraTrade[] }) {
             <th>Gross</th>
             <th>Charges</th>
             <th>Net</th>
+            <th>Cumulative net</th>
           </tr>
         </thead>
         <tbody>
@@ -652,6 +654,7 @@ function TradesTable({ trades }: { trades: MantraTrade[] }) {
                 <td style={{ color: tone(t.netPnl) }}>
                   <strong>{inr(t.netPnl)}</strong>
                 </td>
+                <td style={{ color: (cumulativeNet(trades, (x) => x.id, (x) => x.entryTime, (x) => x.netPnl, (x) => String(x.status ?? "closed").toUpperCase() === "CLOSED").get(t.id) ?? 0) >= 0 ? "var(--green)" : "var(--red)" }}>{cumulativeNet(trades, (x) => x.id, (x) => x.entryTime, (x) => x.netPnl, (x) => String(x.status ?? "closed").toUpperCase() === "CLOSED").get(t.id) != null ? inr(cumulativeNet(trades, (x) => x.id, (x) => x.entryTime, (x) => x.netPnl, (x) => String(x.status ?? "closed").toUpperCase() === "CLOSED").get(t.id) as number) : "—"}</td>
               </tr>
             );
           })}

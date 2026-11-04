@@ -27,6 +27,7 @@ import {
   updateSimpleCrossoverTradeComment,
 } from "@/lib/api";
 import type { SimpleCrossoverConfig, SimpleCrossoverData, SimpleCrossoverSide, SimpleCrossoverTrade } from "@/types/simple-crossover";
+import { cumulativeNet } from "@/lib/cumulative";
 
 const REFRESH_MS = 20000;
 
@@ -650,6 +651,7 @@ function PaperTradesSection({
                 <th>Realized P&amp;L</th>
                 <th>Charges</th>
                 <th>Net P&amp;L</th>
+                <th>Cumulative net</th>
                 <th>Comment</th>
               </tr>
             </thead>
@@ -681,6 +683,7 @@ function PaperTradesSection({
                   <td style={{ color: (t.netPnl ?? 0) >= 0 ? "var(--green)" : "var(--red)" }}>
                     {t.netPnl != null ? fmtSigned(t.netPnl) : "—"}
                   </td>
+                  <td style={{ color: (cumulativeNet(closed, (x) => x.id, (x) => x.entryTime, (x) => x.netPnl, (x) => String(x.status ?? "closed").toUpperCase() === "CLOSED").get(t.id) ?? 0) >= 0 ? "var(--green)" : "var(--red)" }}>{cumulativeNet(closed, (x) => x.id, (x) => x.entryTime, (x) => x.netPnl, (x) => String(x.status ?? "closed").toUpperCase() === "CLOSED").get(t.id) != null ? fmtSigned(cumulativeNet(closed, (x) => x.id, (x) => x.entryTime, (x) => x.netPnl, (x) => String(x.status ?? "closed").toUpperCase() === "CLOSED").get(t.id) as number) : "—"}</td>
                   <td>
                     <CommentCell value={t.comment} onSave={(v) => onSaveComment(t.id, v)} />
                   </td>

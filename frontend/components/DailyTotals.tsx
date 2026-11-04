@@ -70,12 +70,12 @@ export function DailyTotalsTable({
   rows,
   label = "Day",
   formatAmount = fmtInrSigned,
-  cumulative = false,
+  cumulative = true,
 }: {
   rows: DailyTotalRow[];
   label?: string;
   formatAmount?: (value: number) => string;
-  /** Add a running total of net P&L (oldest day first), shown on each day's row. */
+  /** Running total of net P&L (oldest day first) on each day's row; on by default. */
   cumulative?: boolean;
 }) {
   if (rows.length === 0) return null;

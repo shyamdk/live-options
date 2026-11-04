@@ -26,6 +26,7 @@ import type {
   MeltingTag,
   MeltingTrade,
 } from "@/types/melting";
+import { cumulativeNet } from "@/lib/cumulative";
 
 const REFRESH_MS = 10000;
 const TAG_COLOR: Record<string, string> = { LOWER: "#b23c35", ATM: "#0f6b78", HIGHER: "#1b7a4b" };
@@ -715,6 +716,7 @@ function TradesTable({ trades, showDay = false }: { trades: MeltingTrade[]; show
             <th>Gross</th>
             <th>Charges</th>
             <th>Net</th>
+            <th>Cumulative net</th>
           </tr>
         </thead>
         <tbody>
@@ -755,10 +757,11 @@ function TradesTable({ trades, showDay = false }: { trades: MeltingTrade[]; show
                 <td style={{ color: tone(t.netPnl) }}>
                   <strong>{inr(t.netPnl)}</strong>
                 </td>
+                <td style={{ color: (cumulativeNet(trades, (x) => x.id, (x) => x.entryTime, (x) => x.netPnl, (x) => String(x.status ?? "closed").toUpperCase() === "CLOSED").get(t.id) ?? 0) >= 0 ? "var(--green)" : "var(--red)" }}>{cumulativeNet(trades, (x) => x.id, (x) => x.entryTime, (x) => x.netPnl, (x) => String(x.status ?? "closed").toUpperCase() === "CLOSED").get(t.id) != null ? inr(cumulativeNet(trades, (x) => x.id, (x) => x.entryTime, (x) => x.netPnl, (x) => String(x.status ?? "closed").toUpperCase() === "CLOSED").get(t.id) as number) : "—"}</td>
               </tr>
               {expanded === t.id ? (
                 <tr>
-                  <td colSpan={showDay ? 18 : 17} style={{ background: "var(--panel)" }}>
+                  <td colSpan={showDay ? 19 : 18} style={{ background: "var(--panel)" }}>
                     {t.needsAttention ? <div className="alert error">{t.needsAttention}</div> : null}
                     <div className="pcr-oi-caption">
                       CE {t.ceSecurityId} / PE {t.peSecurityId} ({t.exchangeSegment}) · expiry {t.expiry} · lot size {t.lotSize} · initial stop {num(t.initialSl)} · final stop{" "}

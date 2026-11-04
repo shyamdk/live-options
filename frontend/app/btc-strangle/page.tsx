@@ -18,6 +18,7 @@ import {
   updateBtcStrangleConfig,
 } from "@/lib/api";
 import type { BtcStrangleConfig, BtcStrangleLeg, BtcStranglePreview, BtcStrangleTrade } from "@/types/btc-strangle";
+import { cumulativeNet } from "@/lib/cumulative";
 
 const REFRESH_MS = 15000;
 const MULTIPLIER_PRESETS = [1.6, 1.7, 1.8, 1.9, 2.0, 2.1, 2.2];
@@ -978,6 +979,7 @@ function TradesTable({ trades }: { trades: BtcStrangleTrade[] }) {
             <th>Gross</th>
             <th>Fees</th>
             <th>Net</th>
+            <th>Cumulative net</th>
             <th>Status</th>
           </tr>
         </thead>
@@ -1014,6 +1016,7 @@ function TradesTable({ trades }: { trades: BtcStrangleTrade[] }) {
                 <td style={{ color: tone(t.netPnl) }}>
                   <strong>{usd(t.netPnl)}</strong>
                 </td>
+                <td style={{ color: (cumulativeNet(trades, (x) => x.id, (x) => x.entryTime, (x) => x.netPnl, (x) => String(x.status ?? "closed").toUpperCase() === "CLOSED").get(t.id) ?? 0) >= 0 ? "var(--green)" : "var(--red)" }}>{cumulativeNet(trades, (x) => x.id, (x) => x.entryTime, (x) => x.netPnl, (x) => String(x.status ?? "closed").toUpperCase() === "CLOSED").get(t.id) != null ? usd(cumulativeNet(trades, (x) => x.id, (x) => x.entryTime, (x) => x.netPnl, (x) => String(x.status ?? "closed").toUpperCase() === "CLOSED").get(t.id) as number) : "—"}</td>
                 <td>{t.status}</td>
               </tr>
             );

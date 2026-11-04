@@ -10,6 +10,7 @@ import StrikeDistanceMap from "@/components/StrikeDistanceMap";
 import { istTime, TradeNote, useTradeMarkers } from "@/components/TradeMarkers";
 import { closeBtcCalmTrade, enterBtcCalmNow, getBtcCalmState, getBtcCalmTrade, getBtcCalmTrades, updateBtcCalmConfig } from "@/lib/api";
 import type { BtcCalmBook, BtcCalmConfig, BtcCalmState, BtcCalmTrade, BtcCalmTradeDetail } from "@/types/btc-calm";
+import { cumulativeNet } from "@/lib/cumulative";
 
 const REFRESH_MS = 15000;
 
@@ -636,6 +637,7 @@ function TradesTable({ trades }: { trades: BtcCalmTrade[] }) {
             <th>Gross</th>
             <th>Fees</th>
             <th>Net</th>
+            <th>Cumulative net</th>
           </tr>
         </thead>
         <tbody>
@@ -658,10 +660,11 @@ function TradesTable({ trades }: { trades: BtcCalmTrade[] }) {
                 <td style={{ color: tone(t.netPnl) }}>
                   <strong>{usd(t.netPnl)}</strong>
                 </td>
+                <td style={{ color: (cumulativeNet(trades, (x) => x.id, (x) => x.entryTime, (x) => x.netPnl, (x) => String(x.status ?? "closed").toUpperCase() === "CLOSED").get(t.id) ?? 0) >= 0 ? "var(--green)" : "var(--red)" }}>{cumulativeNet(trades, (x) => x.id, (x) => x.entryTime, (x) => x.netPnl, (x) => String(x.status ?? "closed").toUpperCase() === "CLOSED").get(t.id) != null ? usd(cumulativeNet(trades, (x) => x.id, (x) => x.entryTime, (x) => x.netPnl, (x) => String(x.status ?? "closed").toUpperCase() === "CLOSED").get(t.id) as number) : "—"}</td>
               </tr>
               {open === t.id ? (
                 <tr>
-                  <td colSpan={12} style={{ background: "var(--panel)" }}>
+                  <td colSpan={13} style={{ background: "var(--panel)" }}>
                     <div className="pcr-oi-caption" style={{ fontStyle: "normal" }}>
                       {(["PE", "CE"] as const).map((s) => (
                         <div key={s}>
