@@ -1610,6 +1610,22 @@ def init_db() -> None:
             )
             """
         )
+        # Notes page: free-form learnings by date + a cached AI summary
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS notes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                day TEXT NOT NULL,
+                title TEXT NOT NULL DEFAULT '',
+                body TEXT NOT NULL,
+                tags TEXT NOT NULL DEFAULT '',
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL
+            )
+            """
+        )
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_notes_day ON notes(day)")
+        conn.execute("CREATE TABLE IF NOT EXISTS notes_summary (id INTEGER PRIMARY KEY CHECK (id = 1), payload TEXT NOT NULL, generated_at INTEGER NOT NULL)")
         # Define Turtle A1 (paper + live on Angel One): same tables under its own prefix
         conn.execute(
             """
@@ -5125,3 +5141,65 @@ def get_varaha_recommendation(rec_id: int, *, include_snapshot: bool = False) ->
     with _DB_LOCK, _connect() as conn:
         row = conn.execute("SELECT * FROM varaha_recommendations WHERE id = ?", (rec_id,)).fetchone()
     return _varaha_row(row, include_snapshot=include_snapshot) if row else None
+
+
+# ---------------------------------------------------------------- notes
+
+
+def _note_row(r: sqlite3.Row) -> dict[str, Any]:
+    return {"id": r["id"], "day": r["day"], "title": r["title"], "body": r["body"],
+            "tags": [t for t in (r["tags"] or "").split(",") if t], "createdAt": r["created_at"], "updatedAt": r["updated_at"]}
+
+
+def list_notes() -> list[dict[str, Any]]:
+    with _DB_LOCK, _connect() as conn:
+        rows = conn.execute("SELECT * FROM notes ORDER BY day DESC, created_at DESC").fetchall()
+    return [_note_row(r) for r in rows]
+
+
+def create_note(*, day: str, title: str, body: str, tags: list[str]) -> dict[str, Any]:
+    now = int(datetime.now().timestamp())
+    with _DB_LOCK, _connect() as conn:
+        cursor = conn.execute(
+            "INSERT INTO notes (day, title, body, tags, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+            (day, title, body, ",".join(tags), now, now),
+        )
+        conn.commit()
+        row = conn.execute("SELECT * FROM notes WHERE id = ?", (cursor.lastrowid,)).fetchone()
+    return _note_row(row)
+
+
+def update_note(note_id: int, *, day: str, title: str, body: str, tags: list[str]) -> dict[str, Any] | None:
+    with _DB_LOCK, _connect() as conn:
+        conn.execute(
+            "UPDATE notes SET day = ?, title = ?, body = ?, tags = ?, updated_at = ? WHERE id = ?",
+            (day, title, body, ",".join(tags), int(datetime.now().timestamp()), note_id),
+        )
+        conn.commit()
+        row = conn.execute("SELECT * FROM notes WHERE id = ?", (note_id,)).fetchone()
+    return _note_row(row) if row else None
+
+
+def delete_note(note_id: int) -> bool:
+    with _DB_LOCK, _connect() as conn:
+        cursor = conn.execute("DELETE FROM notes WHERE id = ?", (note_id,))
+        conn.commit()
+        return cursor.rowcount == 1
+
+
+def get_notes_summary() -> dict[str, Any] | None:
+    with _DB_LOCK, _connect() as conn:
+        row = conn.execute("SELECT payload, generated_at FROM notes_summary WHERE id = 1").fetchone()
+    if not row:
+        return None
+    return {**json.loads(row["payload"]), "generatedAt": row["generated_at"]}
+
+
+def save_notes_summary(payload: dict[str, Any]) -> None:
+    with _DB_LOCK, _connect() as conn:
+        conn.execute(
+            "INSERT INTO notes_summary (id, payload, generated_at) VALUES (1, ?, ?) "
+            "ON CONFLICT(id) DO UPDATE SET payload = excluded.payload, generated_at = excluded.generated_at",
+            (json.dumps(payload), int(datetime.now().timestamp())),
+        )
+        conn.commit()

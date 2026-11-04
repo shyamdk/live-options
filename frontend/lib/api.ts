@@ -35,6 +35,7 @@ import type { CalmConfig, CalmState, CalmTrade, CalmTradeDetail } from "@/types/
 import type { NiftyStrangleConfig, NiftyStranglePlan, NiftyStrangleTrade } from "@/types/nifty-strangle";
 import type { MeltingConfig, MeltingDaySummary, MeltingState, MeltingTag, MeltingTrade } from "@/types/melting";
 import type { MantraAlarm, MantraConfig, MantraMode, MantraPlan, MantraTrade } from "@/types/mantra";
+import type { Note, NoteInput, NotesSummary } from "@/types/notes";
 import type { TurtleA1Book, TurtleAlarm, TurtleConfig, TurtleState, TurtleTrade } from "@/types/turtle";
 import type { BatmanAnalysis, BatmanConfig, BatmanMode, BatmanPreview, BatmanTrade } from "@/types/batman";
 import type { BtcSpotChart, BtcStrangleChart, BtcStrangleConfig, BtcStranglePreview, BtcStrangleTrade } from "@/types/btc-strangle";
@@ -1074,4 +1075,29 @@ export async function startSwingRetro(): Promise<{ status: string }> {
 
 export async function applySwingRetro(id: number, label: string): Promise<SwingConfig> {
   return apiJson<SwingConfig>(`/api/equity-swing/retros/${id}/apply`, { method: "POST", body: JSON.stringify({ label }) }, "Failed to apply");
+}
+
+// Notes
+export async function getNotes(): Promise<{ notes: Note[] }> {
+  return apiJson<{ notes: Note[] }>("/api/notes", undefined, "Failed to load notes");
+}
+
+export async function createNote(note: NoteInput): Promise<Note> {
+  return apiJson<Note>("/api/notes", { method: "POST", body: JSON.stringify(note) }, "Failed to save the note");
+}
+
+export async function updateNote(id: number, note: NoteInput): Promise<Note> {
+  return apiJson<Note>(`/api/notes/${id}`, { method: "PUT", body: JSON.stringify(note) }, "Failed to save the note");
+}
+
+export async function deleteNote(id: number): Promise<{ status: string }> {
+  return apiJson(`/api/notes/${id}`, { method: "DELETE" }, "Failed to delete the note");
+}
+
+export async function getNotesSummary(): Promise<NotesSummary> {
+  return apiJson<NotesSummary>("/api/notes/summary", undefined, "Failed to load the summary");
+}
+
+export async function refreshNotesSummary(): Promise<NotesSummary> {
+  return apiJson<NotesSummary>("/api/notes/summary/refresh", { method: "POST" }, "Summary failed");
 }

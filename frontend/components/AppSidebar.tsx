@@ -18,6 +18,7 @@ import {
   RadioTower,
   Shapes,
   WalletCards,
+  NotebookPen,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -41,6 +42,7 @@ import { useEffect, useState } from "react";
 const navItems = [
   { href: "/manage-trades", label: "Manage Trades", short: "MT", icon: BriefcaseBusiness },
   { href: "/alerts", label: "Alerts & Reminders", short: "AL", icon: BellRing },
+  { href: "/notes", label: "Notes", short: "NO", icon: NotebookPen },
   { href: "/equity", label: "Equity", short: "EQ", icon: WalletCards },
   { href: "/equity-swing", label: "Equity-Swing", short: "ES", icon: TrendingUp },
   { href: "/trade-journals", label: "Trade Journals", short: "TJ", icon: BookOpenText },

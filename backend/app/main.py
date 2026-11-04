@@ -32,6 +32,7 @@ from app.api.theta import router as theta_router
 from app.api.trades import router as trades_router
 from app.api.turtle import router as turtle_router
 from app.api.turtle_a1 import router as turtle_a1_router
+from app.api.notes import router as notes_router
 from app.api.varaha import router as varaha_router
 from app.core.config import get_settings
 from app.db.sqlite import init_db
@@ -208,6 +209,7 @@ app.include_router(btc_strangle_router, prefix=settings.api_prefix)
 app.include_router(batman_router, prefix=settings.api_prefix)
 app.include_router(turtle_router, prefix=settings.api_prefix)
 app.include_router(turtle_a1_router, prefix=settings.api_prefix)
+app.include_router(notes_router, prefix=settings.api_prefix)
 app.include_router(mantra_router, prefix=settings.api_prefix)
 app.include_router(melting_router, prefix=settings.api_prefix)
 app.include_router(melting_gap_router, prefix=settings.api_prefix)
