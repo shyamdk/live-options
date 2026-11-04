@@ -1,5 +1,7 @@
 export interface TurtleConfig {
   enabled: boolean;
+  mode: "paper" | "live";
+  liveOrdersAllowed: boolean;
   capital: number;
   capitalPerLot: number;
   boxPercent: number;
@@ -67,6 +69,10 @@ export interface TurtleTrade {
   grossPnl: number;
   charges: number;
   netPnl: number;
+  mode: "paper" | "live";
+  shortOrderId?: string | null;
+  longOrderId?: string | null;
+  needsAttention?: string | null;
 }
 
 export interface TurtleAlarm {

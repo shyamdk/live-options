@@ -1610,6 +1610,10 @@ def init_db() -> None:
             )
             """
         )
+        # live trading: each trade keeps its own mode, so a paper spread never sends orders
+        _add_column_if_missing(conn, "turtle_trades", "mode", "TEXT NOT NULL DEFAULT 'paper'")
+        for column in ("short_order_id", "long_order_id", "short_exit_order_id", "long_exit_order_id", "needs_attention"):
+            _add_column_if_missing(conn, "turtle_trades", column, "TEXT")
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS turtle_alarms (
@@ -4475,7 +4479,9 @@ _TURTLE_TRADE_FIELDS = {
     "long_security_id": "longSecurityId", "short_entry": "shortEntry", "long_entry": "longEntry",
     "credit_points": "creditPoints", "short_exit": "shortExit", "long_exit": "longExit", "exit_time": "exitTime",
     "exit_reason": "exitReason", "realized_pnl": "realizedPnl", "charges": "charges", "last_cost": "lastCost",
-    "last_decay": "lastDecay", "last_rsi": "lastRsi", "last_update": "lastUpdate",
+    "last_decay": "lastDecay", "last_rsi": "lastRsi", "last_update": "lastUpdate", "mode": "mode",
+    "short_order_id": "shortOrderId", "long_order_id": "longOrderId", "short_exit_order_id": "shortExitOrderId",
+    "long_exit_order_id": "longExitOrderId", "needs_attention": "needsAttention",
 }
 
 

@@ -78,7 +78,8 @@ export default function DefineTurtlePage() {
   }, []);
 
   async function enterNow() {
-    if (!window.confirm("Open a paper put credit spread now, without waiting for a Turtle Follow-Through signal?")) return;
+    const live = state?.config.mode === "live" && state?.config.liveOrdersAllowed;
+    if (!window.confirm(`${live ? "LIVE ORDERS: " : ""}Open a ${live ? "REAL" : "paper"} put credit spread now, without waiting for a Turtle Follow-Through signal?`)) return;
     setBusy("enter");
     try {
       const r = await enterTurtleNow();
@@ -92,7 +93,7 @@ export default function DefineTurtlePage() {
   }
 
   async function closeTrade(trade: TurtleTrade) {
-    if (!window.confirm(`Close spread #${trade.id} now (paper)?`)) return;
+    if (!window.confirm(`${trade.mode === "live" ? "LIVE ORDERS: buy back" : "Close"} spread #${trade.id} now (${trade.mode === "live" ? "real Dhan market orders" : "paper"})?`)) return;
     setBusy(`close-${trade.id}`);
     try {
       const r = await closeTurtleTrade(trade.id);
@@ -106,6 +107,8 @@ export default function DefineTurtlePage() {
   }
 
   const config = state?.config;
+  const liveNow = config?.mode === "live" && config?.liveOrdersAllowed;
+  const attention = (state?.openTrades ?? []).filter((t) => t.needsAttention);
   const closed = trades.filter((t) => t.status === "CLOSED");
 
   return (
@@ -119,11 +122,17 @@ export default function DefineTurtlePage() {
           </h1>
           <p>
             NIFTY Point &amp; Figure RSI(14) &gt; 50 + Turtle Follow-Through → next-week put credit spread (sell ATM, buy 300
-            lower). Exits: 75% decay, RSI &lt; 50, or 3 days before expiry. Paper trading -- see docs/strategies/define-turtle.md.
+            lower). Exits: 75% decay, RSI &lt; 50, or 3 days before expiry. Paper by default; in Live mode new spreads place real Dhan MARKET
+            orders (MARGIN, hedge bought first, short bought back first) -- see docs/strategies/define-turtle.md.
           </p>
         </div>
         <div className="toolbar" style={{ alignItems: "center" }}>
-          <span className="status-live on" style={{ whiteSpace: "nowrap" }}>PAPER</span>
+          <span
+            className={`status-live ${liveNow ? "" : "on"}`}
+            style={{ whiteSpace: "nowrap", ...(liveNow ? { background: "#fde8e8", color: "var(--red)", borderColor: "var(--red)" } : {}) }}
+          >
+            {liveNow ? "LIVE ORDERS" : "PAPER"}
+          </span>
           <span className={`status-live ${config?.enabled ? "on" : ""}`} style={{ whiteSpace: "nowrap" }}>
             {config?.enabled ? "Auto entry on" : "Auto entry paused"}
           </span>
@@ -138,6 +147,16 @@ export default function DefineTurtlePage() {
 
       {error ? <div className="alert error">{error}</div> : null}
       {message ? <div className="alert success">{message}</div> : null}
+      {attention.length ? (
+        <div className="alert error">
+          <strong>Live order needs attention:</strong>{" "}
+          {attention.map((t) => (
+            <span key={t.id}>
+              #{t.id} {t.needsAttention}{" "}
+            </span>
+          ))}
+        </div>
+      ) : null}
 
       <StatusStrip state={state} />
 
@@ -470,6 +489,7 @@ function TradesTable({ trades }: { trades: TurtleTrade[] }) {
           <tr>
             <th>#</th>
             <th>Entered</th>
+            <th>Mode</th>
             <th>Trigger</th>
             <th>Spread</th>
             <th>Lots</th>
@@ -487,6 +507,7 @@ function TradesTable({ trades }: { trades: TurtleTrade[] }) {
             <tr key={t.id}>
               <td>{t.id}</td>
               <td>{ist(t.entryTime)}</td>
+              <td style={t.mode === "live" ? { color: "var(--red)", fontWeight: 600 } : undefined}>{t.mode === "live" ? "LIVE" : "paper"}</td>
               <td>
                 {t.trigger}
                 {t.signalRsi ? ` (RSI ${num(t.signalRsi, 1)})` : ""}
@@ -565,6 +586,7 @@ const SETTING_FIELDS: { key: keyof TurtleConfig; label: string; hint?: string }[
 function SettingsSection({ config, onSaved }: { config: TurtleConfig | null; onSaved: () => void }) {
   const [draft, setDraft] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   useEffect(() => {
     if (config) setDraft(Object.fromEntries(SETTING_FIELDS.map((f) => [f.key, String(config[f.key])])));
   }, [config]);
@@ -572,9 +594,12 @@ function SettingsSection({ config, onSaved }: { config: TurtleConfig | null; onS
 
   async function save(extra?: Partial<TurtleConfig>) {
     setSaving(true);
+    setSaveError(null);
     try {
       await updateTurtleConfig(extra ?? Object.fromEntries(SETTING_FIELDS.map((f) => [f.key, Number(draft[f.key])])));
       onSaved();
+    } catch (exc) {
+      setSaveError(exc instanceof Error ? exc.message : "Save failed.");
     } finally {
       setSaving(false);
     }
@@ -582,6 +607,29 @@ function SettingsSection({ config, onSaved }: { config: TurtleConfig | null; onS
 
   return (
     <CollapsibleSection id="turtle-settings" title="Settings" defaultOpen={false}>
+      {saveError ? <div className="alert error">{saveError}</div> : null}
+      <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap", marginBottom: 12, fontSize: 13 }}>
+        <span>Mode:</span>
+        <button type="button" className={`button ${config.mode === "paper" ? "" : "secondary"}`} onClick={() => save({ mode: "paper" })} disabled={saving}>
+          Paper
+        </button>
+        <button
+          type="button"
+          className={`button ${config.mode === "live" ? "" : "secondary"}`}
+          onClick={() => {
+            if (window.confirm(`Switch Define Turtle to LIVE: the next signal will place real Dhan market orders for ${config.lots} lots (${config.lots * config.lotSize} qty per leg). Spreads already open stay paper. Continue?`)) save({ mode: "live" });
+          }}
+          disabled={saving || !config.liveOrdersAllowed}
+          title={config.liveOrdersAllowed ? "" : "Set TURTLE_LIVE_ORDER_ENABLED=true (and LIVE_ORDER_ENABLED=true) on the server first"}
+        >
+          Live
+        </button>
+        <span className="pcr-oi-caption">
+          {config.liveOrdersAllowed
+            ? `Live orders are allowed on the server -- MARGIN (overnight) market orders, ${config.lots} lots.`
+            : "Live orders are switched off on the server (TURTLE_LIVE_ORDER_ENABLED)."}
+        </span>
+      </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(190px, 1fr))", gap: 12 }}>
         {SETTING_FIELDS.map((f) => (
           <label key={f.key} style={{ display: "flex", flexDirection: "column", gap: 3, fontSize: 12 }}>

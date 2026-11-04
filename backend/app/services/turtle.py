@@ -7,6 +7,15 @@ close with P&F RSI(14) > 50 opens a next-week put credit spread (sell ATM put
 rounded to 100, buy 300 lower) if none is open. Exits: 75% premium decay,
 RSI < 50 on a minute close, or <= 3 calendar days to expiry -- the calendar
 exit raises an unmissable alarm on the page plus Telegram.
+
+Live orders (Nov 2026): with TURTLE_LIVE_ORDER_ENABLED + LIVE_ORDER_ENABLED on the
+server and the page's mode set to live, new spreads place real Dhan MARKET orders
+(MARGIN product -- held overnight). Entry buys the hedge put first, then sells the
+short put; if the short sell fails the hedge is sold straight back. Exit buys the
+short back first, then sells the hedge. A leg that fails on exit leaves the trade
+OPEN with needs_attention set and is retried every minute; it is marked CLOSED
+only when both legs are out. Each trade keeps its own mode, so a paper spread
+never sends an order.
 """
 
 from __future__ import annotations
@@ -25,6 +34,7 @@ from app.services import turtle_engine as engine
 from app.services import varaha
 from app.services.charges import option_order_charges
 from app.services.dhan import DhanService
+from app.services.orders import DhanOrderService
 from app.services.telegram import TelegramNotifier
 
 logger = logging.getLogger(__name__)
@@ -45,6 +55,7 @@ _last_state: dict[str, Any] = {}
 
 DEFAULTS: dict[str, Any] = {
     "enabled": True,
+    "mode": "paper",
     "capital": 1_000_000.0,
     "capitalPerLot": 150_000.0,
     "boxPercent": 0.03,
@@ -70,13 +81,25 @@ def get_config() -> dict[str, Any]:
             config[key] = default
         elif isinstance(default, bool):
             config[key] = raw == "1"
+        elif isinstance(default, str):
+            config[key] = raw
         elif isinstance(default, int):
             config[key] = int(float(raw))
         else:
             config[key] = float(raw)
     config["lots"] = max(int(config["capital"] // config["capitalPerLot"]), 0)
     config["lotSize"] = LOT_SIZE
+    config["liveOrdersAllowed"] = _live_allowed()
     return config
+
+
+def _live_allowed() -> bool:
+    settings = get_settings()
+    return bool(settings.turtle_live_order_enabled and settings.live_order_enabled)
+
+
+def _mode(config: dict[str, Any]) -> str:
+    return "live" if config["mode"] == "live" and config["liveOrdersAllowed"] else "paper"
 
 
 def update_config(updates: dict[str, Any]) -> dict[str, Any]:
@@ -84,6 +107,11 @@ def update_config(updates: dict[str, Any]) -> dict[str, Any]:
         if key not in DEFAULTS or value is None:
             continue
         default = DEFAULTS[key]
+        if key == "mode":
+            if value not in ("paper", "live"):
+                raise ValueError("mode must be paper or live")
+            if value == "live" and not _live_allowed():
+                raise ValueError("Live orders are switched off on the server (TURTLE_LIVE_ORDER_ENABLED / LIVE_ORDER_ENABLED).")
         db.set_turtle_setting(key, ("1" if value else "0") if isinstance(default, bool) else str(value))
     return get_config()
 
@@ -200,6 +228,60 @@ async def state() -> dict[str, Any]:
     return payload
 
 
+# ---------------------------------------------------------------- live orders
+
+
+async def _order(side: str, security_id: str | None, qty: int, correlation: str) -> dict[str, Any]:
+    """One MARKET order (up to 3 attempts) and its traded price. ok=False if not sent."""
+    if not security_id:
+        return {"ok": False, "orderId": None, "price": None, "message": "no security id"}
+    settings = get_settings()
+    orders = DhanOrderService(settings)
+    last: dict[str, Any] = {}
+    for attempt in range(3):
+        last = await orders.place_market_order(
+            transaction_type=side, exchange_segment=OPTION_SEGMENT, security_id=security_id, quantity=qty,
+            correlation_id=f"{correlation}{attempt}", product_type=settings.turtle_live_order_product_type,
+        )
+        if last.get("status") == "sent":
+            break
+        await asyncio.sleep(0.6)
+    if last.get("status") != "sent":
+        return {"ok": False, "orderId": None, "price": None, "message": f"{last.get('status')}: {last.get('message')}"}
+    order = last.get("order") or {}
+    order_id = str(order.get("orderId") or (order.get("data") or {}).get("orderId") or "") or None
+    price, status = await _traded_price(orders, order_id)
+    if status in ("REJECTED", "CANCELLED", "EXPIRED"):
+        return {"ok": False, "orderId": order_id, "price": None, "message": f"order {order_id} {status}"}
+    return {"ok": True, "orderId": order_id, "price": price, "message": "sent" if price else "sent (fill price not confirmed -- quote used)"}
+
+
+async def _traded_price(orders: DhanOrderService, order_id: str | None) -> tuple[float | None, str | None]:
+    if not order_id:
+        return None, None
+    status = None
+    for _ in range(8):
+        await asyncio.sleep(1)
+        try:
+            order = await orders.get_order(order_id)
+        except Exception:
+            order = None
+        if not order:
+            continue
+        status = str(order.get("orderStatus") or "").upper()
+        price = varaha._number(order.get("averageTradedPrice")) or varaha._number(order.get("tradedPrice"))
+        if status == "TRADED" and price:
+            return float(price), status
+        if status in ("REJECTED", "CANCELLED", "EXPIRED"):
+            return None, status
+    return None, status
+
+
+def _attention(trade_id: int, text: str) -> None:
+    db.update_turtle_trade(trade_id, needs_attention=text)
+    db.create_turtle_alarm(kind="live_error", trade_id=trade_id, title=f"LIVE order problem on #{trade_id}", message=text)
+
+
 # ---------------------------------------------------------------- trading
 
 
@@ -231,7 +313,29 @@ async def enter(trigger: str, signal: dict[str, Any] | None = None) -> dict[str,
     credit = round(short_fill - long_fill, 2)
     if credit <= 0:
         return {"status": "skipped", "message": "Spread would not be a credit at current quotes."}
+    mode = _mode(config)
+    qty = int(config["lots"]) * LOT_SIZE
+    order_ids: dict[str, str | None] = {"short_order_id": None, "long_order_id": None}
+    if mode == "live":
+        tag = f"DT{int(time.time()) % 10000000}"
+        hedge = await _order("BUY", (long_q or {}).get("securityId"), qty, f"{tag}LE")
+        if not hedge["ok"]:
+            text = f"LIVE entry skipped: hedge BUY {long_strike:.0f} PE failed ({hedge['message']}). No position taken."
+            await _notify(f"🚨 Define Turtle {text}")
+            return {"status": "failed", "message": text}
+        short = await _order("SELL", (short_q or {}).get("securityId"), qty, f"{tag}SE")
+        if not short["ok"]:
+            undo = await _order("SELL", (long_q or {}).get("securityId"), qty, f"{tag}LU")
+            text = (f"LIVE entry failed: short SELL {short_strike:.0f} PE failed ({short['message']}); "
+                    f"hedge sold back: {undo['message']}. CHECK DHAN POSITIONS.")
+            db.create_turtle_alarm(kind="live_error", trade_id=None, title="LIVE entry failed", message=text)
+            await _notify(f"🚨 Define Turtle {text}")
+            return {"status": "failed", "message": text}
+        long_fill, short_fill = hedge["price"] or long_fill, short["price"] or short_fill
+        credit = round(short_fill - long_fill, 2)
+        order_ids = {"short_order_id": short["orderId"], "long_order_id": hedge["orderId"]}
     trade_id = db.create_turtle_trade(
+        mode=mode, **order_ids,
         status="OPEN", trigger=trigger, signal_time=(signal or {}).get("time"), signal_rsi=(signal or {}).get("rsi"),
         entry_time=int(time.time()), expiry=expiry.isoformat(), spot=spot, lots=int(config["lots"]), lot_size=LOT_SIZE,
         short_strike=short_strike, long_strike=long_strike,
@@ -241,7 +345,7 @@ async def enter(trigger: str, signal: dict[str, Any] | None = None) -> dict[str,
     )
     trade = summarize(next(t for t in db.list_turtle_trades(limit=5) if t["id"] == trade_id))
     await _notify(
-        f"🐢 Define Turtle #{trade_id} entered (paper, {trigger})\n"
+        f"🐢 Define Turtle #{trade_id} entered ({'LIVE ORDERS' if mode == 'live' else 'paper'}, {trigger})\n"
         f"SELL {trade['lots']}L {short_strike:.0f} PE @ {short_fill} / BUY {long_strike:.0f} PE @ {long_fill} -- exp {expiry}\n"
         f"Credit {credit} pts (₹{trade['credit']:,.0f}), max loss ₹{trade['maxLoss']:,.0f}, "
         f"P&F RSI {(signal or {}).get('rsi')}"
@@ -249,12 +353,37 @@ async def enter(trigger: str, signal: dict[str, Any] | None = None) -> dict[str,
     return {"status": "entered", "trade": trade}
 
 
-def _close(trade: dict[str, Any], quotes: dict[tuple[float, str], dict[str, Any]], reason: str) -> dict[str, Any]:
+async def _close(trade: dict[str, Any], quotes: dict[tuple[float, str], dict[str, Any]], reason: str) -> dict[str, Any] | None:
+    """Close both legs; returns the closed trade, or None if a live leg failed
+    (the trade stays OPEN with needs_attention and is retried next minute)."""
     short_q = quotes.get((float(trade["shortStrike"]), "PE"))
     long_q = quotes.get((float(trade["longStrike"]), "PE"))
-    short_exit = _fill(short_q, "BUY") or float(trade["shortEntry"])
-    long_exit = _fill(long_q, "SELL") or float(trade["longEntry"])
+    short_exit = trade.get("shortExit")
+    long_exit = trade.get("longExit")
     qty = int(trade["lots"]) * int(trade["lotSize"])
+    if trade.get("mode") == "live":
+        tag = f"DT{trade['id']}X{int(time.time()) % 100000}"
+        if short_exit is None:  # buy the short back first -- never leave it naked
+            res = await _order("BUY", trade.get("shortSecurityId"), qty, f"{tag}S")
+            if not res["ok"]:
+                text = f"LIVE exit ({reason}): BUY back {trade['shortStrike']:.0f} PE failed ({res['message']}). Retrying every minute -- CHECK DHAN."
+                _attention(trade["id"], text)
+                await _notify(f"🚨 Define Turtle #{trade['id']} {text}")
+                return None
+            short_exit = res["price"] or _fill(short_q, "BUY") or float(trade.get("lastCost") or 0) + (_fill(long_q, "SELL") or 0)
+            db.update_turtle_trade(trade["id"], short_exit=short_exit, short_exit_order_id=res["orderId"], exit_reason=reason)
+        if long_exit is None:
+            res = await _order("SELL", trade.get("longSecurityId"), qty, f"{tag}L")
+            if not res["ok"]:
+                text = f"LIVE exit ({reason}): short is closed, but SELL of the {trade['longStrike']:.0f} PE hedge failed ({res['message']}). Retrying -- CHECK DHAN."
+                _attention(trade["id"], text)
+                await _notify(f"⚠️ Define Turtle #{trade['id']} {text}")
+                return None
+            long_exit = res["price"] or _fill(long_q, "SELL") or 0.0
+            db.update_turtle_trade(trade["id"], long_exit=long_exit, long_exit_order_id=res["orderId"])
+    else:
+        short_exit = _fill(short_q, "BUY") or float(trade["shortEntry"])
+        long_exit = _fill(long_q, "SELL") or float(trade["longEntry"])
     realized = ((float(trade["shortEntry"]) - short_exit) + (long_exit - float(trade["longEntry"]))) * qty
     settings = get_settings()
     charges = sum(
@@ -263,7 +392,7 @@ def _close(trade: dict[str, Any], quotes: dict[tuple[float, str], dict[str, Any]
     )
     db.update_turtle_trade(
         trade["id"], status="CLOSED", short_exit=short_exit, long_exit=long_exit, exit_time=int(time.time()),
-        exit_reason=reason, realized_pnl=round(realized, 2), charges=round(charges, 2),
+        exit_reason=trade.get("exitReason") or reason, realized_pnl=round(realized, 2), charges=round(charges, 2),
     )
     return summarize(next(t for t in db.list_turtle_trades(limit=20) if t["id"] == trade["id"]))
 
@@ -281,7 +410,9 @@ async def _manage(dhan: DhanService, trade: dict[str, Any], rsi_now: float | Non
 
     days_left = (expiry - now_ist().date()).days
     reason = None
-    if days_left <= int(config["calendarExitDays"]):
+    if trade.get("shortExit") is not None:  # live exit half done -- finish it
+        reason = trade.get("exitReason") or "retry"
+    elif days_left <= int(config["calendarExitDays"]):
         reason = "calendar"
     elif decay is not None and decay >= float(config["profitDecayPercent"]):
         reason = "profit_target"
@@ -289,10 +420,12 @@ async def _manage(dhan: DhanService, trade: dict[str, Any], rsi_now: float | Non
         reason = "trend_flip"
     if not reason:
         return
-    closed = _close(trade, quotes, reason)
-    label = {"calendar": "3-day calendar rule", "profit_target": "75% decay target", "trend_flip": "P&F RSI below 50"}[reason]
+    closed = await _close(trade, quotes, reason)
+    if closed is None:
+        return
+    label = {"calendar": "3-day calendar rule", "profit_target": "75% decay target", "trend_flip": "P&F RSI below 50"}.get(reason, reason)
     text = (
-        f"🐢 Define Turtle #{closed['id']} closed -- {label}\n"
+        f"🐢 Define Turtle #{closed['id']} closed{' (LIVE)' if closed.get('mode') == 'live' else ''} -- {label}\n"
         f"{closed['shortStrike']:.0f}/{closed['longStrike']:.0f} PE exp {closed['expiry']}: "
         f"gross ₹{closed['grossPnl']:,.0f}, charges ₹{closed['charges']:,.0f}, net ₹{closed['netPnl']:,.0f}"
     )
@@ -355,7 +488,9 @@ async def close_now(trade_id: int) -> dict[str, Any]:
         if not trade:
             return {"status": "blocked", "message": "Trade is not open."}
         _, quotes = await _chain_quotes(DhanService(), date.fromisoformat(trade["expiry"]))
-        closed = _close(trade, quotes, "manual")
+        closed = await _close(trade, quotes, "manual")
+    if closed is None:
+        return {"status": "failed", "message": "A live exit order failed -- see the alarm; it will be retried every minute."}
     await _notify(f"🐢 Define Turtle #{trade_id} closed manually: net ₹{closed['netPnl']:,.0f}")
     return {"status": "closed", "trade": closed}
 

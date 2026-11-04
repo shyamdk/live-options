@@ -84,4 +84,20 @@ No other stop (decision 6). Every entry/exit is also sent to Telegram.
 ## 6. Out of scope for now
 
 Bearish call spreads (40–50% booking), Bank Nifty / Sensex / MidSelect, Renko strategies,
-Strike Back, live orders, backtesting.
+Strike Back. (Live orders: see below.)
+
+## Live orders (Nov 2026)
+
+Paper by default. Real Dhan orders need `TURTLE_LIVE_ORDER_ENABLED=true` and
+`LIVE_ORDER_ENABLED=true` on the server **and** the page's mode set to Live.
+
+- Product MARGIN (NRML) -- spreads are held overnight. MARKET orders, `lots` from
+  capital / capital per lot (6 lots = 390 qty per leg, under the 1,800 freeze).
+- Entry: BUY the hedge put first, then SELL the ATM put. If the short sell fails,
+  the hedge is sold straight back and an alarm is raised.
+- Exit: BUY the short put back first, then SELL the hedge. If a leg fails, the
+  trade stays OPEN with `needs_attention`, an alarm and Telegram fire, and the
+  remaining leg is retried every minute. CLOSED only when both legs are out.
+- Each trade records its own mode: spreads opened in paper stay paper.
+- Recorded entry/exit prices are Dhan's average traded prices (quote if Dhan
+  has not confirmed the fill within ~8 s).

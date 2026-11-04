@@ -337,8 +337,13 @@ class Settings(BaseSettings):
     melting_live_order_product_type: str = "INTRADAY"
 
     # Define Turtle (docs/strategies/define-turtle.md): NIFTY P&F RSI + Turtle Follow-Through
-    # -> next-week put credit spread. Paper only.
+    # -> next-week put credit spread. Paper by default; real Dhan orders need BOTH
+    # turtle_live_order_enabled (env kill switch) AND the page's mode set to live,
+    # plus the global live_order_enabled switch (orders.py). Positions are held
+    # overnight, so the product type is MARGIN (NRML), never INTRADAY.
     turtle_monitor_enabled: bool = True
+    turtle_live_order_enabled: bool = False
+    turtle_live_order_product_type: str = "MARGIN"
 
     # Batman (docs/sources/batman-option-strategy-guide.pdf): NIFTY 1:3:2 double ratio
     # spread, monthly per the rulebook + a weekly variant. Paper only.
