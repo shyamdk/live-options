@@ -11,6 +11,7 @@ downloaded once a day.
 
 from __future__ import annotations
 
+import asyncio
 import time
 from datetime import date
 from typing import Any
@@ -27,6 +28,14 @@ _nifty_options: dict[str, Any] = {"day": None, "map": {}}
 
 class AngelError(RuntimeError):
     pass
+
+
+def _json(response: httpx.Response) -> dict[str, Any] | None:
+    try:
+        data = response.json()
+    except ValueError:
+        return None
+    return data if isinstance(data, dict) else None
 
 
 def _totp(secret: str) -> str:
@@ -85,12 +94,20 @@ class AngelBroker:
         async with httpx.AsyncClient(timeout=20) as client:
             jwt = await self._jwt(client)
             r = await client.request(method, f"{BASE}{path}", headers=self._headers(jwt), json=body)
-            data = r.json()
+            data = _json(r)
+            if data is None and method == "GET":
+                # usually Angel's per-second rate limit (plain-text reply): wait, retry a read once
+                await asyncio.sleep(1.2)
+                r = await client.request(method, f"{BASE}{path}", headers=self._headers(jwt), json=body)
+                data = _json(r)
+            if data is None:
+                # never re-send a POST here: an order may have been placed -- callers check the order book
+                raise AngelError(f"Angel {path}: unreadable reply (HTTP {r.status_code}): {r.text[:120]!r}")
             if not data.get("status"):
                 if data.get("errorcode") in ("AG8001", "AG8002", "AG8003"):  # token expired / invalid: log in again once
                     _session.update(jwt=None)
                     jwt = await self._jwt(client)
-                    data = (await client.request(method, f"{BASE}{path}", headers=self._headers(jwt), json=body)).json()
+                    data = _json(await client.request(method, f"{BASE}{path}", headers=self._headers(jwt), json=body)) or {}
                 if not data.get("status"):
                     raise AngelError(f"Angel {path} failed: {data.get('message')} ({data.get('errorcode')})")
             return data.get("data")
@@ -112,6 +129,13 @@ class AngelBroker:
             "ordertag": tag[:20],
         })
         return str(data["orderid"])
+
+    async def find_order_by_tag(self, tag: str) -> str | None:
+        """Order id of today's order carrying `tag` (to tell whether an order whose reply was lost was placed)."""
+        for row in await self._call("GET", "/rest/secure/angelbroking/order/v1/getOrderBook") or []:
+            if str(row.get("ordertag") or "") == tag[:20]:
+                return str(row.get("orderid"))
+        return None
 
     async def order_fill(self, order_id: str) -> dict[str, Any] | None:
         """{status, avgPrice, filledQty} for an order id, from the order book."""

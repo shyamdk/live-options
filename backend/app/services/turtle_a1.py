@@ -290,14 +290,23 @@ async def _angel_order(side: str, security_id: str | None, qty: int, correlation
         if security_id and str(security_id) != token:
             return {"ok": False, "orderId": None, "price": None, "message": f"token mismatch: Angel {symbol} = {token}, Dhan id {security_id}"}
         broker = AngelBroker()
-        order_id = None
+        order_id, last_error = None, None
         for attempt in range(2):
             try:
-                order_id = await broker.place_option_market_order(symbol=symbol, token=token, side=side, qty=qty, tag=f"{correlation}{attempt}")
+                order_id = await broker.place_option_market_order(symbol=symbol, token=token, side=side, qty=qty, tag=correlation)
                 break
             except Exception as exc:
                 last_error = exc
-                await asyncio.sleep(0.6)
+                await asyncio.sleep(1.5)
+                # the reply may have been lost after Angel took the order: look it up before trying again
+                try:
+                    order_id = await broker.find_order_by_tag(correlation)
+                except Exception:
+                    # cannot tell whether it was placed -- do not risk a duplicate
+                    return {"ok": False, "unknown": True, "orderId": None, "price": None,
+                            "message": f"Angel {symbol}: reply lost and order book unreadable -- order MAY be placed ({last_error})"}
+                if order_id:
+                    break
         if not order_id:
             return {"ok": False, "orderId": None, "price": None, "message": f"Angel {symbol}: {last_error}"}
         for _ in range(10):
@@ -382,10 +391,20 @@ async def enter(trigger: str, signal: dict[str, Any] | None = None) -> dict[str,
         leg = lambda strike: {"broker": broker, "expiry": expiry.isoformat(), "strike": strike}
         hedge = await _order("BUY", (long_q or {}).get("securityId"), qty, f"{tag}LE", **leg(long_strike))
         if not hedge["ok"]:
-            text = f"LIVE entry skipped: hedge BUY {long_strike:.0f} PE failed ({hedge['message']}). No position taken."
+            text = (f"LIVE entry skipped: hedge BUY {long_strike:.0f} PE failed ({hedge['message']}). "
+                    + ("The hedge MAY have been bought -- CHECK ANGEL POSITIONS." if hedge.get("unknown") else "No position taken."))
+            if hedge.get("unknown"):
+                db.create_turtle_alarm(kind="live_error", trade_id=None, title="LIVE entry: check Angel positions", message=text)
             await _notify(f"🚨 Define Turtle A1 {text}")
             return {"status": "failed", "message": text}
         short = await _order("SELL", (short_q or {}).get("securityId"), qty, f"{tag}SE", **leg(short_strike))
+        if not short["ok"] and short.get("unknown"):
+            # the short may be live: keep the hedge on, never leave a possible short naked
+            text = (f"LIVE entry: short SELL {short_strike:.0f} PE status UNKNOWN ({short['message']}); hedge {long_strike:.0f} PE "
+                    f"is bought and kept. CHECK ANGEL POSITIONS and close or record manually.")
+            db.create_turtle_alarm(kind="live_error", trade_id=None, title="LIVE entry: check Angel positions", message=text)
+            await _notify(f"🚨 Define Turtle A1 {text}")
+            return {"status": "failed", "message": text}
         if not short["ok"]:
             undo = await _order("SELL", (long_q or {}).get("securityId"), qty, f"{tag}LU", **leg(long_strike))
             text = (f"LIVE entry failed: short SELL {short_strike:.0f} PE failed ({short['message']}); "
