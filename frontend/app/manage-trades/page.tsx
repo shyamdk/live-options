@@ -467,7 +467,7 @@ function AngelA1Section() {
                 ) : (
                   <tr>
                     <td colSpan={9} className="pcr-oi-caption">
-                      No A1 spread open or closed today.
+                      No live A1 spread open or closed today (paper trades are on the A1 page).
                     </td>
                   </tr>
                 )}

@@ -612,7 +612,7 @@ def _num(value: Any) -> float | None:
 
 
 async def broker_book() -> dict[str, Any]:
-    """For Manage Trades: Angel One positions + this page's open / today's spreads.
+    """For Manage Trades: Angel One positions + this page's open / today's LIVE spreads (paper ones are left out).
     Read only; cached 10 s (Angel allows ~1 position call a second)."""
     if not _angel_configured():
         return {"configured": False}
@@ -638,6 +638,8 @@ async def broker_book() -> dict[str, Any]:
     today = now_ist().date()
     trades = []
     for t in db.list_turtle_trades(limit=50):
+        if t.get("mode") != "live":
+            continue
         exit_day = datetime.fromtimestamp(t["exitTime"], IST).date() if t.get("exitTime") else None
         if t["status"] == "OPEN" or exit_day == today:
             trades.append(summarize(t))
