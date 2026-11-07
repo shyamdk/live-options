@@ -1610,6 +1610,48 @@ def init_db() -> None:
             )
             """
         )
+        # P&F Lab: daily closes per market + paper books (market x horizon x system)
+        conn.execute("CREATE TABLE IF NOT EXISTS pf_lab_bars (market TEXT NOT NULL, time INTEGER NOT NULL, close REAL NOT NULL, PRIMARY KEY (market, time))")
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS pf_lab_trades (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                market TEXT NOT NULL,
+                horizon TEXT NOT NULL,
+                system TEXT NOT NULL,
+                position_id INTEGER,
+                side INTEGER NOT NULL,
+                status TEXT NOT NULL,
+                trigger TEXT NOT NULL,
+                opened_at INTEGER NOT NULL,
+                closed_at INTEGER,
+                exit_reason TEXT,
+                underlying_entry REAL NOT NULL,
+                underlying_exit REAL,
+                instrument TEXT NOT NULL,
+                qty REAL NOT NULL,
+                entry_price REAL,
+                exit_price REAL,
+                expiry TEXT,
+                short_strike REAL,
+                long_strike REAL,
+                short_security_id TEXT,
+                long_security_id TEXT,
+                short_entry REAL,
+                long_entry REAL,
+                short_exit REAL,
+                long_exit REAL,
+                realized REAL,
+                charges REAL,
+                last_value REAL,
+                last_pnl REAL,
+                last_update INTEGER
+            )
+            """
+        )
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_pf_lab_trades_book ON pf_lab_trades(market, horizon, status)")
+        conn.execute("CREATE TABLE IF NOT EXISTS pf_lab_events (id INTEGER PRIMARY KEY AUTOINCREMENT, time INTEGER NOT NULL, market TEXT NOT NULL, horizon TEXT, system TEXT, kind TEXT NOT NULL, text TEXT NOT NULL)")
+        conn.execute("CREATE TABLE IF NOT EXISTS pf_lab_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL)")
         # Notes page: free-form learnings by date + a cached AI summary
         conn.execute(
             """
@@ -5202,4 +5244,74 @@ def save_notes_summary(payload: dict[str, Any]) -> None:
             "ON CONFLICT(id) DO UPDATE SET payload = excluded.payload, generated_at = excluded.generated_at",
             (json.dumps(payload), int(datetime.now().timestamp())),
         )
+        conn.commit()
+
+
+# ---------------------------------------------------------------- P&F Lab
+
+
+def pf_save_bars(market: str, bars: list[tuple[int, float]]) -> None:
+    with _DB_LOCK, _connect() as conn:
+        conn.executemany("INSERT OR REPLACE INTO pf_lab_bars (market, time, close) VALUES (?, ?, ?)", [(market, int(t), float(c)) for t, c in bars])
+        conn.commit()
+
+
+def pf_list_bars(market: str) -> list[dict[str, Any]]:
+    with _DB_LOCK, _connect() as conn:
+        rows = conn.execute("SELECT time, close FROM pf_lab_bars WHERE market = ? ORDER BY time", (market,)).fetchall()
+    return [{"time": r["time"], "close": r["close"]} for r in rows]
+
+
+def pf_insert_trade(values: dict[str, Any]) -> int:
+    cols = ", ".join(values)
+    marks = ", ".join(f":{k}" for k in values)
+    with _DB_LOCK, _connect() as conn:
+        cursor = conn.execute(f"INSERT INTO pf_lab_trades ({cols}) VALUES ({marks})", values)
+        conn.commit()
+        return int(cursor.lastrowid)
+
+
+def pf_update_trade(trade_id: int, **values: Any) -> None:
+    sets = ", ".join(f"{k} = :{k}" for k in values)
+    with _DB_LOCK, _connect() as conn:
+        conn.execute(f"UPDATE pf_lab_trades SET {sets} WHERE id = :id", {**values, "id": trade_id})
+        conn.commit()
+
+
+def pf_list_trades(*, market: str | None = None, horizon: str | None = None, status: str | None = None, limit: int = 2000) -> list[dict[str, Any]]:
+    clauses, params = [], []
+    for col, val in (("market", market), ("horizon", horizon), ("status", status)):
+        if val:
+            clauses.append(f"{col} = ?")
+            params.append(val)
+    where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+    with _DB_LOCK, _connect() as conn:
+        rows = conn.execute(f"SELECT * FROM pf_lab_trades {where} ORDER BY opened_at DESC, id DESC LIMIT ?", (*params, limit)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def pf_add_event(market: str, horizon: str | None, system: str | None, kind: str, text: str) -> None:
+    with _DB_LOCK, _connect() as conn:
+        conn.execute("INSERT INTO pf_lab_events (time, market, horizon, system, kind, text) VALUES (?, ?, ?, ?, ?, ?)",
+                     (int(datetime.now().timestamp()), market, horizon, system, kind, text))
+        conn.commit()
+
+
+def pf_list_events(market: str, horizon: str | None = None, limit: int = 100) -> list[dict[str, Any]]:
+    with _DB_LOCK, _connect() as conn:
+        rows = conn.execute("SELECT * FROM pf_lab_events WHERE market = ? AND (horizon = ? OR horizon IS NULL OR ? IS NULL) ORDER BY id DESC LIMIT ?",
+                            (market, horizon, horizon, limit)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def pf_get_setting(key: str) -> str | None:
+    with _DB_LOCK, _connect() as conn:
+        row = conn.execute("SELECT value FROM pf_lab_settings WHERE key = ?", (key,)).fetchone()
+    return row["value"] if row else None
+
+
+def pf_set_setting(key: str, value: str) -> None:
+    with _DB_LOCK, _connect() as conn:
+        conn.execute("INSERT INTO pf_lab_settings (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
+                     (key, value, datetime.now().isoformat(timespec="seconds")))
         conn.commit()

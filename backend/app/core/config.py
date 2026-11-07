@@ -345,6 +345,10 @@ class Settings(BaseSettings):
     turtle_a1_monitor_enabled: bool = True
     turtle_a1_live_order_enabled: bool = False
 
+    # P&F Lab: five P&F pattern systems x 3 horizons on NIFTY (option spreads),
+    # BTC and gold (Delta perpetuals). Paper only.
+    pf_lab_monitor_enabled: bool = True
+
     # Batman (docs/sources/batman-option-strategy-guide.pdf): NIFTY 1:3:2 double ratio
     # spread, monthly per the rulebook + a weekly variant. Paper only.
     batman_monitor_enabled: bool = True

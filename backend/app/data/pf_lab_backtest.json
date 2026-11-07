@@ -1,0 +1,1239 @@
+{
+ "generatedAt": "2026-11-07T20:03+05:30",
+ "cells": {
+  "NIFTY|short|dtb_ma": {
+   "underlying": {
+    "logAnnual": -0.4,
+    "trades": 200,
+    "years": 18.8,
+    "perYear": 10.6,
+    "win": 36.0,
+    "avg": 0.11,
+    "total": 21.4,
+    "annual": 1.1,
+    "pf": 1.06,
+    "maxDD": -72.5,
+    "posYears": 9,
+    "nYears": 19,
+    "firstHalf": 0.0,
+    "secondHalf": 21.4,
+    "inMarket": 78.0,
+    "avgDays": 27.0,
+    "longTotal": 73.9,
+    "shortTotal": -52.5,
+    "nLong": 109,
+    "nShort": 91,
+    "open": {
+     "side": 1,
+     "entryTime": 1793557800,
+     "entryPrice": 23440.8
+    }
+   },
+   "spread": {
+    "trades": 200,
+    "win": 34.5,
+    "total": -188616,
+    "annual": -10009,
+    "avg": -943,
+    "maxDD": -214966,
+    "last3y": -57093
+   }
+  },
+  "NIFTY|short|triple": {
+   "underlying": {
+    "logAnnual": -1.1,
+    "trades": 19,
+    "years": 18.8,
+    "perYear": 1.0,
+    "win": 31.6,
+    "avg": -1.1,
+    "total": -20.9,
+    "annual": -1.1,
+    "pf": 0.31,
+    "maxDD": -20.9,
+    "posYears": 1,
+    "nYears": 11,
+    "firstHalf": -11.1,
+    "secondHalf": -9.8,
+    "inMarket": 5.0,
+    "avgDays": 19.6,
+    "longTotal": -9.2,
+    "shortTotal": -11.7,
+    "nLong": 11,
+    "nShort": 8,
+    "open": null
+   },
+   "spread": {
+    "trades": 19,
+    "win": 21.1,
+    "total": -40140,
+    "annual": -2130,
+    "avg": -2113,
+    "maxDD": -40140,
+    "last3y": -6094
+   }
+  },
+  "NIFTY|short|turtle": {
+   "underlying": {
+    "logAnnual": 0.0,
+    "trades": 106,
+    "years": 18.8,
+    "perYear": 5.6,
+    "win": 38.7,
+    "avg": 0.35,
+    "total": 37.4,
+    "annual": 2.0,
+    "pf": 1.13,
+    "maxDD": -81.2,
+    "posYears": 9,
+    "nYears": 19,
+    "firstHalf": 11.8,
+    "secondHalf": 25.6,
+    "inMarket": 99.0,
+    "avgDays": 64.1,
+    "longTotal": 121.1,
+    "shortTotal": -83.7,
+    "nLong": 52,
+    "nShort": 54,
+    "open": {
+     "side": 1,
+     "entryTime": 1793644200,
+     "entryPrice": 23810.85
+    }
+   },
+   "spread": {
+    "trades": 106,
+    "win": 33.0,
+    "total": -219028,
+    "annual": -11623,
+    "avg": -2066,
+    "maxDD": -230512,
+    "last3y": -68077
+   }
+  },
+  "NIFTY|short|abc": {
+   "underlying": {
+    "logAnnual": 0.3,
+    "trades": 7,
+    "years": 18.8,
+    "perYear": 0.4,
+    "win": 28.6,
+    "avg": 1.2,
+    "total": 8.4,
+    "annual": 0.4,
+    "pf": 1.44,
+    "maxDD": -17.1,
+    "posYears": 2,
+    "nYears": 6,
+    "firstHalf": -15.0,
+    "secondHalf": 23.3,
+    "inMarket": 2.0,
+    "avgDays": 23.4,
+    "longTotal": -2.8,
+    "shortTotal": 11.2,
+    "nLong": 3,
+    "nShort": 4,
+    "open": null
+   },
+   "spread": {
+    "trades": 7,
+    "win": 28.6,
+    "total": -602,
+    "annual": -32,
+    "avg": -86,
+    "maxDD": -14136,
+    "last3y": 0
+   }
+  },
+  "NIFTY|short|vcp": {
+   "underlying": {
+    "logAnnual": -1.5,
+    "trades": 25,
+    "years": 18.8,
+    "perYear": 1.3,
+    "win": 16.0,
+    "avg": -1.05,
+    "total": -26.2,
+    "annual": -1.4,
+    "pf": 0.45,
+    "maxDD": -32.0,
+    "posYears": 2,
+    "nYears": 14,
+    "firstHalf": -8.4,
+    "secondHalf": -17.8,
+    "inMarket": 7.0,
+    "avgDays": 20.2,
+    "longTotal": -15.4,
+    "shortTotal": -10.8,
+    "nLong": 21,
+    "nShort": 4,
+    "open": null
+   },
+   "spread": {
+    "trades": 25,
+    "win": 16.0,
+    "total": -54870,
+    "annual": -2912,
+    "avg": -2195,
+    "maxDD": -57375,
+    "last3y": -19570
+   }
+  },
+  "NIFTY|medium|dtb_ma": {
+   "underlying": {
+    "logAnnual": 4.0,
+    "trades": 44,
+    "years": 18.8,
+    "perYear": 2.3,
+    "win": 43.2,
+    "avg": 2.65,
+    "total": 116.6,
+    "annual": 6.2,
+    "pf": 1.73,
+    "maxDD": -40.5,
+    "posYears": 12,
+    "nYears": 17,
+    "firstHalf": 68.9,
+    "secondHalf": 47.7,
+    "inMarket": 75.0,
+    "avgDays": 117.9,
+    "longTotal": 125.9,
+    "shortTotal": -9.3,
+    "nLong": 26,
+    "nShort": 18,
+    "open": {
+     "side": -1,
+     "entryTime": 1790533800,
+     "entryPrice": 22780.25
+    }
+   },
+   "spread": {
+    "trades": 44,
+    "win": 40.9,
+    "total": 47020,
+    "annual": 2495,
+    "avg": 1069,
+    "maxDD": -82961,
+    "last3y": 83420
+   }
+  },
+  "NIFTY|medium|triple": {
+   "underlying": {
+    "logAnnual": 1.2,
+    "trades": 4,
+    "years": 18.8,
+    "perYear": 0.2,
+    "win": 50.0,
+    "avg": 6.66,
+    "total": 26.6,
+    "annual": 1.4,
+    "pf": 5.2,
+    "maxDD": -6.3,
+    "posYears": 2,
+    "nYears": 4,
+    "firstHalf": 25.2,
+    "secondHalf": 1.4,
+    "inMarket": 7.0,
+    "avgDays": 125.2,
+    "longTotal": -4.9,
+    "shortTotal": 31.5,
+    "nLong": 2,
+    "nShort": 2,
+    "open": null
+   },
+   "spread": {
+    "trades": 4,
+    "win": 75.0,
+    "total": 37423,
+    "annual": 1986,
+    "avg": 9356,
+    "maxDD": -6382,
+    "last3y": 35576
+   }
+  },
+  "NIFTY|medium|turtle": {
+   "underlying": {
+    "logAnnual": 4.7,
+    "trades": 26,
+    "years": 18.8,
+    "perYear": 1.4,
+    "win": 38.5,
+    "avg": 5.31,
+    "total": 137.9,
+    "annual": 7.3,
+    "pf": 2.02,
+    "maxDD": -40.4,
+    "posYears": 8,
+    "nYears": 12,
+    "firstHalf": 73.7,
+    "secondHalf": 64.2,
+    "inMarket": 91.0,
+    "avgDays": 242.1,
+    "longTotal": 177.6,
+    "shortTotal": -39.6,
+    "nLong": 12,
+    "nShort": 14,
+    "open": null
+   },
+   "spread": {
+    "trades": 26,
+    "win": 34.6,
+    "total": -100119,
+    "annual": -5313,
+    "avg": -3851,
+    "maxDD": -140287,
+    "last3y": -82687
+   }
+  },
+  "NIFTY|medium|abc": {
+   "underlying": {
+    "logAnnual": 0.6,
+    "trades": 3,
+    "years": 18.8,
+    "perYear": 0.2,
+    "win": 66.7,
+    "avg": 4.0,
+    "total": 12.0,
+    "annual": 0.6,
+    "pf": 2.92,
+    "maxDD": -6.3,
+    "posYears": 2,
+    "nYears": 3,
+    "firstHalf": 12.0,
+    "secondHalf": 0,
+    "inMarket": 4.0,
+    "avgDays": 90.7,
+    "longTotal": 6.0,
+    "shortTotal": 6.0,
+    "nLong": 1,
+    "nShort": 2,
+    "open": null
+   },
+   "spread": {
+    "trades": 3,
+    "win": 66.7,
+    "total": 3327,
+    "annual": 177,
+    "avg": 1109,
+    "maxDD": -1464,
+    "last3y": 0
+   }
+  },
+  "NIFTY|medium|vcp": {
+   "underlying": {
+    "logAnnual": -0.5,
+    "trades": 5,
+    "years": 18.8,
+    "perYear": 0.3,
+    "win": 40.0,
+    "avg": -1.9,
+    "total": -9.5,
+    "annual": -0.5,
+    "pf": 0.38,
+    "maxDD": -15.4,
+    "posYears": 1,
+    "nYears": 4,
+    "firstHalf": 3.4,
+    "secondHalf": -12.9,
+    "inMarket": 6.0,
+    "avgDays": 85.4,
+    "longTotal": 0.1,
+    "shortTotal": -9.5,
+    "nLong": 3,
+    "nShort": 2,
+    "open": null
+   },
+   "spread": {
+    "trades": 5,
+    "win": 20.0,
+    "total": -49757,
+    "annual": -2640,
+    "avg": -9951,
+    "maxDD": -53657,
+    "last3y": -34392
+   }
+  },
+  "NIFTY|long|dtb_ma": {
+   "underlying": {
+    "logAnnual": 1.9,
+    "trades": 4,
+    "years": 18.8,
+    "perYear": 0.2,
+    "win": 50.0,
+    "avg": 14.3,
+    "total": 57.2,
+    "annual": 3.0,
+    "pf": 3.31,
+    "maxDD": -19.0,
+    "posYears": 2,
+    "nYears": 3,
+    "firstHalf": 63.0,
+    "secondHalf": -5.8,
+    "inMarket": 56.0,
+    "avgDays": 957.2,
+    "longTotal": 81.9,
+    "shortTotal": -24.7,
+    "nLong": 2,
+    "nShort": 2,
+    "open": {
+     "side": 1,
+     "entryTime": 1668105000,
+     "entryPrice": 18349.7
+    }
+   },
+   "spread": {
+    "trades": 4,
+    "win": 25.0,
+    "total": -34748,
+    "annual": -1844,
+    "avg": -8687,
+    "maxDD": -36624,
+    "last3y": 0
+   }
+  },
+  "NIFTY|long|triple": {
+   "underlying": {
+    "logAnnual": 2.5,
+    "trades": 1,
+    "years": 18.8,
+    "perYear": 0.1,
+    "win": 100.0,
+    "avg": 59.37,
+    "total": 59.4,
+    "annual": 3.2,
+    "pf": null,
+    "maxDD": 0.0,
+    "posYears": 1,
+    "nYears": 1,
+    "firstHalf": 59.4,
+    "secondHalf": 0,
+    "inMarket": 12.0,
+    "avgDays": 858.0,
+    "longTotal": 59.4,
+    "shortTotal": 0,
+    "nLong": 1,
+    "nShort": 0,
+    "open": null
+   },
+   "spread": {
+    "trades": 1,
+    "win": 0.0,
+    "total": -2315,
+    "annual": -123,
+    "avg": -2315,
+    "maxDD": -2315,
+    "last3y": 0
+   }
+  },
+  "NIFTY|long|turtle": {
+   "underlying": {
+    "logAnnual": -0.3,
+    "trades": 6,
+    "years": 18.8,
+    "perYear": 0.3,
+    "win": 16.7,
+    "avg": 2.34,
+    "total": 14.0,
+    "annual": 0.7,
+    "pf": 1.27,
+    "maxDD": -42.4,
+    "posYears": 1,
+    "nYears": 4,
+    "firstHalf": 23.2,
+    "secondHalf": -9.2,
+    "inMarket": 58.0,
+    "avgDays": 663.5,
+    "longTotal": 53.5,
+    "shortTotal": -39.5,
+    "nLong": 3,
+    "nShort": 3,
+    "open": {
+     "side": 1,
+     "entryTime": 1604860200,
+     "entryPrice": 12461.05
+    }
+   },
+   "spread": {
+    "trades": 6,
+    "win": 16.7,
+    "total": -26607,
+    "annual": -1412,
+    "avg": -4435,
+    "maxDD": -32632,
+    "last3y": 0
+   }
+  },
+  "NIFTY|long|abc": {
+   "underlying": {
+    "trades": 0,
+    "years": 18.8
+   },
+   "spread": {
+    "trades": 0
+   }
+  },
+  "NIFTY|long|vcp": {
+   "underlying": {
+    "logAnnual": 2.5,
+    "trades": 2,
+    "years": 18.8,
+    "perYear": 0.1,
+    "win": 50.0,
+    "avg": 31.27,
+    "total": 62.5,
+    "annual": 3.3,
+    "pf": 21.01,
+    "maxDD": -3.1,
+    "posYears": 1,
+    "nYears": 2,
+    "firstHalf": 62.5,
+    "secondHalf": 0,
+    "inMarket": 47.0,
+    "avgDays": 1608.0,
+    "longTotal": 62.5,
+    "shortTotal": 0,
+    "nLong": 2,
+    "nShort": 0,
+    "open": null
+   },
+   "spread": {
+    "trades": 2,
+    "win": 50.0,
+    "total": -17846,
+    "annual": -947,
+    "avg": -8923,
+    "maxDD": -26509,
+    "last3y": 0
+   }
+  },
+  "BTC|short|dtb_ma": {
+   "underlying": {
+    "logAnnual": 21.9,
+    "trades": 233,
+    "years": 9.2,
+    "perYear": 25.3,
+    "win": 35.2,
+    "avg": 1.67,
+    "total": 389.6,
+    "annual": 42.2,
+    "pf": 1.49,
+    "maxDD": -101.6,
+    "posYears": 8,
+    "nYears": 10,
+    "firstHalf": 376.0,
+    "secondHalf": 13.5,
+    "inMarket": 78.0,
+    "avgDays": 11.3,
+    "longTotal": 433.7,
+    "shortTotal": -44.1,
+    "nLong": 111,
+    "nShort": 122,
+    "open": {
+     "side": -1,
+     "entryTime": 1793836800,
+     "entryPrice": 76088.01
+    }
+   }
+  },
+  "BTC|short|triple": {
+   "underlying": {
+    "logAnnual": 5.9,
+    "trades": 17,
+    "years": 9.2,
+    "perYear": 1.8,
+    "win": 29.4,
+    "avg": 5.2,
+    "total": 88.3,
+    "annual": 9.6,
+    "pf": 2.32,
+    "maxDD": -64.1,
+    "posYears": 4,
+    "nYears": 10,
+    "firstHalf": 132.4,
+    "secondHalf": -44.1,
+    "inMarket": 4.0,
+    "avgDays": 8.6,
+    "longTotal": 126.9,
+    "shortTotal": -38.6,
+    "nLong": 10,
+    "nShort": 7,
+    "open": null
+   }
+  },
+  "BTC|short|turtle": {
+   "underlying": {
+    "logAnnual": 36.0,
+    "trades": 116,
+    "years": 9.2,
+    "perYear": 12.6,
+    "win": 39.7,
+    "avg": 5.01,
+    "total": 581.6,
+    "annual": 63.1,
+    "pf": 2.07,
+    "maxDD": -61.2,
+    "posYears": 6,
+    "nYears": 10,
+    "firstHalf": 486.4,
+    "secondHalf": 95.2,
+    "inMarket": 94.0,
+    "avgDays": 27.4,
+    "longTotal": 559.8,
+    "shortTotal": 21.8,
+    "nLong": 57,
+    "nShort": 59,
+    "open": {
+     "side": -1,
+     "entryTime": 1791936000,
+     "entryPrice": 81682.01
+    }
+   }
+  },
+  "BTC|short|abc": {
+   "underlying": {
+    "logAnnual": 3.3,
+    "trades": 21,
+    "years": 9.2,
+    "perYear": 2.3,
+    "win": 33.3,
+    "avg": 2.92,
+    "total": 61.4,
+    "annual": 6.7,
+    "pf": 1.76,
+    "maxDD": -38.0,
+    "posYears": 3,
+    "nYears": 10,
+    "firstHalf": 99.4,
+    "secondHalf": -38.0,
+    "inMarket": 6.0,
+    "avgDays": 10.1,
+    "longTotal": 118.9,
+    "shortTotal": -57.5,
+    "nLong": 9,
+    "nShort": 12,
+    "open": null
+   }
+  },
+  "BTC|short|vcp": {
+   "underlying": {
+    "logAnnual": 1.2,
+    "trades": 17,
+    "years": 9.2,
+    "perYear": 1.8,
+    "win": 41.2,
+    "avg": 1.29,
+    "total": 22.0,
+    "annual": 2.4,
+    "pf": 1.4,
+    "maxDD": -39.5,
+    "posYears": 4,
+    "nYears": 7,
+    "firstHalf": 3.6,
+    "secondHalf": 18.4,
+    "inMarket": 6.0,
+    "avgDays": 11.2,
+    "longTotal": 27.4,
+    "shortTotal": -5.4,
+    "nLong": 10,
+    "nShort": 7,
+    "open": null
+   }
+  },
+  "BTC|medium|dtb_ma": {
+   "underlying": {
+    "logAnnual": 28.4,
+    "trades": 93,
+    "years": 9.2,
+    "perYear": 10.1,
+    "win": 45.2,
+    "avg": 4.78,
+    "total": 444.7,
+    "annual": 48.2,
+    "pf": 1.88,
+    "maxDD": -89.7,
+    "posYears": 9,
+    "nYears": 10,
+    "firstHalf": 339.0,
+    "secondHalf": 105.7,
+    "inMarket": 81.0,
+    "avgDays": 29.2,
+    "longTotal": 376.4,
+    "shortTotal": 68.4,
+    "nLong": 50,
+    "nShort": 43,
+    "open": {
+     "side": -1,
+     "entryTime": 1793836800,
+     "entryPrice": 76088.01
+    }
+   }
+  },
+  "BTC|medium|triple": {
+   "underlying": {
+    "logAnnual": -5.1,
+    "trades": 13,
+    "years": 9.2,
+    "perYear": 1.4,
+    "win": 15.4,
+    "avg": -1.12,
+    "total": -14.6,
+    "annual": -1.6,
+    "pf": 0.88,
+    "maxDD": -83.1,
+    "posYears": 2,
+    "nYears": 9,
+    "firstHalf": 36.4,
+    "secondHalf": -51.1,
+    "inMarket": 8.0,
+    "avgDays": 20.7,
+    "longTotal": 35.9,
+    "shortTotal": -50.5,
+    "nLong": 9,
+    "nShort": 4,
+    "open": null
+   }
+  },
+  "BTC|medium|turtle": {
+   "underlying": {
+    "logAnnual": 20.4,
+    "trades": 62,
+    "years": 9.2,
+    "perYear": 6.7,
+    "win": 35.5,
+    "avg": 8.27,
+    "total": 512.8,
+    "annual": 55.6,
+    "pf": 2.18,
+    "maxDD": -70.5,
+    "posYears": 7,
+    "nYears": 9,
+    "firstHalf": 520.1,
+    "secondHalf": -7.3,
+    "inMarket": 79.0,
+    "avgDays": 42.9,
+    "longTotal": 617.2,
+    "shortTotal": -104.4,
+    "nLong": 27,
+    "nShort": 35,
+    "open": null
+   }
+  },
+  "BTC|medium|abc": {
+   "underlying": {
+    "logAnnual": 1.0,
+    "trades": 4,
+    "years": 9.2,
+    "perYear": 0.4,
+    "win": 50.0,
+    "avg": 4.58,
+    "total": 18.3,
+    "annual": 2.0,
+    "pf": 1.72,
+    "maxDD": -19.2,
+    "posYears": 2,
+    "nYears": 4,
+    "firstHalf": 24.4,
+    "secondHalf": -6.1,
+    "inMarket": 3.0,
+    "avgDays": 28.0,
+    "longTotal": 24.4,
+    "shortTotal": -6.1,
+    "nLong": 3,
+    "nShort": 1,
+    "open": null
+   }
+  },
+  "BTC|medium|vcp": {
+   "underlying": {
+    "logAnnual": -4.4,
+    "trades": 7,
+    "years": 9.2,
+    "perYear": 0.8,
+    "win": 14.3,
+    "avg": -5.39,
+    "total": -37.8,
+    "annual": -4.1,
+    "pf": 0.24,
+    "maxDD": -49.5,
+    "posYears": 1,
+    "nYears": 6,
+    "firstHalf": 11.7,
+    "secondHalf": -49.5,
+    "inMarket": 4.0,
+    "avgDays": 20.1,
+    "longTotal": -7.2,
+    "shortTotal": -30.6,
+    "nLong": 4,
+    "nShort": 3,
+    "open": null
+   }
+  },
+  "BTC|long|dtb_ma": {
+   "underlying": {
+    "logAnnual": 11.0,
+    "trades": 24,
+    "years": 9.2,
+    "perYear": 2.6,
+    "win": 50.0,
+    "avg": 18.62,
+    "total": 446.9,
+    "annual": 48.5,
+    "pf": 2.53,
+    "maxDD": -143.2,
+    "posYears": 6,
+    "nYears": 10,
+    "firstHalf": 292.7,
+    "secondHalf": 154.2,
+    "inMarket": 74.0,
+    "avgDays": 103.8,
+    "longTotal": 525.2,
+    "shortTotal": -78.4,
+    "nLong": 11,
+    "nShort": 13,
+    "open": {
+     "side": 1,
+     "entryTime": 1789948800,
+     "entryPrice": 86620.0
+    }
+   }
+  },
+  "BTC|long|triple": {
+   "underlying": {
+    "logAnnual": -7.9,
+    "trades": 7,
+    "years": 9.2,
+    "perYear": 0.8,
+    "win": 14.3,
+    "avg": -8.03,
+    "total": -56.2,
+    "annual": -6.1,
+    "pf": 0.42,
+    "maxDD": -56.2,
+    "posYears": 1,
+    "nYears": 5,
+    "firstHalf": -53.5,
+    "secondHalf": -2.8,
+    "inMarket": 14.0,
+    "avgDays": 67.6,
+    "longTotal": -39.8,
+    "shortTotal": -16.4,
+    "nLong": 2,
+    "nShort": 5,
+    "open": null
+   }
+  },
+  "BTC|long|turtle": {
+   "underlying": {
+    "logAnnual": 16.1,
+    "trades": 25,
+    "years": 9.2,
+    "perYear": 2.7,
+    "win": 32.0,
+    "avg": 15.87,
+    "total": 396.7,
+    "annual": 43.0,
+    "pf": 2.83,
+    "maxDD": -55.9,
+    "posYears": 5,
+    "nYears": 9,
+    "firstHalf": 322.0,
+    "secondHalf": 74.7,
+    "inMarket": 75.0,
+    "avgDays": 101.5,
+    "longTotal": 475.5,
+    "shortTotal": -78.8,
+    "nLong": 11,
+    "nShort": 14,
+    "open": null
+   }
+  },
+  "BTC|long|abc": {
+   "underlying": {
+    "logAnnual": -2.8,
+    "trades": 1,
+    "years": 9.2,
+    "perYear": 0.1,
+    "win": 0.0,
+    "avg": -22.95,
+    "total": -23.0,
+    "annual": -2.5,
+    "pf": 0.0,
+    "maxDD": -23.0,
+    "posYears": 0,
+    "nYears": 1,
+    "firstHalf": -23.0,
+    "secondHalf": 0,
+    "inMarket": 1.0,
+    "avgDays": 28.0,
+    "longTotal": 0,
+    "shortTotal": -23.0,
+    "nLong": 0,
+    "nShort": 1,
+    "open": null
+   }
+  },
+  "BTC|long|vcp": {
+   "underlying": {
+    "logAnnual": -5.9,
+    "trades": 4,
+    "years": 9.2,
+    "perYear": 0.4,
+    "win": 25.0,
+    "avg": -9.09,
+    "total": -36.4,
+    "annual": -3.9,
+    "pf": 0.47,
+    "maxDD": -68.9,
+    "posYears": 1,
+    "nYears": 3,
+    "firstHalf": 32.5,
+    "secondHalf": -68.9,
+    "inMarket": 9.0,
+    "avgDays": 76.8,
+    "longTotal": -28.0,
+    "shortTotal": -8.4,
+    "nLong": 2,
+    "nShort": 2,
+    "open": null
+   }
+  },
+  "GOLD|short|dtb_ma": {
+   "underlying": {
+    "logAnnual": 2.1,
+    "trades": 70,
+    "years": 6.2,
+    "perYear": 11.3,
+    "win": 34.3,
+    "avg": 0.31,
+    "total": 21.7,
+    "annual": 3.5,
+    "pf": 1.17,
+    "maxDD": -28.2,
+    "posYears": 5,
+    "nYears": 7,
+    "firstHalf": 0.5,
+    "secondHalf": 21.2,
+    "inMarket": 85.0,
+    "avgDays": 27.5,
+    "longTotal": 34.1,
+    "shortTotal": -12.4,
+    "nLong": 36,
+    "nShort": 34,
+    "open": null
+   }
+  },
+  "GOLD|short|triple": {
+   "underlying": {
+    "logAnnual": 1.0,
+    "trades": 8,
+    "years": 6.2,
+    "perYear": 1.3,
+    "win": 50.0,
+    "avg": 0.83,
+    "total": 6.6,
+    "annual": 1.1,
+    "pf": 1.72,
+    "maxDD": -8.0,
+    "posYears": 3,
+    "nYears": 5,
+    "firstHalf": -1.6,
+    "secondHalf": 8.2,
+    "inMarket": 11.0,
+    "avgDays": 31.1,
+    "longTotal": -3.6,
+    "shortTotal": 10.3,
+    "nLong": 3,
+    "nShort": 5,
+    "open": null
+   }
+  },
+  "GOLD|short|turtle": {
+   "underlying": {
+    "logAnnual": 6.5,
+    "trades": 31,
+    "years": 6.2,
+    "perYear": 5.0,
+    "win": 58.1,
+    "avg": 1.53,
+    "total": 47.3,
+    "annual": 7.6,
+    "pf": 1.78,
+    "maxDD": -15.7,
+    "posYears": 5,
+    "nYears": 7,
+    "firstHalf": -2.6,
+    "secondHalf": 49.9,
+    "inMarket": 94.0,
+    "avgDays": 68.9,
+    "longTotal": 58.2,
+    "shortTotal": -10.9,
+    "nLong": 16,
+    "nShort": 15,
+    "open": {
+     "side": -1,
+     "entryTime": 1788998400,
+     "entryPrice": 4320.03
+    }
+   }
+  },
+  "GOLD|short|abc": {
+   "underlying": {
+    "logAnnual": 3.0,
+    "trades": 7,
+    "years": 6.2,
+    "perYear": 1.1,
+    "win": 42.9,
+    "avg": 2.91,
+    "total": 20.3,
+    "annual": 3.3,
+    "pf": 3.83,
+    "maxDD": -5.6,
+    "posYears": 3,
+    "nYears": 4,
+    "firstHalf": -1.9,
+    "secondHalf": 22.2,
+    "inMarket": 11.0,
+    "avgDays": 36.9,
+    "longTotal": 21.2,
+    "shortTotal": -0.8,
+    "nLong": 4,
+    "nShort": 3,
+    "open": null
+   }
+  },
+  "GOLD|short|vcp": {
+   "underlying": {
+    "logAnnual": 2.9,
+    "trades": 10,
+    "years": 6.2,
+    "perYear": 1.6,
+    "win": 50.0,
+    "avg": 1.95,
+    "total": 19.5,
+    "annual": 3.2,
+    "pf": 2.54,
+    "maxDD": -3.6,
+    "posYears": 3,
+    "nYears": 4,
+    "firstHalf": 2.9,
+    "secondHalf": 16.7,
+    "inMarket": 14.0,
+    "avgDays": 32.2,
+    "longTotal": 15.7,
+    "shortTotal": 3.8,
+    "nLong": 8,
+    "nShort": 2,
+    "open": null
+   }
+  },
+  "GOLD|medium|dtb_ma": {
+   "underlying": {
+    "logAnnual": 12.1,
+    "trades": 8,
+    "years": 6.2,
+    "perYear": 1.3,
+    "win": 75.0,
+    "avg": 11.45,
+    "total": 91.6,
+    "annual": 14.8,
+    "pf": 9.77,
+    "maxDD": -5.3,
+    "posYears": 3,
+    "nYears": 4,
+    "firstHalf": 55.2,
+    "secondHalf": 36.4,
+    "inMarket": 69.0,
+    "avgDays": 196.2,
+    "longTotal": 86.5,
+    "shortTotal": 5.0,
+    "nLong": 4,
+    "nShort": 4,
+    "open": {
+     "side": -1,
+     "entryTime": 1793318400,
+     "entryPrice": 3901.71
+    }
+   }
+  },
+  "GOLD|medium|triple": {
+   "underlying": {
+    "trades": 0,
+    "years": 6.2
+   }
+  },
+  "GOLD|medium|turtle": {
+   "underlying": {
+    "logAnnual": 12.1,
+    "trades": 3,
+    "years": 6.2,
+    "perYear": 0.5,
+    "win": 33.3,
+    "avg": 42.26,
+    "total": 126.8,
+    "annual": 20.5,
+    "pf": 11.67,
+    "maxDD": -11.9,
+    "posYears": 1,
+    "nYears": 3,
+    "firstHalf": 126.8,
+    "secondHalf": 0,
+    "inMarket": 66.0,
+    "avgDays": 498.3,
+    "longTotal": 131.1,
+    "shortTotal": -4.4,
+    "nLong": 2,
+    "nShort": 1,
+    "open": {
+     "side": -1,
+     "entryTime": 1773878400,
+     "entryPrice": 4652.38
+    }
+   }
+  },
+  "GOLD|medium|abc": {
+   "underlying": {
+    "logAnnual": -0.8,
+    "trades": 3,
+    "years": 6.2,
+    "perYear": 0.5,
+    "win": 33.3,
+    "avg": -1.45,
+    "total": -4.4,
+    "annual": -0.7,
+    "pf": 0.64,
+    "maxDD": -11.9,
+    "posYears": 0,
+    "nYears": 2,
+    "firstHalf": -2.9,
+    "secondHalf": -1.5,
+    "inMarket": 9.0,
+    "avgDays": 71.0,
+    "longTotal": -9.0,
+    "shortTotal": 4.7,
+    "nLong": 1,
+    "nShort": 2,
+    "open": null
+   }
+  },
+  "GOLD|medium|vcp": {
+   "underlying": {
+    "logAnnual": 2.9,
+    "trades": 2,
+    "years": 6.2,
+    "perYear": 0.3,
+    "win": 50.0,
+    "avg": 10.36,
+    "total": 20.7,
+    "annual": 3.3,
+    "pf": 4.99,
+    "maxDD": -5.2,
+    "posYears": 1,
+    "nYears": 2,
+    "firstHalf": -5.2,
+    "secondHalf": 25.9,
+    "inMarket": 16.0,
+    "avgDays": 182.0,
+    "longTotal": 25.9,
+    "shortTotal": -5.2,
+    "nLong": 1,
+    "nShort": 1,
+    "open": null
+   }
+  },
+  "GOLD|long|dtb_ma": {
+   "underlying": {
+    "logAnnual": 0.2,
+    "trades": 1,
+    "years": 6.2,
+    "perYear": 0.2,
+    "win": 100.0,
+    "avg": 1.24,
+    "total": 1.2,
+    "annual": 0.2,
+    "pf": null,
+    "maxDD": 0.0,
+    "posYears": 1,
+    "nYears": 1,
+    "firstHalf": 0,
+    "secondHalf": 1.2,
+    "inMarket": 4.0,
+    "avgDays": 83.0,
+    "longTotal": 1.2,
+    "shortTotal": 0,
+    "nLong": 1,
+    "nShort": 0,
+    "open": null
+   }
+  },
+  "GOLD|long|triple": {
+   "underlying": {
+    "trades": 0,
+    "years": 6.2
+   }
+  },
+  "GOLD|long|turtle": {
+   "underlying": {
+    "logAnnual": 5.8,
+    "trades": 3,
+    "years": 6.2,
+    "perYear": 0.5,
+    "win": 33.3,
+    "avg": 18.64,
+    "total": 55.9,
+    "annual": 9.0,
+    "pf": 3.93,
+    "maxDD": -19.1,
+    "posYears": 1,
+    "nYears": 2,
+    "firstHalf": -19.1,
+    "secondHalf": 75.0,
+    "inMarket": 49.0,
+    "avgDays": 372.7,
+    "longTotal": 64.7,
+    "shortTotal": -8.8,
+    "nLong": 2,
+    "nShort": 1,
+    "open": {
+     "side": -1,
+     "entryTime": 1793318400,
+     "entryPrice": 3901.71
+    }
+   }
+  },
+  "GOLD|long|abc": {
+   "underlying": {
+    "trades": 0,
+    "years": 6.2
+   }
+  },
+  "GOLD|long|vcp": {
+   "underlying": {
+    "trades": 0,
+    "years": 6.2
+   }
+  }
+ },
+ "data": {
+  "NIFTY": {
+   "from": "2008-01-01",
+   "to": "2026-11-05",
+   "bars": 4668,
+   "buyHoldCagr": 7.6,
+   "buyHoldLog": 7.3
+  },
+  "BTC": {
+   "from": "2017-08-17",
+   "to": "2026-11-06",
+   "bars": 3369,
+   "buyHoldCagr": 36.6,
+   "buyHoldLog": 31.2
+  },
+  "GOLD": {
+   "from": "2020-08-28",
+   "to": "2026-11-06",
+   "bars": 2262,
+   "buyHoldCagr": 12.3,
+   "buyHoldLog": 11.6
+  }
+ }
+}

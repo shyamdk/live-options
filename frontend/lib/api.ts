@@ -36,6 +36,7 @@ import type { NiftyStrangleConfig, NiftyStranglePlan, NiftyStrangleTrade } from 
 import type { MeltingConfig, MeltingDaySummary, MeltingState, MeltingTag, MeltingTrade } from "@/types/melting";
 import type { MantraAlarm, MantraConfig, MantraMode, MantraPlan, MantraTrade } from "@/types/mantra";
 import type { Note, NoteInput, NotesSummary } from "@/types/notes";
+import type { PfOverview, PfState } from "@/types/pf-lab";
 import type { TurtleA1Book, TurtleAlarm, TurtleConfig, TurtleState, TurtleTrade } from "@/types/turtle";
 import type { BatmanAnalysis, BatmanConfig, BatmanMode, BatmanPreview, BatmanTrade } from "@/types/batman";
 import type { BtcSpotChart, BtcStrangleChart, BtcStrangleConfig, BtcStranglePreview, BtcStrangleTrade } from "@/types/btc-strangle";
@@ -1100,4 +1101,25 @@ export async function getNotesSummary(): Promise<NotesSummary> {
 
 export async function refreshNotesSummary(): Promise<NotesSummary> {
   return apiJson<NotesSummary>("/api/notes/summary/refresh", { method: "POST" }, "Summary failed");
+}
+
+// P&F Lab
+export async function getPfOverview(): Promise<PfOverview> {
+  return apiJson<PfOverview>("/api/pf-lab/overview", undefined, "Failed to load P&F Lab");
+}
+
+export async function getPfState(market: string, horizon: string): Promise<PfState> {
+  return apiJson<PfState>(`/api/pf-lab/${market}/${horizon}/state`, undefined, "Failed to load the P&F Lab page");
+}
+
+export async function updatePfConfig(market: string, horizon: string, updates: Record<string, unknown>): Promise<PfState["config"]> {
+  return apiJson(`/api/pf-lab/${market}/${horizon}/config`, { method: "PUT", body: JSON.stringify(updates) }, "Failed to save settings");
+}
+
+export async function runPfMarket(market: string): Promise<{ status: string; changes?: string[]; message?: string }> {
+  return apiJson(`/api/pf-lab/${market}/run`, { method: "POST" }, "Run failed");
+}
+
+export async function closePfTrade(id: number): Promise<{ status: string; message?: string }> {
+  return apiJson(`/api/pf-lab/trades/${id}/close`, { method: "POST" }, "Close failed");
 }

@@ -19,6 +19,7 @@ import {
   Shapes,
   WalletCards,
   NotebookPen,
+  Grid3x3,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -56,6 +57,16 @@ const navItems = [
   { href: "/batman", label: "Batman", short: "BM", icon: Moon },
   { href: "/define-turtle", label: "Define Turtle", short: "DT", icon: Turtle },
   { href: "/define-turtle-a1", label: "Define Turtle A1", short: "A1", icon: Turtle },
+  { href: "/pf-lab", label: "P&F Lab", short: "PF", icon: Grid3x3 },
+  { href: "/pf-lab/nifty/short", label: "PF NIFTY · Short", short: "NS", icon: Grid3x3 },
+  { href: "/pf-lab/nifty/medium", label: "PF NIFTY · Medium", short: "NM", icon: Grid3x3 },
+  { href: "/pf-lab/nifty/long", label: "PF NIFTY · Long", short: "NL", icon: Grid3x3 },
+  { href: "/pf-lab/btc/short", label: "PF BTC · Short", short: "BS", icon: Grid3x3 },
+  { href: "/pf-lab/btc/medium", label: "PF BTC · Medium", short: "BM", icon: Grid3x3 },
+  { href: "/pf-lab/btc/long", label: "PF BTC · Long", short: "BL", icon: Grid3x3 },
+  { href: "/pf-lab/gold/short", label: "PF Gold · Short", short: "GS", icon: Grid3x3 },
+  { href: "/pf-lab/gold/medium", label: "PF Gold · Medium", short: "GM", icon: Grid3x3 },
+  { href: "/pf-lab/gold/long", label: "PF Gold · Long", short: "GL", icon: Grid3x3 },
   { href: "/mantra-theta-gainers", label: "Mantra - Theta Gainers", short: "MT", icon: InfinityIcon },
   { href: "/melting-straddles", label: "Melting Straddles", short: "MS", icon: Droplets },
   { href: "/melting-straddles-gap", label: "Melting Straddles - Gap", short: "MG", icon: Droplets },
