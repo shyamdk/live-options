@@ -20,6 +20,7 @@ import {
   WalletCards,
   NotebookPen,
   Grid3x3,
+  ChevronDown,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -57,22 +58,33 @@ const navItems = [
   { href: "/batman", label: "Batman", short: "BM", icon: Moon },
   { href: "/define-turtle", label: "Define Turtle", short: "DT", icon: Turtle },
   { href: "/define-turtle-a1", label: "Define Turtle A1", short: "A1", icon: Turtle },
-  { href: "/pf-lab", label: "P&F Lab", short: "PF", icon: Grid3x3 },
-  { href: "/pf-lab/nifty/short", label: "PF NIFTY · Short", short: "NS", icon: Grid3x3 },
-  { href: "/pf-lab/nifty/medium", label: "PF NIFTY · Medium", short: "NM", icon: Grid3x3 },
-  { href: "/pf-lab/nifty/long", label: "PF NIFTY · Long", short: "NL", icon: Grid3x3 },
-  { href: "/pf-lab/btc/short", label: "PF BTC · Short", short: "BS", icon: Grid3x3 },
-  { href: "/pf-lab/btc/medium", label: "PF BTC · Medium", short: "BM", icon: Grid3x3 },
-  { href: "/pf-lab/btc/long", label: "PF BTC · Long", short: "BL", icon: Grid3x3 },
-  { href: "/pf-lab/gold/short", label: "PF Gold · Short", short: "GS", icon: Grid3x3 },
-  { href: "/pf-lab/gold/medium", label: "PF Gold · Medium", short: "GM", icon: Grid3x3 },
-  { href: "/pf-lab/gold/long", label: "PF Gold · Long", short: "GL", icon: Grid3x3 },
+  { href: "/pf-lab", label: "Overview", short: "PF", icon: Grid3x3, group: "pf" },
+  { href: "/pf-lab/nifty/short", label: "NIFTY · Short", short: "NS", icon: Grid3x3, group: "pf" },
+  { href: "/pf-lab/nifty/medium", label: "NIFTY · Medium", short: "NM", icon: Grid3x3, group: "pf" },
+  { href: "/pf-lab/nifty/long", label: "NIFTY · Long", short: "NL", icon: Grid3x3, group: "pf" },
+  { href: "/pf-lab/btc/short", label: "BTC · Short", short: "BS", icon: Grid3x3, group: "pf" },
+  { href: "/pf-lab/btc/medium", label: "BTC · Medium", short: "BM", icon: Grid3x3, group: "pf" },
+  { href: "/pf-lab/btc/long", label: "BTC · Long", short: "BL", icon: Grid3x3, group: "pf" },
+  { href: "/pf-lab/gold/short", label: "Gold · Short", short: "GS", icon: Grid3x3, group: "pf" },
+  { href: "/pf-lab/gold/medium", label: "Gold · Medium", short: "GM", icon: Grid3x3, group: "pf" },
+  { href: "/pf-lab/gold/long", label: "Gold · Long", short: "GL", icon: Grid3x3, group: "pf" },
   { href: "/mantra-theta-gainers", label: "Mantra - Theta Gainers", short: "MT", icon: InfinityIcon },
   { href: "/melting-straddles", label: "Melting Straddles", short: "MS", icon: Droplets },
   { href: "/melting-straddles-gap", label: "Melting Straddles - Gap", short: "MG", icon: Droplets },
 ];
 
+// Folders in the nav: items with a matching `group` render inside a collapsible
+// entry, closed by default (opened automatically while one of its pages is shown).
+const NAV_GROUPS: Record<string, { label: string; short: string; icon: typeof Grid3x3 }> = {
+  pf: { label: "P&F Lab", short: "PF", icon: Grid3x3 },
+};
+
 const STORAGE_KEY = "live-options-sidebar-collapsed";
+const GROUP_KEY = "live-options-sidebar-groups";
+
+function isActive(pathname: string, href: string, exact: boolean): boolean {
+  return pathname === href || (!exact && pathname.startsWith(`${href}/`));
+}
 
 export default function AppSidebar() {
   const pathname = usePathname();
@@ -81,6 +93,40 @@ export default function AppSidebar() {
   useEffect(() => {
     setCollapsed(window.localStorage.getItem(STORAGE_KEY) === "true");
   }, []);
+
+  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
+  useEffect(() => {
+    try {
+      setOpenGroups(JSON.parse(window.localStorage.getItem(GROUP_KEY) || "{}"));
+    } catch {
+      // storage blocked: groups just start closed
+    }
+  }, []);
+
+  function toggleGroup(group: string, open: boolean) {
+    setOpenGroups((current) => {
+      const next = { ...current, [group]: open };
+      try {
+        window.localStorage.setItem(GROUP_KEY, JSON.stringify(next));
+      } catch {
+        // ignore
+      }
+      return next;
+    });
+  }
+
+  function renderLink(item: (typeof navItems)[number], nested: boolean) {
+    const Icon = item.icon;
+    return (
+      <Link key={item.href} href={item.href} title={item.label} className={`${isActive(pathname, item.href, nested) ? "active" : ""} ${nested ? "nav-nested" : ""}`}>
+        <span className="nav-icon">
+          <Icon size={nested ? 15 : 17} />
+        </span>
+        <span className="nav-short">{item.short}</span>
+        <span className="nav-label">{item.label}</span>
+      </Link>
+    );
+  }
 
   function toggleCollapsed() {
     setCollapsed((current) => {
@@ -100,18 +146,35 @@ export default function AppSidebar() {
         </button>
       </div>
       <nav className="nav-tabs" aria-label="Primary navigation">
-        {navItems.map((item) => {
-          const Icon = item.icon;
-          const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
-          return (
-            <Link key={item.href} href={item.href} title={item.label} className={active ? "active" : ""}>
-              <span className="nav-icon">
-                <Icon size={17} />
-              </span>
-              <span className="nav-short">{item.short}</span>
-              <span className="nav-label">{item.label}</span>
-            </Link>
-          );
+        {navItems.map((item, index) => {
+          const group = "group" in item ? (item.group as string) : null;
+          if (group && index > 0 && "group" in navItems[index - 1] && navItems[index - 1].group === group) return null;
+          if (group) {
+            const children = navItems.filter((x) => "group" in x && x.group === group);
+            const meta = NAV_GROUPS[group];
+            const inside = children.some((x) => isActive(pathname, x.href, true));
+            const open = openGroups[group] ?? inside;
+            const GroupIcon = meta.icon;
+            return (
+              <div key={`group-${group}`} className="nav-group">
+                <button type="button" className={`nav-group-toggle ${inside && !open ? "active" : ""}`} onClick={() => toggleGroup(group, !open)}
+                  title={meta.label} aria-expanded={open}>
+                  <span className="nav-icon">
+                    <GroupIcon size={17} />
+                  </span>
+                  <span className="nav-short">{meta.short}</span>
+                  <span className="nav-label">{meta.label}</span>
+                  <span className="nav-chevron">{open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}</span>
+                </button>
+                {open ? (
+                  <div className="nav-group-items">
+                    {children.map((child) => renderLink(child, true))}
+                  </div>
+                ) : null}
+              </div>
+            );
+          }
+          return renderLink(item, false);
         })}
       </nav>
     </aside>
