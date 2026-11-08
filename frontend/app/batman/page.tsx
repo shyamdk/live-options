@@ -9,6 +9,7 @@ import { DailyTotalsTable, groupDailyTotals } from "@/components/DailyTotals";
 import StrikeDistanceMap from "@/components/StrikeDistanceMap";
 import { istTime as noteTime, TradeNote, useTradeMarkers } from "@/components/TradeMarkers";
 import VarahaPayoffChart from "@/components/VarahaPayoffChart";
+import ToneText from "@/components/ToneText";
 import {
   analyzeBatman,
   closeBatmanTrade,
@@ -516,7 +517,7 @@ function WeeklyAnalyzer() {
               <div key={m.label} className="metric metric-compact" style={{ flex: "1 1 170px" }}>
                 <span>{m.label}</span>
                 <strong>{m.value}</strong>
-                {m.caption ? <span className="pcr-oi-caption">{m.caption}</span> : null}
+                {m.caption ? <span className="pcr-oi-caption"><ToneText text={m.caption} /></span> : null}
               </div>
             ))}
           </div>
@@ -609,7 +610,7 @@ function PlanSection({ mode, preview }: { mode: BatmanMode; preview: BatmanPrevi
               <div key={m.label} className="metric metric-compact" style={{ flex: "1 1 170px" }}>
                 <span>{m.label}</span>
                 <strong>{m.value}</strong>
-                {m.caption ? <span className="pcr-oi-caption">{m.caption}</span> : null}
+                {m.caption ? <span className="pcr-oi-caption"><ToneText text={m.caption} /></span> : null}
               </div>
             ))}
           </div>

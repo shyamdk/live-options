@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { IBM_Plex_Mono, IBM_Plex_Sans } from "next/font/google";
 
 import AuthShell from "@/components/AuthShell";
+import NegativeTone from "@/components/NegativeTone";
 import "./globals.css";
 
 // Ledger look (from the OI Early Signal Ledger): Plex Sans for text, Plex
@@ -19,6 +20,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
     <html lang="en" className={`${plexSans.variable} ${plexMono.variable}`}>
       <body>
         <AuthShell>{children}</AuthShell>
+        <NegativeTone />
       </body>
     </html>
   );

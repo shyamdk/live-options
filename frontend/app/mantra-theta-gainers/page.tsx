@@ -9,6 +9,7 @@ import CollapsibleSection from "@/components/CollapsibleSection";
 import { DailyTotalsTable, groupDailyTotals } from "@/components/DailyTotals";
 import StrikeDistanceMap from "@/components/StrikeDistanceMap";
 import { istTime as noteTime, TradeNote, useTradeMarkers } from "@/components/TradeMarkers";
+import ToneText from "@/components/ToneText";
 import {
   acknowledgeMantraAlarm,
   closeMantraTrade,
@@ -262,7 +263,7 @@ function Metrics({ items }: { items: { label: string; value: string; caption?: s
         <div key={m.label} className="metric metric-compact" style={{ flex: "1 1 150px" }}>
           <span>{m.label}</span>
           <strong style={{ color: m.color }}>{m.value}</strong>
-          {m.caption ? <span className="pcr-oi-caption">{m.caption}</span> : null}
+          {m.caption ? <span className="pcr-oi-caption"><ToneText text={m.caption} /></span> : null}
         </div>
       ))}
     </div>

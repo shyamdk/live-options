@@ -8,6 +8,7 @@ import CollapsibleSection from "@/components/CollapsibleSection";
 import { DailyTotalsTable, groupDailyTotals } from "@/components/DailyTotals";
 import StrikeDistanceMap from "@/components/StrikeDistanceMap";
 import { istTime, TradeNote, useTradeMarkers } from "@/components/TradeMarkers";
+import ToneText from "@/components/ToneText";
 import {
   closeNiftyStrangleLeg,
   enterNiftyStrangleNow,
@@ -344,7 +345,7 @@ function PlanView({ plan }: { plan: NiftyStranglePlan | null }) {
             <div key={m.label} className="metric metric-compact" style={{ flex: "1 1 150px" }}>
               <span>{m.label}</span>
               <strong style={{ color: m.color }}>{m.value}</strong>
-              <span className="pcr-oi-caption">{m.caption}</span>
+              <span className="pcr-oi-caption"><ToneText text={m.caption} /></span>
             </div>
           ))}
         </div>

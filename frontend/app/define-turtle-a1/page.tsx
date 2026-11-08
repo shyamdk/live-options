@@ -16,6 +16,7 @@ import {
   updateTurtleA1Config as updateTurtleConfig,
 } from "@/lib/api";
 import { MarkerTooltip, TradeNote } from "@/components/TradeMarkers";
+import ToneText from "@/components/ToneText";
 import type { PnfColumn, PnfSignal, TurtleAlarm, TurtleConfig, TurtleState, TurtleTrade } from "@/types/turtle";
 
 const REFRESH_MS = 20000;
@@ -229,7 +230,7 @@ function StatusStrip({ state }: { state: TurtleState | null }) {
         <div key={m.label} className="metric metric-compact" style={{ flex: "1 1 160px" }}>
           <span>{m.label}</span>
           <strong style={{ color: m.color }}>{m.value}</strong>
-          {m.caption ? <span className="pcr-oi-caption">{m.caption}</span> : null}
+          {m.caption ? <span className="pcr-oi-caption"><ToneText text={m.caption} /></span> : null}
         </div>
       ))}
     </div>
@@ -452,7 +453,7 @@ function OpenSpread({ trade, config, busy, onClose }: { trade: TurtleTrade; conf
           <div key={m.label} className="metric metric-compact" style={{ flex: "1 1 150px" }}>
             <span>{m.label}</span>
             <strong style={{ color: m.color }}>{m.value}</strong>
-            <span className="pcr-oi-caption">{m.caption}</span>
+            <span className="pcr-oi-caption"><ToneText text={m.caption} /></span>
           </div>
         ))}
       </div>

@@ -2118,3 +2118,8 @@ td strong { font-weight: 600; }
 .auth-panel { border-radius: var(--radius); box-shadow: 0 12px 32px rgba(23, 33, 43, 0.08); }
 
 input, select, textarea { border-color: var(--line); }
+
+/* Platform rule: negative figures are red (components/NegativeTone.tsx tags them). */
+.auto-negative {
+  color: var(--red) !important;
+}

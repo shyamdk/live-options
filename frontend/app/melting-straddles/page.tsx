@@ -7,6 +7,7 @@ import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import CollapsibleSection from "@/components/CollapsibleSection";
 import { istTime, TradeNote, useTradeMarkers } from "@/components/TradeMarkers";
 import { DailyTotalsTable, groupDailyTotals } from "@/components/DailyTotals";
+import ToneText from "@/components/ToneText";
 import {
   closeMeltingTrade,
   enterMeltingNow,
@@ -286,7 +287,7 @@ function Metric({ label, value, caption, color }: { label: string; value: string
     <div className="metric metric-compact" style={{ flex: "1 1 150px" }}>
       <span>{label}</span>
       <strong style={{ color }}>{value}</strong>
-      {caption ? <span className="pcr-oi-caption">{caption}</span> : null}
+      {caption ? <span className="pcr-oi-caption"><ToneText text={caption} /></span> : null}
     </div>
   );
 }

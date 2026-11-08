@@ -83,7 +83,15 @@ export default function PfLabOverview() {
                     return (
                       <td key={h}>
                         <Link href={`/pf-lab/${m.toLowerCase()}/${h}`}>
-                          {b ? `${b.open} open · realized ${money(b.realized, b.currency)} · open ${money(b.openPnl, b.currency)}` : "open →"}
+                          {b ? (
+                            <>
+                              {b.open} open · realized <span style={{ color: b.realized < 0 ? "var(--red)" : b.realized > 0 ? "var(--green)" : undefined }}>{money(b.realized, b.currency)}</span>
+                              {" · open "}
+                              <span style={{ color: b.openPnl < 0 ? "var(--red)" : b.openPnl > 0 ? "var(--green)" : undefined }}>{money(b.openPnl, b.currency)}</span>
+                            </>
+                          ) : (
+                            "open →"
+                          )}
                         </Link>
                       </td>
                     );

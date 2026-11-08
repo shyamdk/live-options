@@ -35,6 +35,7 @@ import VarahaPayoffChart from "@/components/VarahaPayoffChart";
 import DishaTagHint from "@/components/DishaTagHint";
 import type { DishaState } from "@/types/disha";
 import PcrOiPanel from "@/components/PcrOiPanel";
+import ToneText from "@/components/ToneText";
 
 type DraftLevels = {
   stopLoss: string;
@@ -1088,7 +1089,7 @@ function TagLevelsBar({
       : status === "TRIGGERING"
         ? "Exiting…"
         : status === "DONE"
-          ? `${levels.triggerKind === "stopLoss" ? "Stop loss" : levels.triggerKind === "manual" ? "Closed manually" : "Target"} hit · all legs closed${levels.triggeredAt ? ` at ${levels.triggeredAt.slice(11, 16)}` : ""} (net ${money(levels.triggerNet)})`
+          ? `${levels.triggerKind === "stopLoss" ? "Stop loss" : levels.triggerKind === "manual" ? "Closed manually" : "Target"} hit · all legs closed${levels.triggeredAt ? ` at ${levels.triggeredAt.slice(11, 16)}` : ""} (net ₹${money(levels.triggerNet)})`
           : status === "PARTIAL" || status === "FAILED"
             ? `Exit ${status.toLowerCase()} -- ${(levels.result?.legs ?? []).filter((leg) => !leg.ok).map((leg) => `${leg.label}: ${leg.message ?? leg.status}`).join("; ")}`
             : "No tag target / stop loss";
@@ -1132,7 +1133,7 @@ function TagLevelsBar({
         </button>
       ) : null}
       <span className={`status-live ${statusTone}`} title={levels.result ? JSON.stringify(levels.result.legs) : undefined}>
-        {statusText}
+        <ToneText text={statusText} />
       </span>
     </div>
   );

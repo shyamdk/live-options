@@ -8,6 +8,7 @@ import CollapsibleSection from "@/components/CollapsibleSection";
 import { DailyTotalsTable, groupDailyTotals } from "@/components/DailyTotals";
 import VarahaPayoffChart from "@/components/VarahaPayoffChart";
 import VarahaTabs from "@/components/VarahaTabs";
+import ToneText from "@/components/ToneText";
 import {
   closeVarahaPaperTrade,
   enterVarahaPaperNow,
@@ -202,7 +203,7 @@ function Metric({ label, value, caption, color }: { label: string; value: string
     <div className="metric metric-compact" style={{ flex: "1 1 160px" }}>
       <span>{label}</span>
       <strong style={{ color }}>{value}</strong>
-      {caption ? <span className="pcr-oi-caption">{caption}</span> : null}
+      {caption ? <span className="pcr-oi-caption"><ToneText text={caption} /></span> : null}
     </div>
   );
 }

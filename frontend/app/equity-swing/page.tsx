@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import CollapsibleSection from "@/components/CollapsibleSection";
 import SwingRetrospectives from "@/components/SwingRetrospectives";
+import ToneText from "@/components/ToneText";
 import { getSwingState, rebalanceSwingNow, syncSwingData, updateSwingConfig } from "@/lib/api";
 import type { SwingConfig, SwingState, SwingTrade } from "@/types/equity-swing";
 
@@ -39,7 +40,7 @@ function Metric({ label, value, caption, color }: { label: string; value: string
     <div className="metric metric-compact" style={{ flex: "1 1 150px" }}>
       <span>{label}</span>
       <strong style={{ color }}>{value}</strong>
-      {caption ? <small className="pcr-oi-caption">{caption}</small> : null}
+      {caption ? <small className="pcr-oi-caption"><ToneText text={caption} /></small> : null}
     </div>
   );
 }

@@ -8,6 +8,7 @@ import CollapsibleSection from "@/components/CollapsibleSection";
 import { DailyTotalsTable, groupDailyTotals } from "@/components/DailyTotals";
 import StrikeDistanceMap from "@/components/StrikeDistanceMap";
 import { istTime, TradeNote, useTradeMarkers } from "@/components/TradeMarkers";
+import ToneText from "@/components/ToneText";
 import { closeCalmTrade, enterCalmNow, getCalmState, getCalmTrade, getCalmTrades, updateCalmConfig } from "@/lib/api";
 import type { CalmConfig, CalmState, CalmTrade, CalmTradeDetail } from "@/types/calm-strangle";
 
@@ -197,7 +198,7 @@ function Metric({ label, value, caption, color }: { label: string; value: string
     <div className="metric metric-compact" style={{ flex: "1 1 150px" }}>
       <span>{label}</span>
       <strong style={{ color }}>{value}</strong>
-      {caption ? <span className="pcr-oi-caption">{caption}</span> : null}
+      {caption ? <span className="pcr-oi-caption"><ToneText text={caption} /></span> : null}
     </div>
   );
 }

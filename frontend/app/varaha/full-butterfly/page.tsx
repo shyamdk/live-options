@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 
 import VarahaPayoffChart from "@/components/VarahaPayoffChart";
 import VarahaTabs from "@/components/VarahaTabs";
+import ToneText from "@/components/ToneText";
 import { scanFullButterfly } from "@/lib/api";
 import type { FullButterflyFilters, FullButterflyResult, FullButterflyScan } from "@/types/varaha";
 
@@ -355,7 +356,7 @@ function ScanSummary({ scan }: { scan: FullButterflyScan }) {
           <div key={m.label} className="metric metric-compact" style={{ flex: "1 1 140px" }}>
             <span>{m.label}</span>
             <strong>{m.value}</strong>
-            {m.caption ? <span className="pcr-oi-caption">{m.caption}</span> : null}
+            {m.caption ? <span className="pcr-oi-caption"><ToneText text={m.caption} /></span> : null}
           </div>
         ))}
       </div>
@@ -566,7 +567,7 @@ function ResultDetail({ scan, result }: { scan: FullButterflyScan; result: FullB
           <div key={m.label} className="metric metric-compact" style={{ flex: "1 1 140px" }}>
             <span>{m.label}</span>
             <strong>{m.value}</strong>
-            {m.caption ? <span className="pcr-oi-caption">{m.caption}</span> : null}
+            {m.caption ? <span className="pcr-oi-caption"><ToneText text={m.caption} /></span> : null}
           </div>
         ))}
       </div>

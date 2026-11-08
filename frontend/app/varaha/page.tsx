@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import VarahaPayoffChart from "@/components/VarahaPayoffChart";
 import VarahaTabs from "@/components/VarahaTabs";
+import ToneText from "@/components/ToneText";
 import { getVarahaHistory, getVarahaLatest, runVaraha, setVarahaOverride, updateVarahaConfig } from "@/lib/api";
 import type {
   VarahaCandidate,
@@ -259,7 +260,7 @@ function SummaryStrip({ recommendation }: { recommendation: VarahaRecommendation
         <div key={m.label} className="metric metric-compact" style={{ flex: "1 1 140px" }}>
           <span>{m.label}</span>
           <strong>{m.value}</strong>
-          {m.caption ? <span className="pcr-oi-caption">{m.caption}</span> : null}
+          {m.caption ? <span className="pcr-oi-caption"><ToneText text={m.caption} /></span> : null}
         </div>
       ))}
     </div>
