@@ -110,7 +110,6 @@ export default function DefineTurtleA1Page() {
   const config = state?.config;
   const liveNow = config?.mode === "live" && config?.liveOrdersAllowed;
   const attention = (state?.openTrades ?? []).filter((t) => t.needsAttention);
-  const closed = trades.filter((t) => t.status === "CLOSED");
 
   return (
     <section className="page">
@@ -189,13 +188,40 @@ export default function DefineTurtleA1Page() {
         )}
       </CollapsibleSection>
 
-      <CollapsibleSection id="turtlea1-pnl" title="Daily P&L">
-        <DailyTotalsTable rows={groupDailyTotals(closed, (t) => t.exitTime, (t) => t.grossPnl, (t) => t.netPnl)} cumulative />
-      </CollapsibleSection>
-
-      <CollapsibleSection id="turtlea1-trades" title={`All trades (${trades.length})`} defaultOpen={false}>
-        <TradesTable trades={trades} />
-      </CollapsibleSection>
+      {(["live", "paper"] as const).map((mode) => {
+        const rows = trades.filter((t) => (t.mode ?? "paper") === mode);
+        const done = rows.filter((t) => t.status === "CLOSED");
+        const net = done.reduce((sum, t) => sum + t.netPnl, 0);
+        const label = mode === "live" ? "Live trades — Angel One" : "Paper trades";
+        return (
+          <CollapsibleSection
+            key={mode}
+            id={`turtlea1-${mode}`}
+            title={`${label} (${rows.length})`}
+            defaultOpen={mode === "live"}
+            aside={
+              done.length ? (
+                <span className="pcr-oi-caption">
+                  {done.length} closed · net <strong style={{ color: tone(net) }}>{inr(net)}</strong>
+                </span>
+              ) : null
+            }
+          >
+            {rows.length ? (
+              <>
+                <h3 style={{ fontSize: 13, margin: "0 0 6px" }}>Daily P&amp;L</h3>
+                <DailyTotalsTable rows={groupDailyTotals(done, (t) => t.exitTime, (t) => t.grossPnl, (t) => t.netPnl)} cumulative />
+                <h3 style={{ fontSize: 13, margin: "14px 0 6px" }}>Trades</h3>
+                <TradesTable trades={rows} />
+              </>
+            ) : (
+              <p className="pcr-oi-caption" style={{ margin: 0 }}>
+                No {mode} trades yet.
+              </p>
+            )}
+          </CollapsibleSection>
+        );
+      })}
 
       <AlarmHistory />
       <SettingsSection config={config ?? null} onSaved={load} />
