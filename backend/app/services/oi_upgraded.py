@@ -26,6 +26,7 @@ from __future__ import annotations
 import asyncio
 from datetime import datetime
 
+from app.core.sessions import weekday_open
 from app.core.config import Settings, get_settings
 from app.core.timeutil import in_time_window, now_ist
 from app.db.sqlite import get_paper_trading_settings, get_pcr_oi_session_dates, get_pcr_oi_snapshots, record_oi_upgraded_signal
@@ -96,7 +97,7 @@ async def _loop() -> None:
             in_hours = in_time_window(
                 now.time(), settings.oi_upgraded_session_start_time, settings.oi_upgraded_session_end_time
             )
-            if in_hours and now.weekday() < 5:
+            if in_hours and weekday_open(now):
                 await _log_latest_point(now)
         except asyncio.CancelledError:
             raise

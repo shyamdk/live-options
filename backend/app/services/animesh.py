@@ -21,6 +21,7 @@ from datetime import datetime
 from datetime import time as dt_time
 from typing import Any
 
+from app.core.sessions import weekday_open
 from app.core.config import Settings, get_settings
 from app.core.timeutil import in_time_window, now_ist, now_ist_epoch
 from app.db import animesh as db
@@ -84,7 +85,7 @@ async def _scheduler_loop() -> None:
 async def _tick(settings: Settings) -> None:
     now = now_ist()
     in_hours = in_time_window(now.time(), settings.animesh_session_start_time, settings.animesh_session_end_time)
-    is_weekday = now.weekday() < 5
+    is_weekday = weekday_open(now)
 
     if _active is None and in_hours and is_weekday:
         await _start_session(settings, now)

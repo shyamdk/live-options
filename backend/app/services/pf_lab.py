@@ -31,6 +31,7 @@ from zoneinfo import ZoneInfo
 
 import httpx
 
+from app.core.sessions import weekday_open
 from app.core.config import get_settings
 from app.db import sqlite as db
 from app.services import pf_lab_engine as P
@@ -448,7 +449,7 @@ async def _loop() -> None:
             if time.time() - mtm_at > 300:
                 mtm_at = time.time()
                 for market in MARKETS:
-                    if market == "NIFTY" and not (now.weekday() < 5 and dtime(9, 15) <= now.time() <= dtime(15, 30)):
+                    if market == "NIFTY" and not (weekday_open(now) and dtime(9, 15) <= now.time() <= dtime(15, 30)):
                         continue
                     try:
                         await mark_to_market(market)

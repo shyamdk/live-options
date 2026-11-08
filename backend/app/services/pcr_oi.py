@@ -16,6 +16,7 @@ import asyncio
 from datetime import date, datetime, time
 from typing import Any
 
+from app.core.sessions import weekday_open
 from app.core.config import Settings, get_settings
 from app.core.timeutil import epoch_to_ist_time, in_time_window, now_ist, now_ist_epoch
 from app.db.sqlite import record_pcr_oi_snapshot
@@ -52,7 +53,7 @@ async def _loop() -> None:
         try:
             now = now_ist()
             in_hours = in_time_window(now.time(), settings.pcr_oi_session_start_time, settings.pcr_oi_session_end_time)
-            if in_hours and now.weekday() < 5:
+            if in_hours and weekday_open(now):
                 await _poll_once(settings, now)
         except asyncio.CancelledError:
             raise

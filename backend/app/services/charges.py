@@ -3,6 +3,8 @@ from __future__ import annotations
 from typing import Any
 
 from app.core.config import Settings, get_settings
+from app.core.sessions import zero_brokerage_today
+from app.core.timeutil import now_ist
 
 
 def apply_option_charge_estimates(
@@ -120,6 +122,8 @@ def option_order_charges(
         else settings.option_nse_transaction_percent
     )
     brokerage = settings.option_brokerage_per_order * max(order_count, 1) if quantity > 0 else 0
+    if brokerage and zero_brokerage_today(now_ist().date()):
+        brokerage = 0.0  # special session with brokerage waived (Dhan, Muhurat)
     transaction = _round_money(_percent(turnover, transaction_percent))
     sebi = _round_money(_percent(turnover, settings.option_sebi_turnover_percent))
     ipft = _round_money(_percent(turnover, settings.option_ipft_percent))

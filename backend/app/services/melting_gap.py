@@ -21,6 +21,7 @@ from datetime import date, datetime, time as dtime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from app.core.sessions import weekday_open
 from app.core.config import get_settings
 from app.db import sqlite as _sqlite
 
@@ -204,7 +205,7 @@ async def pick_index(dhan: DhanService, today: date, config: dict[str, Any]) -> 
 
 
 def market_open(now: datetime) -> bool:
-    return now.weekday() < 5 and dtime(9, 15) <= now.time() <= dtime(15, 30)
+    return weekday_open(now) and dtime(9, 15) <= now.time() <= dtime(15, 30)
 
 
 # ---------------------------------------------------------------- day setup

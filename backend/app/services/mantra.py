@@ -24,6 +24,7 @@ from datetime import date, datetime, time as dtime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from app.core.sessions import weekday_open
 from app.core.config import get_settings
 from app.db import sqlite as db
 from app.services import varaha
@@ -416,7 +417,7 @@ async def _close(trade, quotes, reason: str, stamp: int) -> None:
 
 async def monitor_once() -> None:
     now = datetime.now(IST)
-    if now.weekday() >= 5 or not (MARKET_OPEN <= now.time() <= MARKET_CLOSE):
+    if not weekday_open(now) or not (MARKET_OPEN <= now.time() <= MARKET_CLOSE):
         return
     minute = int(now.timestamp()) // 60
     if _last_minute.get("m") == minute:

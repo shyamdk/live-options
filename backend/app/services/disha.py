@@ -17,6 +17,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
+from app.core.sessions import weekday_open
 from app.core.config import get_settings
 from app.core.timeutil import now_ist
 from app.db import sqlite as db
@@ -161,7 +162,7 @@ async def get_state() -> dict[str, Any]:
 
     data = {
         "asOf": int(time.time()), "day": today, "errors": errors,
-        "marketOpen": now.weekday() < 5 and OPEN_MIN <= now.hour * 60 + now.minute <= 15 * 60 + 30,
+        "marketOpen": weekday_open(now) and OPEN_MIN <= now.hour * 60 + now.minute <= 15 * 60 + 30,
         "spot": [{"time": c["time"], "close": c["close"]} for c in candles],
         "last": last, "open": day_open, "prevClose": prev_close,
         "gapPts": round(day_open - prev_close, 2) if day_open and prev_close else None,

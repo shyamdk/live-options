@@ -26,6 +26,7 @@ import time
 from datetime import date
 from typing import Any
 
+from app.core.sessions import weekday_open
 from app.core.config import get_settings
 from app.core.timeutil import now_ist
 from app.services import varaha
@@ -255,7 +256,7 @@ async def scan(
     chain = await _chain(dhan, chosen["expiry"])
     spot = chain["spot"]
     now = now_ist()
-    market_open = now.weekday() < 5 and varaha.MARKET_OPEN <= now.time() <= varaha.MARKET_CLOSE
+    market_open = weekday_open(now) and varaha.MARKET_OPEN <= now.time() <= varaha.MARKET_CLOSE
     expiry_block = {
         **chosen,
         "years": varaha._years_until_expiry(date.fromisoformat(chosen["expiry"])),

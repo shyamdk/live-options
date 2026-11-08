@@ -5,6 +5,7 @@ import re
 from datetime import datetime, time as dtime, timedelta
 from typing import Any
 
+from app.core.sessions import weekday_open
 from app.core.config import get_settings
 from app.core.timeutil import now_ist, today_ist
 from app.db.sqlite import (
@@ -1258,7 +1259,7 @@ def _tag_groups(
 
 def _market_open_now() -> bool:
     now = now_ist()
-    return now.weekday() < 5 and _MARKET_OPEN <= now.time() <= _MARKET_CLOSE
+    return weekday_open(now) and _MARKET_OPEN <= now.time() <= _MARKET_CLOSE
 
 
 async def save_tag_levels(tag: str, target: float | None, stop_loss: float | None) -> dict[str, Any]:

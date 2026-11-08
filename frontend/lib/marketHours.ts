@@ -5,6 +5,11 @@
  * re-polling every few seconds on evenings/weekends when nothing is
  * changing, not be exact.
  */
+// Special sessions on non-weekdays, IST (mirrors backend Settings.special_sessions).
+const SPECIAL_SESSIONS: Record<string, [number, number]> = {
+  "2026-11-08": [14 * 60 + 20, 15 * 60 + 30], // Diwali Muhurat
+};
+
 export function isMarketHoursNow(): boolean {
   const parts = new Intl.DateTimeFormat("en-US", {
     timeZone: "Asia/Kolkata",
@@ -15,7 +20,14 @@ export function isMarketHoursNow(): boolean {
   }).formatToParts(new Date());
 
   const weekday = parts.find((p) => p.type === "weekday")?.value ?? "";
-  if (weekday === "Sat" || weekday === "Sun") return false;
+  if (weekday === "Sat" || weekday === "Sun") {
+    const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date());
+    const window = SPECIAL_SESSIONS[today];
+    if (!window) return false;
+    const h = Number(parts.find((p) => p.type === "hour")?.value ?? "0") % 24;
+    const m = Number(parts.find((p) => p.type === "minute")?.value ?? "0");
+    return h * 60 + m >= window[0] && h * 60 + m <= window[1];
+  }
 
   const hour = Number(parts.find((p) => p.type === "hour")?.value ?? "0") % 24;
   const minute = Number(parts.find((p) => p.type === "minute")?.value ?? "0");

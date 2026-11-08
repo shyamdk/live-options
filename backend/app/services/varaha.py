@@ -20,6 +20,7 @@ from datetime import date, datetime, time as dtime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from app.core.sessions import weekday_open
 from app.core.config import Settings, get_settings
 from app.core.timeutil import now_ist, now_ist_epoch
 from app.db import sqlite as db
@@ -164,7 +165,7 @@ async def collect_snapshot(settings: Settings) -> dict[str, Any]:
     snapshot: dict[str, Any] = {
         "takenAt": now_ist_epoch(),
         "sessionDate": today.isoformat(),
-        "marketOpen": now.weekday() < 5 and MARKET_OPEN <= now.time() <= MARKET_CLOSE,
+        "marketOpen": weekday_open(now) and MARKET_OPEN <= now.time() <= MARKET_CLOSE,
         "warnings": [],
     }
     nifty = settings.dhan_nifty_security_id
@@ -521,7 +522,7 @@ async def _loop() -> None:
             decision = _parse_hhmm(settings.varaha_decision_time)
             if (
                 settings.varaha_monitor_enabled
-                and now.weekday() < 5
+                and weekday_open(now)
                 and decision <= now.time() < MARKET_CLOSE
                 and not db.has_varaha_scheduled_run(today)
             ):

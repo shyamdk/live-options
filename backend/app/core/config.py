@@ -46,6 +46,9 @@ class Settings(BaseSettings):
     live_order_type: str = "MARKET"
     live_order_validity: str = "DAY"
     option_brokerage_per_order: float = 20.0
+    # Special sessions on non-weekdays (app/core/sessions.py), IST:
+    # "YYYY-MM-DD HH:MM-HH:MM[ nobrokerage], ...". 8 Nov 2026: Diwali Muhurat, Dhan brokerage waived.
+    special_sessions: str = "2026-11-08 14:20-15:30 nobrokerage"
     option_gst_percent: float = 18.0
     option_stt_sell_percent: float = 0.1
     option_stamp_buy_percent: float = 0.003

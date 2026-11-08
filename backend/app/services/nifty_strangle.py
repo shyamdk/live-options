@@ -31,6 +31,7 @@ from datetime import date, datetime, time as dtime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from app.core.sessions import weekday_open
 from app.core.config import get_settings
 from app.db import sqlite as db
 from app.services import varaha
@@ -150,7 +151,7 @@ async def next_entry(dhan: DhanService, today: date, *, after_window: bool = Fal
 
 
 def market_open(now: datetime) -> bool:
-    return now.weekday() < 5 and MARKET_OPEN <= now.time() <= MARKET_CLOSE
+    return weekday_open(now) and MARKET_OPEN <= now.time() <= MARKET_CLOSE
 
 
 # ---------------------------------------------------------------- planning
@@ -403,7 +404,7 @@ async def monitor_once() -> None:
 
 async def _monitor() -> None:
     now = datetime.now(IST)
-    if now.weekday() >= 5:
+    if not weekday_open(now):
         return
     config = get_config()
     dhan = DhanService(get_settings())

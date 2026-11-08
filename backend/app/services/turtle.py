@@ -18,6 +18,7 @@ from datetime import date, datetime, time as dtime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from app.core.sessions import weekday_open
 from app.core.config import get_settings
 from app.core.timeutil import now_ist
 from app.db import sqlite as db
@@ -204,7 +205,7 @@ async def state() -> dict[str, Any]:
 
 
 def _market_open(now: datetime) -> bool:
-    return now.weekday() < 5 and MARKET_OPEN <= now.time() <= MARKET_CLOSE
+    return weekday_open(now) and MARKET_OPEN <= now.time() <= MARKET_CLOSE
 
 
 async def enter(trigger: str, signal: dict[str, Any] | None = None) -> dict[str, Any]:
