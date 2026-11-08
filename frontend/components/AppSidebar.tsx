@@ -21,6 +21,8 @@ import {
   NotebookPen,
   Grid3x3,
   ChevronDown,
+  Menu,
+  X,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -89,6 +91,9 @@ function isActive(pathname: string, href: string, exact: boolean): boolean {
 export default function AppSidebar() {
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
+  // phones: the menu is a drawer behind a Menu button (closed after each navigation)
+  const [mobileOpen, setMobileOpen] = useState(false);
+  useEffect(() => setMobileOpen(false), [pathname]);
 
   useEffect(() => {
     setCollapsed(window.localStorage.getItem(STORAGE_KEY) === "true");
@@ -137,12 +142,15 @@ export default function AppSidebar() {
   }
 
   return (
-    <aside className={`sidebar ${collapsed ? "collapsed" : ""}`}>
+    <aside className={`sidebar ${collapsed ? "collapsed" : ""} ${mobileOpen ? "mobile-open" : ""}`}>
       <div className="brand">
         <span className="brand-mark">L</span>
         <span className="brand-name">Live Options</span>
         <button className="icon-button sidebar-toggle" type="button" title={collapsed ? "Expand navigation" : "Collapse navigation"} onClick={toggleCollapsed}>
           {collapsed ? <ChevronRight size={15} /> : <ChevronLeft size={15} />}
+        </button>
+        <button className="button secondary mobile-menu-button" type="button" aria-expanded={mobileOpen} onClick={() => setMobileOpen((o) => !o)}>
+          {mobileOpen ? <X size={16} /> : <Menu size={16} />} {mobileOpen ? "Close" : "Menu"}
         </button>
       </div>
       <nav className="nav-tabs" aria-label="Primary navigation">
