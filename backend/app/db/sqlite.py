@@ -1613,6 +1613,32 @@ def init_db() -> None:
             )
             """
         )
+        # 1-Min CHoCH paper trades (NIFTY futures points)
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS choch_trades (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                day TEXT NOT NULL,
+                side INTEGER NOT NULL,
+                status TEXT NOT NULL,
+                entry_time INTEGER NOT NULL,
+                entry REAL NOT NULL,
+                stop REAL NOT NULL,
+                target REAL NOT NULL,
+                exit_time INTEGER,
+                exit REAL,
+                exit_reason TEXT,
+                points REAL,
+                lots INTEGER NOT NULL,
+                lot_size INTEGER NOT NULL,
+                cost_points REAL NOT NULL,
+                params TEXT NOT NULL,
+                last_price REAL,
+                UNIQUE (day, entry_time)
+            )
+            """
+        )
+        conn.execute("CREATE TABLE IF NOT EXISTS choch_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL)")
         # P&F Lab: daily closes per market + paper books (market x horizon x system)
         conn.execute("CREATE TABLE IF NOT EXISTS pf_lab_bars (market TEXT NOT NULL, time INTEGER NOT NULL, close REAL NOT NULL, PRIMARY KEY (market, time))")
         conn.execute(
@@ -5336,5 +5362,49 @@ def pf_get_setting(key: str) -> str | None:
 def pf_set_setting(key: str, value: str) -> None:
     with _DB_LOCK, _connect() as conn:
         conn.execute("INSERT INTO pf_lab_settings (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
+                     (key, value, datetime.now().isoformat(timespec="seconds")))
+        conn.commit()
+
+
+# ---------------------------------------------------------------- 1-Min CHoCH
+
+
+def choch_insert_trade(values: dict[str, Any]) -> int | None:
+    cols = ", ".join(values)
+    marks = ", ".join(f":{k}" for k in values)
+    with _DB_LOCK, _connect() as conn:
+        cursor = conn.execute(f"INSERT OR IGNORE INTO choch_trades ({cols}) VALUES ({marks})", values)
+        conn.commit()
+        return int(cursor.lastrowid) if cursor.rowcount else None
+
+
+def choch_update_trade(trade_id: int, **values: Any) -> None:
+    sets = ", ".join(f"{k} = :{k}" for k in values)
+    with _DB_LOCK, _connect() as conn:
+        conn.execute(f"UPDATE choch_trades SET {sets} WHERE id = :id", {**values, "id": trade_id})
+        conn.commit()
+
+
+def choch_list_trades(*, day: str | None = None, status: str | None = None, limit: int = 2000) -> list[dict[str, Any]]:
+    clauses, params = [], []
+    if day:
+        clauses.append("day = ?"); params.append(day)
+    if status:
+        clauses.append("status = ?"); params.append(status)
+    where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+    with _DB_LOCK, _connect() as conn:
+        rows = conn.execute(f"SELECT * FROM choch_trades {where} ORDER BY entry_time DESC LIMIT ?", (*params, limit)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def choch_get_setting(key: str) -> str | None:
+    with _DB_LOCK, _connect() as conn:
+        row = conn.execute("SELECT value FROM choch_settings WHERE key = ?", (key,)).fetchone()
+    return row["value"] if row else None
+
+
+def choch_set_setting(key: str, value: str) -> None:
+    with _DB_LOCK, _connect() as conn:
+        conn.execute("INSERT INTO choch_settings (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
                      (key, value, datetime.now().isoformat(timespec="seconds")))
         conn.commit()

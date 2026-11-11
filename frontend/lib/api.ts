@@ -37,6 +37,7 @@ import type { MeltingConfig, MeltingDaySummary, MeltingState, MeltingTag, Meltin
 import type { MantraAlarm, MantraConfig, MantraMode, MantraPlan, MantraTrade } from "@/types/mantra";
 import type { Note, NoteInput, NotesSummary } from "@/types/notes";
 import type { PfOverview, PfState } from "@/types/pf-lab";
+import type { ChochConfig, ChochState, ChochTrade } from "@/types/choch";
 import type { TurtleA1Book, TurtleAlarm, TurtleConfig, TurtleState, TurtleTrade } from "@/types/turtle";
 import type { BatmanAnalysis, BatmanConfig, BatmanMode, BatmanPreview, BatmanTrade } from "@/types/batman";
 import type { BtcSpotChart, BtcStrangleChart, BtcStrangleConfig, BtcStranglePreview, BtcStrangleTrade } from "@/types/btc-strangle";
@@ -1125,4 +1126,21 @@ export async function runPfMarket(market: string): Promise<{ status: string; cha
 
 export async function closePfTrade(id: number): Promise<{ status: string; message?: string }> {
   return apiJson(`/api/pf-lab/trades/${id}/close`, { method: "POST" }, "Close failed");
+}
+
+// 1-Min CHoCH
+export async function getChochState(): Promise<ChochState> {
+  return apiJson<ChochState>("/api/choch/state", undefined, "Failed to load 1-Min CHoCH");
+}
+
+export async function getChochCandles(): Promise<{ candles: { time: number; open: number; high: number; low: number; close: number }[] }> {
+  return apiJson("/api/choch/candles", undefined, "Failed to load NIFTY candles");
+}
+
+export async function getChochTrades(): Promise<{ trades: ChochTrade[] }> {
+  return apiJson<{ trades: ChochTrade[] }>("/api/choch/trades", undefined, "Failed to load trades");
+}
+
+export async function updateChochConfig(updates: Partial<ChochConfig>): Promise<ChochConfig> {
+  return apiJson<ChochConfig>("/api/choch/config", { method: "PUT", body: JSON.stringify(updates) }, "Failed to save settings");
 }

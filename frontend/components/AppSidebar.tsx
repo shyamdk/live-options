@@ -23,6 +23,7 @@ import {
   ChevronDown,
   Menu,
   X,
+  Crosshair,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -60,6 +61,7 @@ const navItems = [
   { href: "/batman", label: "Batman", short: "BM", icon: Moon },
   { href: "/define-turtle", label: "Define Turtle", short: "DT", icon: Turtle },
   { href: "/define-turtle-a1", label: "Define Turtle A1", short: "A1", icon: Turtle },
+  { href: "/choch-1min", label: "1-Min CHoCH", short: "CH", icon: Crosshair },
   { href: "/pf-lab", label: "Overview", short: "PF", icon: Grid3x3, group: "pf" },
   { href: "/pf-lab/nifty/short", label: "NIFTY · Short", short: "NS", icon: Grid3x3, group: "pf" },
   { href: "/pf-lab/nifty/medium", label: "NIFTY · Medium", short: "NM", icon: Grid3x3, group: "pf" },

@@ -34,6 +34,7 @@ from app.api.turtle import router as turtle_router
 from app.api.turtle_a1 import router as turtle_a1_router
 from app.api.notes import router as notes_router
 from app.api.pf_lab import router as pf_lab_router
+from app.api.choch import router as choch_router
 from app.api.varaha import router as varaha_router
 from app.core.config import get_settings
 from app.db.sqlite import init_db
@@ -69,6 +70,7 @@ from app.services.theta import start_theta_task, stop_theta_task
 from app.services.turtle import start_turtle_task, stop_turtle_task
 from app.services.turtle_a1 import start_turtle_a1_task, stop_turtle_a1_task
 from app.services.pf_lab import start_pf_lab_task, stop_pf_lab_task
+from app.services.choch import start_choch_task, stop_choch_task
 from app.services.varaha import start_varaha_task, stop_varaha_task
 from app.services.trades import (
     start_risk_order_monitor_task,
@@ -100,6 +102,7 @@ batman_task = None
 turtle_task = None
 turtle_a1_task = None
 pf_lab_task = None
+choch_task = None
 mantra_task = None
 melting_task = None
 melting_gap_task = None
@@ -123,7 +126,7 @@ app.add_middleware(
 
 @app.on_event("startup")
 async def startup() -> None:
-    global risk_order_monitor_task, spot_distance_monitor_task, gamma_blast_task, journal_insights_task, ema5_task, animesh_task, credit_spread_task, theta_task, market_news_task, market_calendar_task, pcr_oi_task, paper_trading_task, oi_upgraded_task, simple_crossover_task, varaha_task, btc_strangle_task, batman_task, turtle_task, turtle_a1_task, pf_lab_task, mantra_task, melting_task, melting_gap_task, nifty_strangle_task, calm_strangle_task, calm_or_task, btc_calm_task, varaha_paper_task, alerts_task, equity_swing_task, dhan_health_task
+    global risk_order_monitor_task, spot_distance_monitor_task, gamma_blast_task, journal_insights_task, ema5_task, animesh_task, credit_spread_task, theta_task, market_news_task, market_calendar_task, pcr_oi_task, paper_trading_task, oi_upgraded_task, simple_crossover_task, varaha_task, btc_strangle_task, batman_task, turtle_task, turtle_a1_task, pf_lab_task, choch_task, mantra_task, melting_task, melting_gap_task, nifty_strangle_task, calm_strangle_task, calm_or_task, btc_calm_task, varaha_paper_task, alerts_task, equity_swing_task, dhan_health_task
     init_db()
     spot_distance_monitor_task = start_spot_distance_monitor_task()
     risk_order_monitor_task = start_risk_order_monitor_task()
@@ -145,6 +148,7 @@ async def startup() -> None:
     turtle_task = start_turtle_task()
     turtle_a1_task = start_turtle_a1_task()
     pf_lab_task = start_pf_lab_task()
+    choch_task = start_choch_task()
     mantra_task = start_mantra_task()
     melting_task = start_melting_task()
     melting_gap_task = start_melting_gap_task()
@@ -180,6 +184,7 @@ async def shutdown() -> None:
     await stop_turtle_task(turtle_task)
     await stop_turtle_a1_task(turtle_a1_task)
     await stop_pf_lab_task(pf_lab_task)
+    await stop_choch_task(choch_task)
     await stop_mantra_task(mantra_task)
     await stop_melting_task(melting_task)
     await stop_melting_gap_task(melting_gap_task)
@@ -216,6 +221,7 @@ app.include_router(turtle_router, prefix=settings.api_prefix)
 app.include_router(turtle_a1_router, prefix=settings.api_prefix)
 app.include_router(notes_router, prefix=settings.api_prefix)
 app.include_router(pf_lab_router, prefix=settings.api_prefix)
+app.include_router(choch_router, prefix=settings.api_prefix)
 app.include_router(mantra_router, prefix=settings.api_prefix)
 app.include_router(melting_router, prefix=settings.api_prefix)
 app.include_router(melting_gap_router, prefix=settings.api_prefix)
