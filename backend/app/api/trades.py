@@ -33,6 +33,8 @@ class TradeLevelsIn(BaseModel):
 class TagLevelsIn(BaseModel):
     target: float | None = None
     stopLoss: float | None = None
+    targetPercent: float | None = None  # % of the tag's combined premium; closes every leg when hit
+    stopPercent: float | None = None  # % of the tag's combined premium; warning only
 
 
 class CloseTradeIn(BaseModel):
@@ -52,7 +54,7 @@ async def risk_check() -> dict[str, Any]:
 @router.put("/tags/{tag}/levels", dependencies=[Depends(require_auth)])
 async def update_tag_levels(tag: str, payload: TagLevelsIn) -> dict[str, Any]:
     try:
-        return {"levels": await save_tag_levels(tag, payload.target, payload.stopLoss)}
+        return {"levels": await save_tag_levels(tag, payload.target, payload.stopLoss, payload.targetPercent, payload.stopPercent)}
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 

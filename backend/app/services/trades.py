@@ -1281,16 +1281,36 @@ def _market_open_now() -> bool:
     return weekday_open(now) and _MARKET_OPEN <= now.time() <= _MARKET_CLOSE
 
 
-async def save_tag_levels(tag: str, target: float | None, stop_loss: float | None) -> dict[str, Any]:
+def tag_premium_base(legs: list[dict[str, Any]]) -> float:
+    """Combined premium of a tag's open legs: credit received minus premium paid
+    (sum of -qty x avg; a sold leg has negative qty)."""
+    return round(sum(-(int(t.get("qty") or 0)) * (_number(t.get("avgPrice")) or 0.0) for t in legs), 2)
+
+
+async def save_tag_levels(tag: str, target: float | None, stop_loss: float | None,
+                          target_percent: float | None = None, stop_percent: float | None = None) -> dict[str, Any]:
     normalized = normalize_tag(tag)
     if not normalized:
         raise ValueError("Tag is required.")
+    base = None
+    if target_percent is not None or stop_percent is not None:
+        for name, value in (("Target %", target_percent), ("Stop loss %", stop_percent)):
+            if value is not None and not 0 < value <= 500:
+                raise ValueError(f"{name} must be between 0 and 500.")
+        snapshot = await live_trade_snapshot()
+        legs = [t for t in (snapshot.get("groups") or {}).get("options") or [] if t.get("tag") == normalized]
+        base = tag_premium_base(legs)
+        if base <= 0:
+            raise ValueError(f"{normalized} has no net premium to measure against (its open legs are a net debit).")
+        target = round(base * target_percent / 100, 2) if target_percent is not None else None
+        stop_loss = round(base * stop_percent / 100, 2) if stop_percent is not None else None
     if target is not None and target <= 0:
         raise ValueError("Target must be a positive Net P&L amount.")
     stop = abs(stop_loss) if stop_loss is not None else None
     if stop is not None and stop <= 0:
         raise ValueError("Stop loss must be a non-zero loss amount.")
-    return upsert_tag_levels(today_ist(), normalized, target=target, stop_loss=stop)
+    return upsert_tag_levels(today_ist(), normalized, target=target, stop_loss=stop,
+                             target_percent=target_percent, stop_percent=stop_percent, premium_base=base)
 
 
 async def _check_tag_levels(snapshot: dict[str, Any]) -> list[dict[str, Any]]:
@@ -1315,6 +1335,21 @@ async def _check_tag_levels(snapshot: dict[str, Any]) -> list[dict[str, Any]]:
         elif stop_loss is not None and net <= -abs(stop_loss):
             kind = "stopLoss"
         if not kind:
+            continue
+        if kind == "stopLoss":
+            # tag stop loss is a warning: Telegram at most every 5 minutes while it stays breached
+            key = f"tagsl.alert.{today}.{group['tag']}"
+            last = float(get_manage_setting(key) or 0)
+            if datetime.now().timestamp() - last >= 300:
+                set_manage_setting(key, str(datetime.now().timestamp()))
+                pct = levels.get("stopPercent")
+                await TelegramNotifier().send(
+                    f"⚠️ Tag stop loss reached (warning only): {group['tag']}\n"
+                    f"Net P&L {_text_number(net)} vs stop -{_text_number(stop_loss)}"
+                    + (f" ({_text_number(pct)}% of premium {_text_number(levels.get('premiumBase'))})" if pct else "")
+                    + "\nNothing was closed. Use 'Close all' on the tag in Manage Trades if you want out."
+                )
+            actions.append({"tag": group["tag"], "kind": "stopLossWarning", "net": net})
             continue
         if any(trade.get("ltpStale") for trade in open_legs) and not settings.risk_order_allow_stale_ltp:
             actions.append({"tag": group["tag"], "kind": kind, "status": "skipped", "reason": "stale LTP", "net": net})

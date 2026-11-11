@@ -215,7 +215,10 @@ export async function closeTrade(tradeId: string, quantity?: number) {
   );
 }
 
-export async function saveTagLevels(tag: string, levels: { target: number | null; stopLoss: number | null }) {
+export async function saveTagLevels(
+  tag: string,
+  levels: { target?: number | null; stopLoss?: number | null; targetPercent?: number | null; stopPercent?: number | null },
+) {
   return apiJson<{ levels: TagLevels }>(
     `/api/trades/tags/${encodeURIComponent(tag)}/levels`,
     { method: "PUT", body: JSON.stringify(levels) },

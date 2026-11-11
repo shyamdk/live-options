@@ -202,6 +202,9 @@ export type TagLevels = {
   tag: string;
   target: number | null;
   stopLoss: number | null;
+  targetPercent?: number | null; // % of the tag's combined premium (closes all legs)
+  stopPercent?: number | null; // % of the tag's combined premium (warning only)
+  premiumBase?: number | null;
   status: "NONE" | "ARMED" | "TRIGGERING" | "DONE" | "PARTIAL" | "FAILED";
   triggerKind: "target" | "stopLoss" | "manual" | null;
   triggerNet: number | null;

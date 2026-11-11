@@ -229,15 +229,16 @@ export default function ManageTradesPage() {
     }
   }
 
-  async function handleSaveTagLevels(tag: string, target: number | null, stopLoss: number | null) {
+  async function handleSaveTagLevels(tag: string, targetPercent: number | null, stopPercent: number | null) {
     setMessage(null);
     setError(null);
     try {
-      await saveTagLevels(tag, { target, stopLoss });
+      const clear = targetPercent === null && stopPercent === null;
+      await saveTagLevels(tag, clear ? { target: null, stopLoss: null } : { targetPercent, stopPercent });
       setMessage(
-        target === null && stopLoss === null
+        clear
           ? `${tag}: tag levels cleared.`
-          : `${tag}: armed -- all open legs close automatically when Net P&L reaches the level.`,
+          : `${tag}: armed -- the target closes every open leg automatically; the stop loss only warns.`,
       );
       await loadTrades();
     } catch (exc) {
@@ -668,7 +669,7 @@ function TagGroupTable({
   onSave: (trade: LiveTrade) => void;
   onClose: (trade: LiveTrade) => void;
   onApprove: (trade: LiveTrade) => void;
-  onSaveTagLevels: (tag: string, target: number | null, stopLoss: number | null) => Promise<void>;
+  onSaveTagLevels: (tag: string, targetPercent: number | null, stopPercent: number | null) => Promise<void>;
   onExitTag: (group: TagGroup, viaSuggestion?: boolean) => Promise<void>;
   expandedIds: Set<string>;
   onToggleExpand: (tradeId: string) => void;
@@ -1045,31 +1046,43 @@ function TagLevelsBar({
 }: {
   group: TagGroup;
   summary: TagSummary;
-  onSave: (tag: string, target: number | null, stopLoss: number | null) => Promise<void>;
+  onSave: (tag: string, targetPercent: number | null, stopPercent: number | null) => Promise<void>;
   onExit: (group: TagGroup) => Promise<void>;
 }) {
   const levels = summary.levels;
-  const [target, setTarget] = useState(valueText(levels.target));
-  const [stopLoss, setStopLoss] = useState(valueText(levels.stopLoss));
+  // Levels are % of the tag's combined premium: credit received minus premium paid on its open legs.
+  const premium = group.openTrades.reduce((sum, t) => sum + -(t.qty ?? 0) * (t.avgPrice ?? 0), 0);
+  const [target, setTarget] = useState(levels.targetPercent ? trimNumber(levels.targetPercent) : "");
+  const [stopLoss, setStopLoss] = useState(levels.stopPercent ? trimNumber(levels.stopPercent) : "");
   const [busy, setBusy] = useState(false);
 
   // Re-seed the inputs only when the saved levels change, not on every 3s
   // refresh, so typing isn't overwritten.
   useEffect(() => {
-    setTarget(valueText(levels.target));
-    setStopLoss(valueText(levels.stopLoss));
-  }, [levels.updatedAt, levels.target, levels.stopLoss]);
+    setTarget(levels.targetPercent ? trimNumber(levels.targetPercent) : "");
+    setStopLoss(levels.stopPercent ? trimNumber(levels.stopPercent) : "");
+  }, [levels.updatedAt, levels.targetPercent, levels.stopPercent]);
+
+  const pct = (v: string) => {
+    const n = Number(v.replace("%", "").trim());
+    return v.trim() && Number.isFinite(n) && n > 0 ? n : null;
+  };
+  const rupees = (p: number | null) => (p !== null && premium > 0 ? (premium * p) / 100 : null);
 
   async function save(clear = false) {
-    const targetValue = clear ? null : draftNumber(target);
-    const stopValue = clear ? null : draftNumber(stopLoss);
+    const targetValue = clear ? null : pct(target);
+    const stopValue = clear ? null : pct(stopLoss);
     if (!clear && targetValue === null && stopValue === null) return;
+    if (!clear && premium <= 0) {
+      window.alert(`${summary.tag} has no net premium to measure against (its open legs are a net debit).`);
+      return;
+    }
     if (
       !clear &&
       !window.confirm(
-        `Arm "${summary.tag}"?\n\nWhen its Net P&L reaches ${targetValue !== null ? `+${money(targetValue)}` : "-"} (target)` +
-          ` or ${stopValue !== null ? `-${money(Math.abs(stopValue))}` : "-"} (stop loss), ALL open legs in this tag are closed` +
-          " automatically with market orders -- no approval step.",
+        `Arm "${summary.tag}" (combined premium ₹${money(premium)})?\n\n` +
+          (targetValue !== null ? `TARGET ${targetValue}% = Net P&L +₹${money(rupees(targetValue))}: ALL open legs close automatically with market orders.\n` : "") +
+          (stopValue !== null ? `STOP LOSS ${stopValue}% = Net P&L −₹${money(rupees(stopValue))}: warning only (Telegram + page), nothing is closed.` : ""),
       )
     )
       return;
@@ -1091,9 +1104,12 @@ function TagLevelsBar({
   }
 
   const status = levels.status;
+  const slBreached = status === "ARMED" && summary.toStopLoss !== null && summary.toStopLoss <= 0;
   const statusText =
-    status === "ARMED"
-      ? `Armed · auto exit${summary.toTarget !== null ? ` · ${money(summary.toTarget)} to target` : ""}${summary.toStopLoss !== null ? ` · ${money(summary.toStopLoss)} above stop` : ""}`
+    slBreached
+      ? `Stop loss reached (−₹${money(levels.stopLoss)}) · warning only, legs still open${summary.toTarget !== null ? ` · target still armed` : ""}`
+      : status === "ARMED"
+      ? `Armed${summary.toTarget !== null ? ` · ₹${money(summary.toTarget)} to target (auto close)` : ""}${summary.toStopLoss !== null ? ` · ₹${money(summary.toStopLoss)} above stop (alert)` : ""}`
       : status === "TRIGGERING"
         ? "Exiting…"
         : status === "DONE"
@@ -1101,31 +1117,39 @@ function TagLevelsBar({
           : status === "PARTIAL" || status === "FAILED"
             ? `Exit ${status.toLowerCase()} -- ${(levels.result?.legs ?? []).filter((leg) => !leg.ok).map((leg) => `${leg.label}: ${leg.message ?? leg.status}`).join("; ")}`
             : "No tag target / stop loss";
-  const statusTone = status === "ARMED" ? "on" : status === "PARTIAL" || status === "FAILED" ? "warn" : "";
+  const statusTone = slBreached ? "warn" : status === "ARMED" ? "on" : status === "PARTIAL" || status === "FAILED" ? "warn" : "";
+  const preview = (p: number | null, sign: string) => (p !== null && premium > 0 ? `${sign}₹${money(rupees(p))}` : "");
 
   return (
     <div className="gb-status-row" style={{ flexWrap: "wrap", alignItems: "center", gap: 10 }}>
-      <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
-        Tag target (Net) ₹
-        <input
-          className="level-input"
-          inputMode="decimal"
-          placeholder="e.g. 5000"
-          value={target}
-          onChange={(event) => setTarget(event.target.value)}
-          style={{ width: 90 }}
-        />
+      <span className="pcr-oi-caption" title="Credit received minus premium paid on the tag's open legs">
+        Premium ₹{money(premium)}
       </span>
       <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
-        Stop loss (Net) −₹
+        Target
         <input
           className="level-input"
           inputMode="decimal"
-          placeholder="e.g. 3000"
+          placeholder="% e.g. 50"
+          title="% of the combined premium. When the tag's Net P&L reaches it, every open leg closes automatically."
+          value={target}
+          onChange={(event) => setTarget(event.target.value)}
+          style={{ width: 80 }}
+        />
+        % <span className="pcr-oi-caption">{preview(pct(target), "+")} auto close</span>
+      </span>
+      <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
+        Stop loss
+        <input
+          className="level-input"
+          inputMode="decimal"
+          placeholder="% e.g. 50"
+          title="% of the combined premium. When the tag's Net P&L falls to minus this, you get a warning; nothing is closed."
           value={stopLoss}
           onChange={(event) => setStopLoss(event.target.value)}
-          style={{ width: 90 }}
+          style={{ width: 80 }}
         />
+        % <span className="pcr-oi-caption">{preview(pct(stopLoss), "−")} alert only</span>
       </span>
       <button className="icon-button" type="button" title="Save & arm tag levels" onClick={() => save(false)} disabled={busy}>
         <Save size={15} />
@@ -1753,13 +1777,6 @@ function sumField(trades: LiveTrade[], field: "dayPnl" | "estimatedCharges" | "e
 
 function valueText(value: number | null | undefined): string {
   return value === null || value === undefined ? "" : String(value);
-}
-
-function draftNumber(value: string): number | null {
-  const trimmed = value.trim();
-  if (!trimmed) return null;
-  const parsed = Number(trimmed);
-  return Number.isFinite(parsed) ? parsed : null;
 }
 
 function stopLossDraftNumber(trade: LiveTrade, value: string): number | null {

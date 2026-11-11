@@ -1891,6 +1891,8 @@ def init_db() -> None:
             )
             """
         )
+        for column in ("target_percent", "stop_percent", "premium_base"):
+            _add_column_if_missing(conn, "tag_levels", column, "REAL")
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS varaha_paper_trades (
@@ -4260,6 +4262,9 @@ def _tag_level_row(row: sqlite3.Row) -> dict[str, Any]:
         "sessionDate": row["session_date"],
         "target": row["target_net"],
         "stopLoss": row["stop_loss_net"],
+        "targetPercent": row["target_percent"] if "target_percent" in row.keys() else None,
+        "stopPercent": row["stop_percent"] if "stop_percent" in row.keys() else None,
+        "premiumBase": row["premium_base"] if "premium_base" in row.keys() else None,
         "status": row["status"],
         "triggerKind": row["trigger_kind"],
         "triggerNet": row["trigger_net"],
@@ -4275,18 +4280,27 @@ def get_tag_levels(session_date: str) -> dict[str, dict[str, Any]]:
     return {row["tag"]: _tag_level_row(row) for row in rows}
 
 
-def upsert_tag_levels(session_date: str, tag: str, *, target: float | None, stop_loss: float | None) -> dict[str, Any]:
-    """Saving levels (re-)arms the tag and clears any earlier trigger."""
+def upsert_tag_levels(session_date: str, tag: str, *, target: float | None, stop_loss: float | None,
+                      target_percent: float | None = None, stop_percent: float | None = None,
+                      premium_base: float | None = None) -> dict[str, Any]:
+    """Saving levels (re-)arms the tag and clears any earlier trigger. The % fields
+    record how the rupee levels were derived (a % of the tag's combined premium)."""
     now = datetime.now().isoformat(timespec="seconds")
     status = "ARMED" if target is not None or stop_loss is not None else "NONE"
     with _DB_LOCK, _connect() as conn:
+        _add_column_if_missing(conn, "tag_levels", "target_percent", "REAL")
+        _add_column_if_missing(conn, "tag_levels", "stop_percent", "REAL")
+        _add_column_if_missing(conn, "tag_levels", "premium_base", "REAL")
         conn.execute(
             """
-            INSERT INTO tag_levels (session_date, tag, target_net, stop_loss_net, status, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO tag_levels (session_date, tag, target_net, stop_loss_net, target_percent, stop_percent, premium_base, status, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(session_date, tag) DO UPDATE SET
                 target_net = excluded.target_net,
                 stop_loss_net = excluded.stop_loss_net,
+                target_percent = excluded.target_percent,
+                stop_percent = excluded.stop_percent,
+                premium_base = excluded.premium_base,
                 status = excluded.status,
                 trigger_kind = NULL,
                 trigger_net = NULL,
@@ -4294,7 +4308,7 @@ def upsert_tag_levels(session_date: str, tag: str, *, target: float | None, stop
                 result_json = NULL,
                 updated_at = excluded.updated_at
             """,
-            (session_date, tag, target, stop_loss, status, now),
+            (session_date, tag, target, stop_loss, target_percent, stop_percent, premium_base, status, now),
         )
         conn.commit()
         row = conn.execute(
