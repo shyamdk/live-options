@@ -2,6 +2,9 @@ export type SwingConfig = {
   enabled: boolean;
   mode: "paper" | "live";
   capital: number;
+  model: "alpha_lowvol" | "momentum";
+  frequency: "monthly" | "weekly";
+  buyRank: number;
   positions: number;
   fillDepth: number;
   exitRank: number;
@@ -50,7 +53,9 @@ export type SwingRankRow = {
   symbol: string;
   rank: number | null;
   score: number;
-  returns: Record<string, number>;
+  returns: Record<string, number | null>;
+  alpha?: number;
+  beta?: number;
   vol: number;
   close: number;
   sma200: number | null;

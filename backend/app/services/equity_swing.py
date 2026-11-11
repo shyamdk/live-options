@@ -1,4 +1,8 @@
-"""Equity-Swing -- weekly NIFTY 200 momentum rotation (paper first, Angel One live).
+"""Equity-Swing -- NIFTY 200 rotation (paper first, Angel One live).
+
+Model (since 11 Nov 2026): alpha + low volatility, rebalanced on the last trading day
+of each month -- see equity_swing_engine.rank_alpha_lowvol for the rule and the
+back-test. The earlier weekly 1/3-month momentum model is kept as model = "momentum".
 
 Schedule (IST, NSE trading days):
   15:45+  daily      sync daily candles for the 200 stocks + NIFTY (Dhan),
@@ -47,16 +51,19 @@ DEFAULTS: dict[str, Any] = {
     "enabled": True,
     "mode": "paper",
     "capital": 500000.0,
-    "positions": 8,
-    "fillDepth": 12,  # if top-ranked names are blocked, fill slots from ranks down to this
-    "exitRank": 20,
-    "maxHoldWeeks": 8,  # 0 = no cap
-    "cooldownWeeks": 4,
-    "lookbacks": "21,63",
-    "requireSma200": True,
-    "regimeFilter": True,
-    "qualityFilter": True,
-    "newsFilter": True,
+    "model": "alpha_lowvol",  # or "momentum" (the pre-Nov-2026 weekly model)
+    "frequency": "monthly",  # or "weekly"
+    "positions": 30,
+    "buyRank": 15,  # new buys only from the top N
+    "fillDepth": 15,  # momentum model: fill slots from ranks down to this
+    "exitRank": 45,
+    "maxHoldWeeks": 0,  # 0 = no cap
+    "cooldownWeeks": 0,
+    "lookbacks": "21,63",  # momentum model only
+    "requireSma200": False,
+    "regimeFilter": False,
+    "qualityFilter": False,
+    "newsFilter": False,
     "slippagePercent": 0.1,
     "rebalanceAfter": "16:15",
     "executeAt": "09:20",
@@ -106,12 +113,35 @@ def update_config(updates: dict[str, Any]) -> dict[str, Any]:
             if not parts or any(p < 5 or p > 250 for p in parts):
                 raise ValueError("lookbacks must be trading-day counts between 5 and 250, e.g. 21,63")
             value = ",".join(str(p) for p in parts)
-        if key in ("positions", "exitRank") and int(value) < 1:
+        if key == "model" and value not in ("alpha_lowvol", "momentum"):
+            raise ValueError("model must be alpha_lowvol or momentum")
+        if key == "frequency" and value not in ("monthly", "weekly"):
+            raise ValueError("frequency must be monthly or weekly")
+        if key in ("positions", "exitRank", "buyRank") and int(value) < 1:
             raise ValueError(f"{key} must be at least 1")
         if key in ("rebalanceAfter", "executeAt"):
             datetime.strptime(str(value), "%H:%M")
         db.set_swing_setting(key, ("1" if value else "0") if isinstance(default, bool) else str(value))
     return get_config()
+
+
+MODEL_VERSION = "2"
+MODEL_V2_SETTINGS = {"model": "alpha_lowvol", "frequency": "monthly", "positions": "30", "buyRank": "15", "fillDepth": "15", "exitRank": "45",
+                     "maxHoldWeeks": "0", "cooldownWeeks": "0", "requireSma200": "0", "regimeFilter": "0", "qualityFilter": "0", "newsFilter": "0"}
+
+
+def migrate_model() -> bool:
+    """One-time switch of saved settings to the alpha + low-vol model (saved values
+    would otherwise override the new defaults). Holdings are kept: the next monthly
+    rebalance sells any that rank below the exit rank."""
+    if db.get_swing_setting("modelVersion") == MODEL_VERSION:
+        return False
+    for key, value in MODEL_V2_SETTINGS.items():
+        db.set_swing_setting(key, value)
+    db.set_swing_setting("modelVersion", MODEL_VERSION)
+    _event("model", "Model switched to alpha + low volatility, monthly: top 15 buys, up to 30 holdings, sell at rank 45 "
+                    "(back-test 2008-2026: 15.1% CAGR, -37.8% max drawdown).")
+    return True
 
 
 def universe() -> list[dict[str, Any]]:
@@ -130,16 +160,21 @@ def _trading_day(day: date) -> bool:
     return is_trading_day(day, _holidays())
 
 
-def is_rebalance_day(day: date) -> bool:
-    """Last trading day of the week (Friday, or earlier if Friday is a holiday)."""
+def is_rebalance_day(day: date, frequency: str | None = None) -> bool:
+    """Last trading day of the month (monthly) or of the week (weekly)."""
     if not _trading_day(day):
         return False
+    frequency = frequency or get_config()["frequency"]
     d = day + timedelta(days=1)
-    while d.weekday() < 5:
+    while (d.month == day.month) if frequency == "monthly" else (d.weekday() < 5):
         if _trading_day(d):
             return False
         d += timedelta(days=1)
     return True
+
+
+def period_key(now: datetime, frequency: str) -> str:
+    return now.strftime("%Y-%m") if frequency == "monthly" else now.strftime("%G-W%V")
 
 
 def _event(kind: str, text: str, symbol: str | None = None) -> None:
@@ -198,6 +233,22 @@ async def sync_bars(full: bool = False) -> dict[str, int]:
 
 def _closes(key: str) -> list[float]:
     return [r["close"] for r in db.swing_rows("SELECT close FROM equity_swing_bars WHERE security_id = ? ORDER BY ts", (key,))]
+
+
+def _series(key: str) -> list[tuple[int, float]]:
+    """[(day start ts in IST, close)] -- day-aligned so stocks and NIFTY match by date."""
+    out = []
+    for r in db.swing_rows("SELECT ts, close FROM equity_swing_bars WHERE security_id = ? ORDER BY ts", (key,)):
+        d = datetime.fromtimestamp(int(r["ts"]), IST).date()
+        out.append((int(datetime(d.year, d.month, d.day, tzinfo=IST).timestamp()), r["close"]))
+    return out
+
+
+def ranking_now(config: dict[str, Any]) -> list[dict[str, Any]]:
+    if config["model"] == "alpha_lowvol":
+        return engine.rank_alpha_lowvol({m["symbol"]: _series(m["securityId"]) for m in universe()}, _series(NIFTY_KEY))
+    lookbacks = tuple(int(x) for x in str(config["lookbacks"]).split(","))
+    return engine.rank(_closes_by_symbol(), lookbacks, bool(config["requireSma200"]))
 
 
 def _closes_by_symbol() -> dict[str, list[float]]:
@@ -269,19 +320,20 @@ async def _gates(symbols: list[str], config: dict[str, Any]) -> tuple[dict[str, 
 async def rebalance(trigger: str = "scheduled") -> dict[str, Any]:
     config = get_config()
     now = int(time.time())
-    week = datetime.now(IST).strftime("%G-W%V")
-    lookbacks = tuple(int(x) for x in str(config["lookbacks"]).split(","))
-    ranking = engine.rank(_closes_by_symbol(), lookbacks, bool(config["requireSma200"]))
+    week = period_key(datetime.now(IST), config["frequency"])
+    ranking = ranking_now(config)
     if not ranking:
         raise RuntimeError("No price history yet -- run the data sync first.")
     reg = regime()
     regime_ok = reg["ok"] or not config["regimeFilter"]
     holdings = [{"symbol": t["symbol"], "entryTime": t["entry_time"]} for t in open_trades() if t["status"] == "OPEN"]
     held = {h["symbol"] for h in holdings}
-    candidates = [r["symbol"] for r in ranking if r["rank"] and r["rank"] <= int(config["fillDepth"]) and r["symbol"] not in held]
+    depth = int(config["buyRank"]) if config["model"] == "alpha_lowvol" else int(config["fillDepth"])
+    candidates = [r["symbol"] for r in ranking if r["rank"] and r["rank"] <= depth and r["symbol"] not in held]
     blocked, details = await _gates(candidates, config) if regime_ok else ({}, {})
     max_hold_days = int(config["maxHoldWeeks"]) * 7 if int(config["maxHoldWeeks"]) else None
-    the_plan = engine.plan(ranking, holdings, positions=int(config["positions"]), fill_depth=int(config["fillDepth"]), exit_rank=int(config["exitRank"]),
+    the_plan = engine.plan(ranking, holdings, positions=int(config["positions"]), fill_depth=int(config["fillDepth"]),
+                           buy_rank=int(config["buyRank"]) if config["model"] == "alpha_lowvol" else None, exit_rank=int(config["exitRank"]),
                            max_hold_days=max_hold_days, cooldown_until=_cooldowns(), now=now, regime_ok=regime_ok, blocked=blocked)
     # cancel any older plan that never ran, then record this one
     for t in db.swing_rows("SELECT id FROM equity_swing_trades WHERE status = 'PLANNED'"):
@@ -308,7 +360,8 @@ async def rebalance(trigger: str = "scheduled") -> dict[str, Any]:
     db.swing_execute_many(
         "INSERT OR REPLACE INTO equity_swing_rankings (week, created_at, payload) VALUES (?, ?, ?)", [(week, now, json.dumps(payload))]
     )
-    lines = [f"📈 Equity-Swing weekly plan ({week}, {config['mode']})"]
+    lines = [f"📈 Equity-Swing {'monthly' if config['frequency'] == 'monthly' else 'weekly'} plan ({week}, {config['mode']}, "
+             f"{'alpha + low-vol' if config['model'] == 'alpha_lowvol' else 'momentum'})"]
     lines.append(f"NIFTY {reg['nifty']:,.0f} vs SMA200 {reg['sma200']:,.0f}: {'buys allowed' if regime_ok else 'NO new buys'}" if reg["nifty"] and reg["sma200"] else "NIFTY regime: no data")
     lines += [f"SELL {s['symbol']}: {s['reason']}" for s in the_plan["sells"]] or ["No sells."]
     lines += [f"BUY {b['symbol']}: {b['reason']}" for b in the_plan["buys"]] or ["No buys."]
@@ -462,8 +515,8 @@ async def monitor_once() -> None:
             await mark_to_market()
             record_equity(today)
             _event("data", f"Daily candles synced: {result['series']} series, {result['failed']} failed")
-        week = now.strftime("%G-W%V")
-        if (config["enabled"] and is_rebalance_day(today) and now.time() >= _hhmm(config["rebalanceAfter"])
+        week = period_key(now, config["frequency"])
+        if (config["enabled"] and is_rebalance_day(today, config["frequency"]) and now.time() >= _hhmm(config["rebalanceAfter"])
                 and db.get_swing_setting("bars.syncedFor") == today.isoformat()
                 and not db.swing_rows("SELECT week FROM equity_swing_rankings WHERE week = ?", (week,))):
             await rebalance("scheduled")
@@ -474,6 +527,10 @@ async def monitor_once() -> None:
 
 
 async def _loop() -> None:
+    try:
+        migrate_model()
+    except Exception:
+        logger.exception("equity_swing: model migration failed")
     while True:
         try:
             await monitor_once()
@@ -531,7 +588,7 @@ def state() -> dict[str, Any]:
     eq = c + holdings_value
     now = datetime.now(IST)
     nxt = now.date()
-    while not is_rebalance_day(nxt):
+    while not is_rebalance_day(nxt, config["frequency"]):
         nxt += timedelta(days=1)
     return {
         "config": config,

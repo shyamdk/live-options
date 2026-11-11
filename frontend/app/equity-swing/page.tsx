@@ -95,12 +95,19 @@ export default function EquitySwingPage() {
             <TrendingUp size={20} style={{ verticalAlign: "-3px", marginRight: 8 }} />
             Equity-Swing
           </h1>
-          <p>
-            Weekly momentum rotation on the NIFTY 200: every Friday after the close the strongest quality stocks (1- and 3-month returns,
-            adjusted for volatility, above their SMA200) are ranked; the top{" "}
-            {config?.positions ?? 8} are bought at Monday&apos;s open and each is
-            sold when it falls to rank {config?.exitRank ?? 20} or after {config?.maxHoldWeeks || "—"} weeks. Paper first; live orders go to Angel One.
-          </p>
+          {config?.model === "momentum" ? (
+            <p>
+              Momentum rotation on the NIFTY 200 ({config.frequency}): stocks ranked on 1- and 3-month returns adjusted for volatility; the top{" "}
+              {config.positions} are bought and each is sold at rank {config.exitRank} or after {config.maxHoldWeeks || "—"} weeks. Paper first; live orders go to Angel One.
+            </p>
+          ) : (
+            <p>
+              Alpha + low-volatility rotation on the NIFTY 200: on the last trading day of each month the stocks are ranked on their one-year
+              alpha against NIFTY and their (low) one-year volatility; new buys come from the top {config?.buyRank ?? 15}, up to{" "}
+              {config?.positions ?? 30} holdings in equal weight, and a holding is sold when it ranks {config?.exitRank ?? 45} or worse. Orders go in at
+              the next open. Back-test 2008–2026 after costs and tax: 15.1% a year, −38% worst fall (NIFTY 7.6%). Paper first; live orders go to Angel One.
+            </p>
+          )}
         </div>
         <div className="toolbar" style={{ alignItems: "center" }}>
           <span className={`status-live ${config?.mode === "live" ? "on" : ""}`} style={{ whiteSpace: "nowrap" }}>
@@ -186,11 +193,23 @@ export default function EquitySwingPage() {
                   <th>Rank</th>
                   <th>Stock</th>
                   <th>Score</th>
-                  <th>1 month</th>
-                  <th>3 months</th>
-                  <th>Volatility</th>
-                  <th>Close</th>
-                  <th>vs SMA200</th>
+                  {latest.ranking[0]?.alpha !== undefined ? (
+                    <>
+                      <th>Alpha / yr</th>
+                      <th>Beta</th>
+                      <th>Volatility</th>
+                      <th>12 months</th>
+                      <th>Close</th>
+                    </>
+                  ) : (
+                    <>
+                      <th>1 month</th>
+                      <th>3 months</th>
+                      <th>Volatility</th>
+                      <th>Close</th>
+                      <th>vs SMA200</th>
+                    </>
+                  )}
                   <th>Gate</th>
                 </tr>
               </thead>
@@ -205,11 +224,23 @@ export default function EquitySwingPage() {
                         <strong>{r.symbol}</strong> {heldSymbols.has(r.symbol) ? <span className="pcr-oi-caption">held</span> : null}
                       </td>
                       <td>{num(r.score, 3)}</td>
-                      <td style={{ color: tone(r.returns["21"]) }}>{num(r.returns["21"], 1)}%</td>
-                      <td style={{ color: tone(r.returns["63"]) }}>{num(r.returns["63"], 1)}%</td>
-                      <td>{num(r.vol, 1)}%</td>
-                      <td>{num(r.close)}</td>
-                      <td>{r.sma200 ? `${num((r.close / r.sma200 - 1) * 100, 1)}%` : "—"}</td>
+                      {r.alpha !== undefined ? (
+                        <>
+                          <td style={{ color: tone(r.alpha) }}>{num(r.alpha, 1)}%</td>
+                          <td>{num(r.beta ?? null, 2)}</td>
+                          <td>{num(r.vol, 1)}%</td>
+                          <td style={{ color: tone(r.returns["252"] ?? null) }}>{num(r.returns["252"] ?? null, 1)}%</td>
+                          <td>{num(r.close)}</td>
+                        </>
+                      ) : (
+                        <>
+                          <td style={{ color: tone(r.returns["21"] ?? null) }}>{num(r.returns["21"] ?? null, 1)}%</td>
+                          <td style={{ color: tone(r.returns["63"] ?? null) }}>{num(r.returns["63"] ?? null, 1)}%</td>
+                          <td>{num(r.vol, 1)}%</td>
+                          <td>{num(r.close)}</td>
+                          <td>{r.sma200 ? `${num((r.close / r.sma200 - 1) * 100, 1)}%` : "—"}</td>
+                        </>
+                      )}
                       <td style={{ fontSize: 12 }}>{q === undefined ? "" : q === "pass" ? "quality ✓" : `✗ ${(q as string[]).join("; ")}`}</td>
                     </tr>
                   );
@@ -218,7 +249,7 @@ export default function EquitySwingPage() {
             </table>
           </div>
         ) : (
-          <p className="pcr-oi-caption">No ranking yet. Click &quot;Rank &amp; plan now&quot;, or wait for Friday&apos;s run.</p>
+          <p className="pcr-oi-caption">No ranking yet. Click &quot;Rank &amp; plan now&quot;, or wait for the next scheduled rebalance.</p>
         )}
       </CollapsibleSection>
 
@@ -336,18 +367,19 @@ function EquityCurve({ rows }: { rows: SwingState["equityCurve"] }) {
 
 const FIELDS: Array<{ key: keyof SwingConfig; label: string; hint?: string; text?: boolean }> = [
   { key: "capital", label: "Capital ₹" },
-  { key: "positions", label: "Positions", hint: "back-test 8" },
-  { key: "fillDepth", label: "Fill from ranks down to", hint: "when top names are blocked" },
-  { key: "exitRank", label: "Sell at rank", hint: "back-test 20" },
-  { key: "maxHoldWeeks", label: "Max hold (weeks)", hint: "8; 0 = no cap" },
-  { key: "cooldownWeeks", label: "Cool-down after cap (weeks)", hint: "4" },
-  { key: "lookbacks", label: "Lookbacks (trading days)", hint: "21,63", text: true },
+  { key: "positions", label: "Max holdings", hint: "back-test 30" },
+  { key: "buyRank", label: "Buy only from the top", hint: "back-test 15" },
+  { key: "exitRank", label: "Sell at rank", hint: "back-test 45" },
+  { key: "maxHoldWeeks", label: "Max hold (weeks)", hint: "0 = no cap (back-test)" },
+  { key: "cooldownWeeks", label: "Cool-down after cap (weeks)", hint: "0" },
+  { key: "fillDepth", label: "Momentum model: fill down to rank", hint: "momentum model only" },
+  { key: "lookbacks", label: "Momentum model: lookbacks", hint: "21,63 (momentum model only)", text: true },
   { key: "slippagePercent", label: "Paper slippage %", hint: "0.1" },
-  { key: "rebalanceAfter", label: "Rank after (Fri)", hint: "16:15", text: true },
+  { key: "rebalanceAfter", label: "Rank after (rebalance day)", hint: "16:15", text: true },
   { key: "executeAt", label: "Execute at (next day)", hint: "09:20", text: true },
 ];
 const TOGGLES: Array<{ key: keyof SwingConfig; label: string }> = [
-  { key: "enabled", label: "Automatic weekly rotation" },
+  { key: "enabled", label: "Automatic rotation" },
   { key: "regimeFilter", label: "No new buys while NIFTY < SMA200" },
   { key: "requireSma200", label: "Only stocks above their SMA200" },
   { key: "qualityFilter", label: "Quality gate (ROCE/ROE, debt, pledge, growth)" },
@@ -399,6 +431,22 @@ function Settings({ config, onSaved }: { config: SwingConfig; onSaved: () => Pro
             {t.label}
           </label>
         ))}
+      </div>
+      <div style={{ marginTop: 12, fontSize: 13, display: "flex", gap: 14, flexWrap: "wrap", alignItems: "center" }}>
+        <span>
+          Model:{" "}
+          <select value={config.model} disabled={saving} onChange={(e) => save({ model: e.target.value })}>
+            <option value="alpha_lowvol">Alpha + low volatility (back-test 15.1%/yr)</option>
+            <option value="momentum">Old 1/3-month momentum (back-test −5.3%/yr)</option>
+          </select>
+        </span>
+        <span>
+          Rebalance:{" "}
+          <select value={config.frequency} disabled={saving} onChange={(e) => save({ frequency: e.target.value })}>
+            <option value="monthly">Monthly (last trading day)</option>
+            <option value="weekly">Weekly (last trading day)</option>
+          </select>
+        </span>
       </div>
       <div style={{ marginTop: 12, fontSize: 13 }}>
         Mode:{" "}

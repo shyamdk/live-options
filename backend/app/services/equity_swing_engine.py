@@ -1,5 +1,19 @@
 """Equity-Swing -- pure ranking and rebalance planning (no I/O).
 
+MODEL (from 11 Nov 2026): alpha + low volatility, monthly (`rank_alpha_lowvol`).
+  score  = mean of z(one-year Jensen alpha vs NIFTY) and z(-one-year volatility),
+           daily log returns over the last 252 sessions, aligned with NIFTY by date
+  buys   = top 15 by score, up to 30 holdings, equal weight; sell at rank 45 or worse
+  rebalance on the last trading day of the month, orders at the next open
+Back-test (backend/data/history/backtests/eq_rotation_bt.py; point-in-time top 200
+NSE stocks by turnover, 2008 - Nov 2026, delivery costs + 0.1% slippage, STCG/LTCG
+tax, Rs 5L): 15.1% CAGR, -37.8% max drawdown, +11 to +19% a year in every sub-period
+(2008-13, 2014-19, 2020-22, 2023-26); NIFTY 50 7.6%. The previous model below lost
+5.3% a year over the same test (-81% drawdown). Research: reports/Indian equity
+swing strategies.md.
+
+PREVIOUS MODEL (kept as model = "momentum"):
+
 Weekly momentum rotation on the NIFTY 200 (back-test, 17 Oct 2026: Jan 2022 -
 Oct 2026, Rs 5L, delivery costs + 0.1% slippage):
   score      = mean over lookbacks (21, 63 trading days) of return / annualised
@@ -51,6 +65,54 @@ def score_stock(closes: list[float], lookbacks: tuple[int, ...]) -> dict[str, An
     }
 
 
+def rank_alpha_lowvol(series_by_symbol: dict[str, list[tuple[int, float]]], nifty: list[tuple[int, float]], n: int = 252) -> list[dict[str, Any]]:
+    """Alpha + low-volatility ranking. series: [(day ts, close)] oldest first."""
+    if len(nifty) < n + 1:
+        return []
+    days = [ts for ts, _ in nifty[-(n + 1):]]
+    nidx = {ts: c for ts, c in nifty[-(n + 1):]}
+    x = [math.log(nidx[days[i]] / nidx[days[i - 1]]) for i in range(1, len(days))]
+    xm = sum(x) / len(x)
+    sxx = sum((v - xm) ** 2 for v in x)
+    raw = []
+    for symbol, series in series_by_symbol.items():
+        by_day = dict(series)
+        closes = [by_day.get(d) for d in days]
+        if sum(c is None for c in closes) > 10 or closes[-1] is None:
+            continue  # too many missing sessions in the year
+        filled, last = [], None
+        for c in closes:
+            last = c if c is not None else last
+            filled.append(last)
+        if filled[0] is None:
+            continue
+        y = [math.log(filled[i] / filled[i - 1]) for i in range(1, len(filled))]
+        ym = sum(y) / len(y)
+        beta = sum((yi - ym) * (xi - xm) for yi, xi in zip(y, x)) / sxx if sxx else 0.0
+        alpha = (ym - beta * xm) * 252
+        vol = math.sqrt(sum((yi - ym) ** 2 for yi in y) / len(y)) * math.sqrt(252)
+        r6 = filled[-1] / filled[-127] - 1 if len(filled) > 127 else None
+        raw.append({"symbol": symbol, "alpha": alpha, "volRaw": vol, "beta": beta, "close": filled[-1], "r12": filled[-1] / filled[0] - 1, "r6": r6})
+    if len(raw) < 5:
+        return []
+    def z(values):
+        m = sum(values) / len(values)
+        sd = math.sqrt(sum((v - m) ** 2 for v in values) / len(values)) or 1.0
+        return [(v - m) / sd for v in values]
+    za, zv = z([r["alpha"] for r in raw]), z([-r["volRaw"] for r in raw])
+    rows = []
+    for r, a, v in zip(raw, za, zv):
+        rows.append({
+            "symbol": r["symbol"], "score": round((a + v) / 2, 4), "alpha": round(r["alpha"] * 100, 1), "beta": round(r["beta"], 2),
+            "vol": round(r["volRaw"] * 100, 1), "close": r["close"], "eligible": True,
+            "returns": {"126": round(r["r6"] * 100, 2) if r["r6"] is not None else None, "252": round(r["r12"] * 100, 2)},
+        })
+    rows.sort(key=lambda r: r["score"], reverse=True)
+    for k, r in enumerate(rows, start=1):
+        r["rank"] = k
+    return rows
+
+
 def rank(closes_by_symbol: dict[str, list[float]], lookbacks: tuple[int, ...], require_sma200: bool) -> list[dict[str, Any]]:
     rows = []
     for symbol, closes in closes_by_symbol.items():
@@ -74,6 +136,7 @@ def plan(
     *,
     positions: int,
     fill_depth: int | None = None,
+    buy_rank: int | None = None,
     exit_rank: int,
     max_hold_days: int | None,
     cooldown_until: dict[str, int],
@@ -105,7 +168,7 @@ def plan(
     if not regime_ok:
         return {"sells": sells, "buys": [], "skipped": [], "free": free, "note": "NIFTY is below its SMA200: no new buys this week."}
     for r in ranking:
-        if free <= 0 or r["rank"] is None or r["rank"] > max(positions, fill_depth or positions):
+        if free <= 0 or r["rank"] is None or r["rank"] > (buy_rank or max(positions, fill_depth or positions)):
             break
         sym = r["symbol"]
         if sym in held:
@@ -116,8 +179,9 @@ def plan(
         if sym in blocked:
             skipped.append({"symbol": sym, "rank": r["rank"], "reason": blocked[sym]})
             continue
-        buys.append({"symbol": sym, "rank": r["rank"], "score": r["score"],
-                     "reason": f"rank {r['rank']} of {sum(1 for x in ranking if x['rank'])}: 1m {r['returns'].get('21')}%, 3m {r['returns'].get('63')}%, vol {r['vol']}%"})
+        why = (f"alpha {r['alpha']}%/yr, vol {r['vol']}%, beta {r['beta']}" if "alpha" in r
+               else f"1m {r['returns'].get('21')}%, 3m {r['returns'].get('63')}%, vol {r['vol']}%")
+        buys.append({"symbol": sym, "rank": r["rank"], "score": r["score"], "reason": f"rank {r['rank']} of {sum(1 for x in ranking if x['rank'])}: {why}"})
         free -= 1
     return {"sells": sells, "buys": buys, "skipped": skipped, "free": free, "note": None}
 
