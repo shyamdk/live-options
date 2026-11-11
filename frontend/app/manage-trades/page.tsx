@@ -1834,7 +1834,8 @@ function roundLevel(value: number): number {
 }
 
 function trimNumber(value: number): string {
-  return String(value).replace(/\.?0+$/, "");
+  // 50 -> "50", 12.50 -> "12.5", 12.345 -> "12.35" (only zeros after a decimal point are dropped)
+  return String(Number(value.toFixed(2)));
 }
 
 function tradeLabel(trade: LiveTrade): string {
