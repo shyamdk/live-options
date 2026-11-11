@@ -129,6 +129,8 @@ export type TradeLevels = {
   optionSide?: string | null;
   stopLoss?: number | null;
   target?: number | null;
+  targetPercent?: number | null; // profit % of the leg's premium
+  targetAuto?: boolean; // close this leg automatically when the % target is hit
   notes?: string | null;
   tag?: string | null;
   updatedAt?: string | null;

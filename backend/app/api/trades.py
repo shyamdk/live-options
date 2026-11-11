@@ -24,6 +24,8 @@ router = APIRouter(prefix="/trades", tags=["trades"])
 class TradeLevelsIn(BaseModel):
     stopLoss: float | None = None
     target: float | None = None
+    targetPercent: float | None = None  # profit % of the leg's premium
+    targetAuto: bool = False  # close this leg automatically when the % target is hit
     notes: str | None = None
     tag: str | None = None
 

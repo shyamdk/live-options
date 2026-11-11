@@ -178,7 +178,10 @@ export default function ManageTradesPage() {
       const draft = drafts[trade.id] ?? emptyDraft();
       await saveTradeLevels(trade.id, {
         stopLoss: stopLossDraftNumber(trade, draft.stopLoss),
-        target: draftNumber(draft.target),
+        // Target is a % of the leg's premium and closes this leg automatically when hit
+        target: null,
+        targetPercent: targetPercentValue(draft.target),
+        targetAuto: targetPercentValue(draft.target) !== null,
         notes: draft.notes,
         tag: draft.tag.trim() || null,
       });
@@ -723,7 +726,7 @@ function TagGroupTable({
               <th>Remain %</th>
               <th>Spot Dist</th>
               <th>SL %</th>
-              <th>Target</th>
+              <th title="Profit % of the leg's premium; the leg closes automatically when hit">Target % (auto)</th>
               <th>Status</th>
               <th>Actions</th>
             </tr>
@@ -776,12 +779,17 @@ function TagGroupTable({
                     </div>
                   </td>
                   <td>
-                    <input
-                      className="level-input"
-                      inputMode="decimal"
-                      value={draft.target}
-                      onChange={(event) => onDraft(trade.id, "target", event.target.value)}
-                    />
+                    <div className="level-field">
+                      <input
+                        className="level-input"
+                        inputMode="decimal"
+                        placeholder="%"
+                        title="Profit % of this leg's premium. When reached, this leg alone is closed automatically."
+                        value={draft.target}
+                        onChange={(event) => onDraft(trade.id, "target", event.target.value)}
+                      />
+                      <span className="level-preview">{targetPreview(trade, draft.target)}</span>
+                    </div>
                   </td>
                   <td>
                     <span className={`risk-pill ${trade.riskStatus?.kind ?? "none"}`} title={trade.riskStatus?.message ?? undefined}>
@@ -1686,7 +1694,7 @@ function draftsFromSnapshot(snapshot: LiveTradeSnapshot): Record<string, DraftLe
   const rows = [...snapshot.groups.options, ...snapshot.groups.closed.filter((trade) => trade.assetClass === "OPTION")];
   return Object.fromEntries(rows.map((trade) => [trade.id, {
     stopLoss: stopLossLevelText(trade),
-    target: valueText(trade.levels?.target),
+    target: trade.levels?.targetPercent ? trimNumber(trade.levels.targetPercent) : "",
     notes: trade.levels?.notes ?? "",
     tag: trade.levels?.tag ?? "",
   }]));
@@ -1764,6 +1772,20 @@ function stopLossPreview(trade: LiveTrade, value: string): string {
   if (percentValue === null) return "";
   const stopLoss = stopLossFromPercent(trade, percentValue);
   return stopLoss === null ? "" : `SL ${money(stopLoss)}`;
+}
+
+function targetPercentValue(value: string): number | null {
+  const parsed = Number(value.replace("%", "").replace(",", "").trim());
+  return value.trim() && Number.isFinite(parsed) && parsed > 0 && parsed < 100 ? parsed : null;
+}
+
+/** Price at which the % target is hit: short legs buy back at avg x (1 - %), long legs sell at avg x (1 + %). */
+function targetPreview(trade: LiveTrade, value: string): string {
+  const pct = targetPercentValue(value);
+  const avg = trade.avgPrice;
+  if (pct === null || avg === null || avg === undefined || Number.isNaN(avg) || avg <= 0) return value.trim() ? "1–99 %" : "";
+  const level = roundLevel(trade.qty < 0 ? avg * (1 - pct / 100) : avg * (1 + pct / 100));
+  return `${trade.qty < 0 ? "buy back" : "sell"} at ${money(level)} · auto`;
 }
 
 function stopLossPercentValue(value: string): number | null {

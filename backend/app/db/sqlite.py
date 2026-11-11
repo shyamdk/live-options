@@ -49,6 +49,9 @@ def init_db() -> None:
             """
         )
         _add_column_if_missing(conn, "trade_levels", "tag", "TEXT")
+        # % target of the leg's premium; target_auto=1 closes that leg automatically when hit
+        _add_column_if_missing(conn, "trade_levels", "target_percent", "REAL")
+        _add_column_if_missing(conn, "trade_levels", "target_auto", "INTEGER NOT NULL DEFAULT 0")
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS trade_actions (
@@ -2115,7 +2118,7 @@ def has_configured_trade_levels() -> bool:
             """
             SELECT 1
             FROM trade_levels
-            WHERE stop_loss IS NOT NULL OR target IS NOT NULL
+            WHERE stop_loss IS NOT NULL OR target IS NOT NULL OR target_percent IS NOT NULL
             LIMIT 1
             """
         ).fetchone()
@@ -2132,6 +2135,8 @@ def upsert_trade_levels(trade_id: str, payload: dict[str, Any]) -> dict[str, Any
         "option_side": payload.get("optionSide"),
         "stop_loss": _number(payload.get("stopLoss")),
         "target": _number(payload.get("target")),
+        "target_percent": _number(payload.get("targetPercent")),
+        "target_auto": 1 if payload.get("targetAuto") else 0,
         "notes": payload.get("notes") or "",
         "tag": (payload.get("tag") or "").strip() or None,
         "updated_at": now,
@@ -2140,9 +2145,9 @@ def upsert_trade_levels(trade_id: str, payload: dict[str, Any]) -> dict[str, Any
         conn.execute(
             """
             INSERT INTO trade_levels (
-                trade_id, symbol, expiry, strike_price, option_side, stop_loss, target, notes, tag, updated_at
+                trade_id, symbol, expiry, strike_price, option_side, stop_loss, target, target_percent, target_auto, notes, tag, updated_at
             ) VALUES (
-                :trade_id, :symbol, :expiry, :strike_price, :option_side, :stop_loss, :target, :notes, :tag, :updated_at
+                :trade_id, :symbol, :expiry, :strike_price, :option_side, :stop_loss, :target, :target_percent, :target_auto, :notes, :tag, :updated_at
             )
             ON CONFLICT(trade_id) DO UPDATE SET
                 symbol = excluded.symbol,
@@ -2151,6 +2156,8 @@ def upsert_trade_levels(trade_id: str, payload: dict[str, Any]) -> dict[str, Any
                 option_side = excluded.option_side,
                 stop_loss = excluded.stop_loss,
                 target = excluded.target,
+                target_percent = excluded.target_percent,
+                target_auto = excluded.target_auto,
                 notes = excluded.notes,
                 tag = excluded.tag,
                 updated_at = excluded.updated_at
@@ -2558,6 +2565,8 @@ def _level_from_mapping(row: dict[str, Any]) -> dict[str, Any]:
         "optionSide": row.get("option_side"),
         "stopLoss": row.get("stop_loss"),
         "target": row.get("target"),
+        "targetPercent": row.get("target_percent"),
+        "targetAuto": bool(row.get("target_auto")),
         "notes": row.get("notes") or "",
         "tag": row.get("tag"),
         "updatedAt": row.get("updated_at"),

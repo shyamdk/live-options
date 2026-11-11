@@ -265,13 +265,19 @@ async def _risk_order_monitor_loop() -> None:
 
 
 async def _maybe_alert_risk_exit(trade: dict[str, Any]) -> dict[str, Any] | None:
-    """Never places orders automatically. Alerts (Telegram + web) and waits for manual approval."""
+    """Alerts (Telegram + web) and waits for manual approval -- except a % target the
+    user marked auto (the leg's Target % field), which closes that one leg itself."""
     settings = get_settings()
     signal = _risk_exit_signal(trade, settings.risk_order_allow_stale_ltp)
     if not signal:
         return None
     if signal.get("status") == "skipped":
         return signal
+
+    levels = trade.get("levels") or {}
+    if signal.get("kind") == "target" and levels.get("targetAuto") and levels.get("targetPercent") and _market_open_now():
+        result = await approve_risk_exit(str(trade.get("id")), auto=True)
+        return {"tradeId": trade.get("id"), "status": f"auto-{result.get('status')}", **signal}
 
     alert_action_name = f"RISK_ALERT_{str(signal['kind']).upper()}"
     if not _should_send_risk_alert(trade, signal, alert_action_name, settings.risk_order_alert_repeat_seconds):
@@ -297,8 +303,9 @@ def _should_send_risk_alert(
     return datetime.now() >= created_at + timedelta(seconds=max(repeat_seconds, 1))
 
 
-async def approve_risk_exit(trade_id: str) -> dict[str, Any]:
-    """Called only when the user clicks Approve in the UI. Places the actual exit order."""
+async def approve_risk_exit(trade_id: str, auto: bool = False) -> dict[str, Any]:
+    """Places the exit order for ONE leg: when the user clicks Approve in the UI, or by
+    itself (auto=True) when the leg's auto % target is hit."""
     settings = get_settings()
     snapshot = await _live_trade_snapshot()
     trade = _find_trade(snapshot, trade_id)
@@ -326,6 +333,7 @@ async def approve_risk_exit(trade_id: str) -> dict[str, Any]:
         "closeSide": close_side,
         "correlationId": correlation_id,
         "mode": "live" if settings.risk_order_execution_enabled and settings.live_order_enabled else "dry-run",
+        "auto": auto,
     }
 
     action_name = f"RISK_EXIT_{str(kind).upper()}"
@@ -902,13 +910,24 @@ def _risk_status(trade: dict[str, Any], actions: list[dict[str, Any]] | None = N
     if ltp is None or qty == 0:
         return {"kind": "none", "label": "Monitoring"}
     stop_loss = _number(levels.get("stopLoss"))
-    target = _number(levels.get("target"))
+    target = _effective_target(trade)
     is_short = qty < 0
     if stop_loss is not None and ((is_short and ltp >= stop_loss) or (not is_short and ltp <= stop_loss)):
         return _risk_status_for_signal(trade, "stopLoss", stop_loss, actions or [])
     if target is not None and ((is_short and ltp <= target) or (not is_short and ltp >= target)):
         return _risk_status_for_signal(trade, "target", target, actions or [])
     return {"kind": "none", "label": "Monitoring"}
+
+
+def _effective_target(trade: dict[str, Any]) -> float | None:
+    """Target price of a leg: from its % target when set (short: avg x (1 - %), long:
+    avg x (1 + %)), otherwise the price target typed in."""
+    levels = trade.get("levels") or {}
+    percent = _number(levels.get("targetPercent"))
+    avg = _number(trade.get("avgPrice"))
+    if percent and avg:
+        return round(avg * (1 - percent / 100), 2) if int(trade.get("qty") or 0) < 0 else round(avg * (1 + percent / 100), 2)
+    return _number(levels.get("target"))
 
 
 def _risk_exit_signal(trade: dict[str, Any], allow_stale_ltp: bool = False) -> dict[str, Any] | None:
@@ -969,7 +988,7 @@ async def _notify_risk_exit(trade: dict[str, Any], signal: dict[str, Any], resul
     ltp = _number(signal.get("ltp"))
     label = _risk_trade_label(trade)
     lines = [
-        f"Approved risk exit {status}",
+        f"{'Auto % target exit' if signal.get('auto') else 'Approved risk exit'} {status} (this leg only)",
         label,
         f"Reason: {signal.get('kind')}, Level: {_text_number(level)}",
         f"LTP: {_text_number(ltp)}, Close: {signal.get('closeSide')} {signal.get('quantity')}",
