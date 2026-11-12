@@ -773,6 +773,35 @@ export async function acknowledgeTurtleAlarm(id: number): Promise<{ status: stri
   return apiJson(`/api/define-turtle/alarms/${id}/ack`, { method: "POST" }, "Failed to acknowledge alarm");
 }
 
+// Define Turtle - Filtered (paper)
+export async function getTurtleFilteredState(): Promise<TurtleState> {
+  return apiJson<TurtleState>("/api/define-turtle-filtered/state", undefined, "Failed to load Define Turtle Filtered");
+}
+
+export async function getTurtleFilteredTrades(): Promise<{ trades: TurtleTrade[] }> {
+  return apiJson<{ trades: TurtleTrade[] }>("/api/define-turtle-filtered/trades", undefined, "Failed to load trades");
+}
+
+export async function updateTurtleFilteredConfig(updates: Partial<TurtleConfig>): Promise<TurtleConfig> {
+  return apiJson<TurtleConfig>("/api/define-turtle-filtered/config", { method: "PUT", body: JSON.stringify(updates) }, "Failed to save settings");
+}
+
+export async function enterTurtleFilteredNow(): Promise<{ status: string; message?: string; trade?: TurtleTrade }> {
+  return apiJson("/api/define-turtle-filtered/enter", { method: "POST" }, "Entry failed");
+}
+
+export async function closeTurtleFilteredTrade(id: number): Promise<{ status: string; message?: string }> {
+  return apiJson(`/api/define-turtle-filtered/trades/${id}/close`, { method: "POST" }, "Close failed");
+}
+
+export async function getTurtleFilteredAlarms(): Promise<{ alarms: TurtleAlarm[] }> {
+  return apiJson<{ alarms: TurtleAlarm[] }>("/api/define-turtle-filtered/alarms", undefined, "Failed to load alarms");
+}
+
+export async function acknowledgeTurtleFilteredAlarm(id: number): Promise<{ status: string }> {
+  return apiJson(`/api/define-turtle-filtered/alarms/${id}/ack`, { method: "POST" }, "Failed to acknowledge alarm");
+}
+
 // Define Turtle A1 (paper + live on Angel One)
 export async function getTurtleA1Book(): Promise<TurtleA1Book> {
   return apiJson<TurtleA1Book>("/api/define-turtle-a1/broker-book", undefined, "Failed to load Angel One positions");

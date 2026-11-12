@@ -63,6 +63,7 @@ class PointAndFigure:
         self.columns.append({
             "type": kind, "top": top, "bottom": bottom, "start": time, "end": time,
             "turtle": False, "followThrough": False, "doubleTop": False, "doubleBottom": False, "strikeBack": False,
+            "turtleBear": False, "followThroughBear": False,
         })
         if kind == "X":
             self._on_x_extended(time)
@@ -95,8 +96,17 @@ class PointAndFigure:
     def _on_o_extended(self, time: int) -> None:
         i = len(self.columns) - 1
         col = self.columns[i]
+        # bearish mirror (Nov 2026): Turtle Breakdown = an O column below the lows of the previous
+        # `turtle_lookback` columns; Follow-Through Bearish = a Double Bottom Sell right after it
+        previous = self.columns[max(0, i - self.turtle_lookback):i]
+        if len(previous) == self.turtle_lookback and not col["turtleBear"] and col["bottom"] < min(c["bottom"] for c in previous):
+            col["turtleBear"] = True
+            self.signals.append(self._signal("turtle_breakdown", i, time))
         if i >= 2 and not col["doubleBottom"] and col["bottom"] < self.columns[i - 2]["bottom"]:
             col["doubleBottom"] = True
+            if self.columns[i - 2]["turtleBear"] and not col["followThroughBear"]:
+                col["followThroughBear"] = True
+                self.signals.append(self._signal("turtle_follow_through_bearish", i, time))
 
     def _signal(self, kind: str, index: int, time: int) -> dict[str, Any]:
         col = self.columns[index]
@@ -104,7 +114,7 @@ class PointAndFigure:
             "kind": kind,
             "time": time,
             "column": index,
-            "price": round(self.price(col["top"]), 2),
+            "price": round(self.price(col["top"] if col["type"] == "X" else col["bottom"]), 2),
             "rsi": self.rsi(),
         }
 

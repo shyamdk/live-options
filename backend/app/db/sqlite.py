@@ -1781,8 +1781,46 @@ def init_db() -> None:
         conn.execute("CREATE TABLE IF NOT EXISTS turtle_a1_alarms (id INTEGER PRIMARY KEY AUTOINCREMENT, created_at INTEGER NOT NULL, kind TEXT NOT NULL, "
                      "title TEXT NOT NULL, message TEXT NOT NULL, trade_id INTEGER, acknowledged_at INTEGER)")
         conn.execute("CREATE TABLE IF NOT EXISTS turtle_a1_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL)")
-        for table in ("turtle_trades", "turtle_a1_trades"):
+        # Define Turtle - Filtered (paper; trend + RSI>60 + 200 OTM, optional bear side): own prefix
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS turtle_f_trades (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                status TEXT NOT NULL,
+                trigger TEXT NOT NULL,
+                signal_time INTEGER,
+                signal_rsi REAL,
+                entry_time INTEGER NOT NULL,
+                expiry TEXT NOT NULL,
+                spot REAL NOT NULL,
+                lots INTEGER NOT NULL,
+                lot_size INTEGER NOT NULL,
+                short_strike REAL NOT NULL,
+                long_strike REAL NOT NULL,
+                short_security_id TEXT,
+                long_security_id TEXT,
+                short_entry REAL NOT NULL,
+                long_entry REAL NOT NULL,
+                credit_points REAL NOT NULL,
+                short_exit REAL,
+                long_exit REAL,
+                exit_time INTEGER,
+                exit_reason TEXT,
+                realized_pnl REAL,
+                charges REAL,
+                last_cost REAL,
+                last_decay REAL,
+                last_rsi REAL,
+                last_update INTEGER
+            )
+            """
+        )
+        conn.execute("CREATE TABLE IF NOT EXISTS turtle_f_alarms (id INTEGER PRIMARY KEY AUTOINCREMENT, created_at INTEGER NOT NULL, kind TEXT NOT NULL, "
+                     "title TEXT NOT NULL, message TEXT NOT NULL, trade_id INTEGER, acknowledged_at INTEGER)")
+        conn.execute("CREATE TABLE IF NOT EXISTS turtle_f_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL)")
+        for table in ("turtle_trades", "turtle_a1_trades", "turtle_f_trades"):
             _add_column_if_missing(conn, table, "mode", "TEXT NOT NULL DEFAULT 'paper'")
+            _add_column_if_missing(conn, table, "side", "TEXT NOT NULL DEFAULT 'bull'")  # bull = put spread, bear = call spread
             for column in ("short_order_id", "long_order_id", "short_exit_order_id", "long_exit_order_id", "needs_attention", "broker"):
                 _add_column_if_missing(conn, table, column, "TEXT")  # live: each trade keeps its own mode and broker
         conn.execute(
@@ -4669,7 +4707,7 @@ _TURTLE_TRADE_FIELDS = {
     "short_strike": "shortStrike", "long_strike": "longStrike", "short_security_id": "shortSecurityId",
     "long_security_id": "longSecurityId", "short_entry": "shortEntry", "long_entry": "longEntry",
     "credit_points": "creditPoints", "short_exit": "shortExit", "long_exit": "longExit", "exit_time": "exitTime",
-    "exit_reason": "exitReason", "realized_pnl": "realizedPnl", "charges": "charges", "last_cost": "lastCost",
+    "exit_reason": "exitReason", "realized_pnl": "realizedPnl", "charges": "charges", "last_cost": "lastCost", "side": "side",
     "last_decay": "lastDecay", "last_rsi": "lastRsi", "last_update": "lastUpdate", "mode": "mode",
     "short_order_id": "shortOrderId", "long_order_id": "longOrderId", "short_exit_order_id": "shortExitOrderId",
     "long_exit_order_id": "longExitOrderId", "needs_attention": "needsAttention", "broker": "broker",

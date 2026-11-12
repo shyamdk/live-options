@@ -16,6 +16,10 @@ export interface TurtleConfig {
   calendarExitDays: number;
   lots: number;
   lotSize: number;
+  entryRsi?: number; // Define Turtle - Filtered
+  trendSmaDays?: number;
+  shortOtmPoints?: number;
+  bearish?: boolean;
 }
 
 export interface PnfColumn {
@@ -33,7 +37,7 @@ export interface PnfColumn {
 }
 
 export interface PnfSignal {
-  kind: "turtle_breakout" | "turtle_follow_through" | "strike_back";
+  kind: "turtle_breakout" | "turtle_follow_through" | "strike_back" | "turtle_breakdown" | "turtle_follow_through_bearish";
   time: number;
   column: number;
   price: number;
@@ -42,6 +46,7 @@ export interface PnfSignal {
 
 export interface TurtleTrade {
   id: number;
+  side?: "bull" | "bear";
   status: "OPEN" | "CLOSED";
   trigger: string;
   signalTime: number | null;
@@ -97,6 +102,7 @@ export interface TurtleState {
   trend?: "BULLISH" | "NOT_BULLISH" | null;
   lastFollowThrough?: PnfSignal | null;
   nextWeekExpiry?: string | null;
+  trendFilter?: { sma: number | null; close: number | null; bull: boolean; bear: boolean; days?: number };
   openTrades: TurtleTrade[];
   alarms: TurtleAlarm[];
   marketOpen: boolean;
