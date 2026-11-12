@@ -68,6 +68,7 @@ const navItems: NavItem[] = [
   { href: "/oi-improvements", label: "OI Improvements", short: "IM", icon: Lightbulb, group: "paper" },
   { href: "/varaha", label: "Varaha", short: "VA", icon: Shapes, group: "paper" },
   { href: "/nifty-strangle", label: "NIFTY Strangle", short: "NS", icon: Spline, group: "paper" },
+  { href: "/sensex-strangle-hedged", label: "SENSEX Strangle - Hedged", short: "SH", icon: Spline, group: "paper" },
   { href: "/calm-strangle", label: "Calm Strangle", short: "CS", icon: Waves, group: "paper" },
   { href: "/calm-strangle-or", label: "Calm Strangle - OR", short: "CO", icon: Waves, group: "paper" },
   { href: "/batman", label: "Batman", short: "BM", icon: Moon, group: "paper" },

@@ -12,8 +12,9 @@ export interface NiftyStrangleConfig {
   lotSize: number;
   quantity: number;
   liveOrdersAllowed: boolean;
-  book: "plain" | "hedged";
+  book: "plain" | "hedged" | "sensex";
   broker: "dhan" | "kite";
+  index?: "NIFTY" | "SENSEX";
   skipEventWeeks: boolean;
   wingDistance: number;
   kite?: KiteStatus;
@@ -123,7 +124,7 @@ export interface NiftyStrangleLeg {
 
 export interface NiftyStrangleTrade {
   id: number;
-  book: "plain" | "hedged";
+  book: "plain" | "hedged" | "sensex";
   broker: string | null;
   mode: "paper" | "live";
   trigger: string;

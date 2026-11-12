@@ -936,7 +936,7 @@ export async function getMeltingGapDays(): Promise<{ days: MeltingDaySummary[] }
   return apiJson<{ days: MeltingDaySummary[] }>("/api/melting-gap/days", undefined, "Failed to load daily P&L");
 }
 
-export type StrangleBook = "plain" | "hedged";
+export type StrangleBook = "plain" | "hedged" | "sensex";
 
 export async function getNiftyStranglePlan(book: StrangleBook = "plain"): Promise<NiftyStranglePlan> {
   return apiJson<NiftyStranglePlan>(`/api/nifty-strangle/plan?book=${book}`, undefined, "Failed to load the NIFTY Strangle plan");
@@ -986,8 +986,8 @@ export async function getKiteStatus(): Promise<KiteStatus> {
   return apiJson("/api/kite/status", undefined, "Failed to load the Zerodha status");
 }
 
-export async function getNiftyStrangleSpotChart(): Promise<{ candles: { time: number; close: number }[]; error?: string }> {
-  return apiJson("/api/nifty-strangle/spot-chart", undefined, "Failed to load the NIFTY chart");
+export async function getNiftyStrangleSpotChart(book: StrangleBook = "plain"): Promise<{ candles: { time: number; close: number }[]; error?: string }> {
+  return apiJson(`/api/nifty-strangle/spot-chart?book=${book}`, undefined, "Failed to load the NIFTY chart");
 }
 
 export async function getCalmOrState(): Promise<CalmState> {

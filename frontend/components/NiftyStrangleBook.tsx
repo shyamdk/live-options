@@ -64,7 +64,9 @@ function day(iso: string | null | undefined): string {
 }
 
 export default function NiftyStrangleBook({ book }: { book: StrangleBook }) {
-  const hedged = book === "hedged";
+  const hedged = book !== "plain";
+  const sensex = book === "sensex";
+  const indexName = sensex ? "SENSEX" : "NIFTY";
   const [plan, setPlan] = useState<NiftyStranglePlan | null>(null);
   const [config, setConfig] = useState<NiftyStrangleConfig | null>(null);
   const [trades, setTrades] = useState<NiftyStrangleTrade[]>([]);
@@ -152,16 +154,18 @@ export default function NiftyStrangleBook({ book }: { book: StrangleBook }) {
         <div>
           <h1>
             <Spline size={20} style={{ verticalAlign: "-3px", marginRight: 8 }} />
-            NIFTY Strangle{hedged ? " — Hedged" : ""}
+            {indexName} Strangle{hedged ? " — Hedged" : ""}
           </h1>
           <p>
-            BTC Strangle&apos;s rules on NIFTY weekly options: sell an OTM call + put at spot ± multiplier × ATM straddle at 15:15 the
+            BTC Strangle&apos;s rules on {indexName} weekly options: sell an OTM call + put at spot ± multiplier × ATM straddle at 15:15 the
             day before expiry (stepping in to the farthest strike that still pays the minimum premium), per-leg stop loss, buy back
             on expiry day only if still worth more than the threshold.{" "}
-            {hedged
+            {sensex
+              ? `The NIFTY hedged rules on SENSEX weeklies (Thursday expiry, entered Wednesday 15:15): wings ${config?.wingDistance ?? 500} pts beyond each short, trades through event weeks. Paper only. It uses the same Zerodha margin as the NIFTY book (Mon–Tue), on different days. Back-test Apr–Oct 2026 (28 weeks, 2 lots): +₹12.1k, worst week −₹1.1k, against +₹27.9k for NIFTY over the same weeks (this book runs 6 lots, so about 3× those numbers); the window was calm, so the real worst case is larger.`
+              : hedged
               ? `This book also buys a wing ${config?.wingDistance ?? 500} pts beyond each short (bought first, sold right after its short is closed) and trades through event weeks. Live orders go to Zerodha (Kite).`
               : "This is the naked book: weeks with a major scheduled event (Budget, RBI, Fed, election results) inside the hold are skipped."}{" "}
-            Back-test Jan 2025 – Oct 2026, 5 lots: naked +₹2.15L, worst week −₹78k; 500-pt wings +₹1.70L, worst week −₹37.5k.
+            {sensex ? null : "Back-test Jan 2025 – Oct 2026, 5 lots: naked +₹2.15L, worst week −₹78k; 500-pt wings +₹1.70L, worst week −₹37.5k."}
           </p>
         </div>
         <div className="toolbar" style={{ alignItems: "center" }}>
@@ -188,7 +192,7 @@ export default function NiftyStrangleBook({ book }: { book: StrangleBook }) {
 
       {config ? <SettingsSection config={config} busy={busy === "config"} onSave={saveConfig} /> : null}
 
-      {hedged ? <KitePanel /> : null}
+      {book === "hedged" ? <KitePanel /> : null}
 
       <CollapsibleSection
         id={`nifty-strangle-${book}-plan`}
@@ -220,8 +224,8 @@ export default function NiftyStrangleBook({ book }: { book: StrangleBook }) {
         <TradesTable trades={trades} />
       </CollapsibleSection>
 
-      <CollapsibleSection id="nifty-strangle-chart" title="NIFTY spot (5-min, last few sessions)" defaultOpen={false}>
-        <SpotChart open={open[0] ?? null} trades={trades} />
+      <CollapsibleSection id={`nifty-strangle-${book}-chart`} title={`${indexName} spot (5-min, last few sessions)`} defaultOpen={false}>
+        <SpotChart open={open[0] ?? null} trades={trades} book={book} />
       </CollapsibleSection>
     </section>
   );
@@ -262,7 +266,7 @@ function SettingsSection({
         entryWindowEnd: draft.entryWindowEnd,
         expiryExitTime: draft.expiryExitTime,
         buybackThreshold: Number(draft.buybackThreshold),
-        ...(config.book === "hedged" ? { wingDistance: Number(draft.wingDistance) } : {}),
+        ...(config.book !== "plain" ? { wingDistance: Number(draft.wingDistance) } : {}),
       },
       "Settings saved.",
     );
@@ -316,7 +320,7 @@ function SettingsSection({
         {field("entryWindowEnd", "until", "retries each poll", 70)}
         {field("expiryExitTime", "Buy back at (IST)", "on expiry day", 70)}
         {field("buybackThreshold", "if worth > ₹", "else let it expire", 70)}
-        {config.book === "hedged" ? (
+        {config.book !== "plain" ? (
           <div>
             {field("wingDistance", "Wing distance (pts)", "bought beyond each short", 70)}
             {chips("wingDistance", [300, 400, 500, 600], (v) => `${v}`)}
@@ -378,7 +382,7 @@ function PlanView({ plan }: { plan: NiftyStranglePlan | null }) {
           {[
             { label: "Entry", value: day(plan.entryDate), caption: `${plan.config.entryTime}–${plan.config.entryWindowEnd} IST` },
             { label: "Expiry", value: day(plan.expiry), caption: `buy back at ${plan.config.expiryExitTime} if > ₹${plan.config.buybackThreshold}` },
-            { label: "NIFTY spot", value: num(plan.spot), caption: `ATM ${num(plan.atmStrike, 0)}` },
+            { label: `${plan.config.index ?? "NIFTY"} spot`, value: num(plan.spot), caption: `ATM ${num(plan.atmStrike, 0)}` },
             { label: "ATM straddle", value: num(plan.straddle), caption: `× ${plan.multiplier} = ${num(plan.distance, 0)} pts` },
             { label: "Credit", value: inr(plan.credit), caption: `${plan.config.lots} lots × ${plan.config.lotSize} per leg` },
             ...(plan.wingCost ? [
@@ -645,7 +649,7 @@ function niftyStrangleNotes(trades: NiftyStrangleTrade[]): TradeNote[] {
       color: "#b23c35",
       title: `Entry #${t.id} · sold ${legs.map((l) => `${l.strike} ${l.optionType}`).join(" / ")} · ${t.lots} lots`,
       lines: [
-        `${istTime(t.entryTime)} · NIFTY ${num(t.spot, 0)} · expiry ${day(t.expiry)}${t.trigger === "manual" ? " · manual" : ""}`,
+        `${istTime(t.entryTime)} · ${t.book === "sensex" ? "SENSEX" : "NIFTY"} ${num(t.spot, 0)} · expiry ${day(t.expiry)}${t.trigger === "manual" ? " · manual" : ""}`,
         `Why: scheduled entry the day before expiry -- strikes at spot ± ${t.multiplier} × ATM straddle ${num(t.straddle)} = ${num(t.distance, 0)} pts`,
         `Credit ${inr(t.credit)} · stop each leg at +${t.stopLossPercent}% (${legs.map((l) => `${l.optionType} ${num(l.slPrice)}`).join(", ")})`,
         t.notes ?? "",
@@ -665,7 +669,7 @@ function niftyStrangleNotes(trades: NiftyStrangleTrade[]): TradeNote[] {
   });
 }
 
-function SpotChart({ open, trades }: { open: NiftyStrangleTrade | null; trades: NiftyStrangleTrade[] }) {
+function SpotChart({ open, trades, book }: { open: NiftyStrangleTrade | null; trades: NiftyStrangleTrade[]; book: StrangleBook }) {
   const [handles, setHandles] = useState<{ chart: IChartApi; series: ISeriesApi<"Line"> } | null>(null);
   const [barTimes, setBarTimes] = useState<number[]>([]);
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -684,7 +688,7 @@ function SpotChart({ open, trades }: { open: NiftyStrangleTrade | null; trades: 
       timeScale: { timeVisible: true, secondsVisible: false, tickMarkFormatter: (t: Time) => istTick(t) },
       localization: { timeFormatter: (t: Time) => istTick(t) },
     });
-    seriesRef.current = chart.addSeries(LineSeries, { color: "#0f6b78", lineWidth: 2, title: "NIFTY" });
+    seriesRef.current = chart.addSeries(LineSeries, { color: "#0f6b78", lineWidth: 2, title: book === "sensex" ? "SENSEX" : "NIFTY" });
     chartRef.current = chart;
     setHandles({ chart, series: seriesRef.current });
     const observer = new ResizeObserver(() => {
@@ -705,7 +709,7 @@ function SpotChart({ open, trades }: { open: NiftyStrangleTrade | null; trades: 
     let cancelled = false;
     async function load() {
       try {
-        const r = await getNiftyStrangleSpotChart();
+        const r = await getNiftyStrangleSpotChart(book);
         if (cancelled || !seriesRef.current) return;
         setError(r.error ?? null);
         const seen = new Set<number>();

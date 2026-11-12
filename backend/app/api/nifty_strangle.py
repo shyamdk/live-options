@@ -8,7 +8,7 @@ from app.services import nifty_strangle
 from app.services.app_auth import require_auth
 
 router = APIRouter(prefix="/nifty-strangle", tags=["nifty-strangle"])
-BOOK = Query("plain", pattern="^(plain|hedged)$")
+BOOK = Query("plain", pattern="^(plain|hedged|sensex)$")
 
 
 @router.get("/config", dependencies=[Depends(require_auth)])
@@ -48,8 +48,8 @@ async def close_leg(leg_id: int) -> dict[str, Any]:
 
 
 @router.get("/spot-chart", dependencies=[Depends(require_auth)])
-async def spot_chart() -> dict[str, Any]:
+async def spot_chart(book: str = BOOK) -> dict[str, Any]:
     try:
-        return await nifty_strangle.spot_chart()
+        return await nifty_strangle.spot_chart(book)
     except Exception as exc:
         return {"candles": [], "error": str(exc)}

@@ -58,13 +58,27 @@ from app.services.telegram import TelegramNotifier
 logger = logging.getLogger(__name__)
 
 IST = ZoneInfo("Asia/Kolkata")
-LOT_SIZE = 65
+LOT_SIZE = 65  # NIFTY
 OPTION_SEGMENT = "NSE_FNO"
+# each book trades one index; "sensex" runs the hedged rules on SENSEX weeklies (Thursday expiry,
+# entered Wednesday 15:15) -- paper only for now (back-test Apr-Oct 2026: about half NIFTY's result)
+INDEXES: dict[str, dict[str, Any]] = {
+    "NIFTY": {"setting": "dhan_nifty_security_id", "segment": "NSE_FNO", "lot": 65, "step": 50},
+    "SENSEX": {"setting": "dhan_sensex_security_id", "segment": "BSE_FNO", "lot": 20, "step": 100},
+}
+BOOK_INDEX = {"plain": "NIFTY", "hedged": "NIFTY", "sensex": "SENSEX"}
+
+
+def ix(book: str | None) -> dict[str, Any]:
+    name = BOOK_INDEX.get(book or "plain", "NIFTY")
+    meta = INDEXES[name]
+    return {**meta, "name": name, "securityId": getattr(get_settings(), meta["setting"])}
+
 INDEX_SEGMENT = "IDX_I"
 POLL_SECONDS = 15
 QUOTE_MAX_AGE = 2.0
 MARKET_OPEN, MARKET_CLOSE = dtime(9, 15), dtime(15, 30)
-BOOKS = ("plain", "hedged")
+BOOKS = ("plain", "hedged", "sensex")
 
 DEFAULTS: dict[str, Any] = {
     "enabled": True,
@@ -80,16 +94,17 @@ DEFAULTS: dict[str, Any] = {
     "skipEventWeeks": True,
     "wingDistance": 500.0,
 }
-BOOK_DEFAULTS = {"plain": {"skipEventWeeks": True, "wingDistance": 0.0}, "hedged": {"skipEventWeeks": False, "wingDistance": 500.0}}
+BOOK_DEFAULTS = {"plain": {"skipEventWeeks": True, "wingDistance": 0.0}, "hedged": {"skipEventWeeks": False, "wingDistance": 500.0},
+                 "sensex": {"skipEventWeeks": False, "wingDistance": 500.0, "lots": 6}}
 
 _lock = asyncio.Lock()
-_expiry_cache: dict[str, Any] = {"at": 0.0, "expiries": []}
+_expiry_cache: dict[str, dict[str, Any]] = {}
 _notified: set[str] = set()
 
 
 def _book(book: str | None) -> str:
     if book not in (None, *BOOKS):
-        raise ValueError("book must be plain or hedged")
+        raise ValueError("book must be plain, hedged or sensex")
     return book or "plain"
 
 
@@ -117,10 +132,14 @@ def get_config(book: str | None = "plain") -> dict[str, Any]:
         else:
             config[key] = raw
     settings = get_settings()
-    config["lotSize"] = LOT_SIZE
-    config["quantity"] = int(config["lots"]) * LOT_SIZE
-    config["broker"] = "kite" if book == "hedged" else "dhan"
-    if book == "hedged":
+    index = ix(book)
+    config["index"] = index["name"]
+    config["lotSize"] = index["lot"]
+    config["quantity"] = int(config["lots"]) * index["lot"]
+    config["broker"] = "kite" if book in ("hedged", "sensex") else "dhan"
+    if book == "sensex":
+        config["liveOrdersAllowed"] = False  # paper only until it has a live track record
+    elif book == "hedged":
         config["liveOrdersAllowed"] = bool(settings.nifty_strangle_kite_live_order_enabled and settings.live_order_enabled and kite_broker.configured())
         config["kite"] = kite_broker.status()
     else:
@@ -143,7 +162,7 @@ def update_config(updates: dict[str, Any], book: str | None = "plain") -> dict[s
             datetime.strptime(str(value), "%H:%M")
         if key in ("multiplier", "stopLossPercent", "lots", "minPremium") and float(value) <= 0:
             raise ValueError(f"{key} must be positive")
-        if key == "wingDistance" and book == "hedged" and float(value) < 50:
+        if key == "wingDistance" and book != "plain" and float(value) < 50:
             raise ValueError("wingDistance must be at least 50 points")
         default = DEFAULTS[key]
         db.set_nifty_strangle_setting(_key(book, key), ("1" if value else "0") if isinstance(default, bool) else str(value))
@@ -161,11 +180,13 @@ def _mode(config: dict[str, Any]) -> str:
 # ---------------------------------------------------------------- calendar
 
 
-async def _expiries(dhan: DhanService) -> list[date]:
-    if _expiry_cache["expiries"] and time.monotonic() - _expiry_cache["at"] < 1800:
-        return _expiry_cache["expiries"]
-    expiries = sorted(date.fromisoformat(x) for x in await dhan.expiry_list(get_settings().dhan_nifty_security_id, INDEX_SEGMENT))
-    _expiry_cache.update(at=time.monotonic(), expiries=expiries)
+async def _expiries(dhan: DhanService, book: str = "plain") -> list[date]:
+    index = ix(book)
+    cached = _expiry_cache.get(index["name"])
+    if cached and time.monotonic() - cached["at"] < 1800:
+        return cached["expiries"]
+    expiries = sorted(date.fromisoformat(x) for x in await dhan.expiry_list(index["securityId"], INDEX_SEGMENT))
+    _expiry_cache[index["name"]] = {"at": time.monotonic(), "expiries": expiries}
     return expiries
 
 
@@ -177,10 +198,10 @@ def entry_day_for(expiry: date) -> date:
     return day
 
 
-async def next_entry(dhan: DhanService, today: date, *, after_window: bool = False) -> tuple[date | None, date | None]:
+async def next_entry(dhan: DhanService, today: date, *, after_window: bool = False, book: str = "plain") -> tuple[date | None, date | None]:
     """(entry date, expiry) for the next entry on or after today; with
     after_window, today's entry (window already over) is skipped."""
-    for expiry in await _expiries(dhan):
+    for expiry in await _expiries(dhan, book):
         if expiry <= today:
             continue
         entry = entry_day_for(expiry)
@@ -196,8 +217,8 @@ def market_open(now: datetime) -> bool:
 # ---------------------------------------------------------------- planning
 
 
-async def _spot(dhan: DhanService) -> float | None:
-    scrip = get_settings().dhan_nifty_security_id
+async def _spot(dhan: DhanService, book: str = "plain") -> float | None:
+    scrip = ix(book)["securityId"]
     data = await dhan.market_quotes_by_segment({INDEX_SEGMENT: [int(scrip)]}, max_age_seconds=QUOTE_MAX_AGE)
     return varaha._number(((data.get(INDEX_SEGMENT) or {}).get(str(scrip)) or {}).get("last_price"))
 
@@ -216,12 +237,13 @@ async def plan(expiry: date | None = None, *, dhan: DhanService | None = None, b
         now = datetime.now(IST)
         traded_today = any(t["entry_date"] == today.isoformat() for t in db.list_nifty_strangle_trades(limit=20, book=book))
         after = traded_today or now.time() > _hhmm(config["entryWindowEnd"])
-        entry_date, expiry = await next_entry(dhan, today, after_window=after)
+        entry_date, expiry = await next_entry(dhan, today, after_window=after, book=book)
         if not expiry:
             return {"config": config, "error": "No upcoming NIFTY expiry listed by Dhan."}
     entry_date = entry_date or entry_day_for(expiry)
     events = _events(entry_date, expiry)
-    chain = await dhan.option_chain(get_settings().dhan_nifty_security_id, INDEX_SEGMENT, expiry.isoformat())
+    index = ix(book)
+    chain = await dhan.option_chain(index["securityId"], INDEX_SEGMENT, expiry.isoformat())
     spot = varaha._number(chain.get("last_price"))
     oc = chain.get("oc") or {}
     rows: dict[float, dict[str, Any]] = {}
@@ -244,7 +266,7 @@ async def plan(expiry: date | None = None, *, dhan: DhanService | None = None, b
 
     def leg_info(q: dict[str, Any], strike: float) -> dict[str, Any]:
         return {"strike": strike, "securityId": q["securityId"], "ltp": q["ltp"], "bid": q["bid"], "ask": q["ask"], "iv": q["iv"],
-                "delta": q["delta"], "oiLots": round((q["oi"] or 0) / LOT_SIZE), "distancePercent": round(abs(strike - spot) / spot * 100, 2)}
+                "delta": q["delta"], "oiLots": round((q["oi"] or 0) / index["lot"]), "distancePercent": round(abs(strike - spot) / spot * 100, 2)}
 
     for side, target, outward in (("CE", spot + distance, 1), ("PE", spot - distance, -1)):
         listed = sorted((k for k, r in rows.items() if r[side]), reverse=outward < 0)
@@ -261,7 +283,7 @@ async def plan(expiry: date | None = None, *, dhan: DhanService | None = None, b
             errors.append(f"{side}: no strike between spot and {formula:,.0f} bids ≥ ₹{floor:g}")
             continue
         legs[side] = {**leg_info(rows[chosen][side], chosen), "formulaStrike": formula, "steppedIn": chosen != formula, "target": round(target, 2)}
-        if book == "hedged":
+        if book in ("hedged", "sensex"):
             want = chosen + outward * float(config["wingDistance"])
             beyond = [k for k in listed if (k >= want if outward > 0 else k <= want)]
             wing = beyond[0] if beyond else None
@@ -286,12 +308,12 @@ async def plan(expiry: date | None = None, *, dhan: DhanService | None = None, b
         leg["sellAt"] = fill
         leg["slPrice"] = round(fill * sl_mult, 2)
         credit += fill * qty
-        charges += _charges(fill, qty, "SELL")
+        charges += _charges(fill, qty, "SELL", index["segment"])
     for w in wings.values():
         fill = w["ask"] or w["ltp"]
         w["buyAt"] = fill
         wing_cost += fill * qty
-        charges += _charges(fill, qty, "BUY")
+        charges += _charges(fill, qty, "BUY", index["segment"])
     out.update(credit=round(credit, 2), wingCost=round(wing_cost, 2), netCredit=round(credit - wing_cost, 2), sellCharges=round(charges, 2),
                netIfExpire=round(credit - wing_cost - charges, 2), lossIfBothStopped=round(-credit * (sl_mult - 1) - charges * 2, 2))
     if wings:
@@ -300,8 +322,8 @@ async def plan(expiry: date | None = None, *, dhan: DhanService | None = None, b
     return out
 
 
-def _charges(price: float, qty: int, side: str) -> float:
-    return float(option_order_charges(premium=price, quantity=qty, side=side, exchange_segment=OPTION_SEGMENT)["total"])
+def _charges(price: float, qty: int, side: str, segment: str = OPTION_SEGMENT) -> float:
+    return float(option_order_charges(premium=price, quantity=qty, side=side, exchange_segment=segment)["total"])
 
 
 # ---------------------------------------------------------------- orders
@@ -316,12 +338,12 @@ def _fill(q: dict[str, Any] | None, side: str) -> float | None:
     return float(ltp) if ltp else None
 
 
-async def _quotes(dhan: DhanService, security_ids: list[str]) -> dict[str, dict[str, Any]]:
+async def _quotes(dhan: DhanService, security_ids: list[str], segment: str = OPTION_SEGMENT) -> dict[str, dict[str, Any]]:
     if not security_ids:
         return {}
-    data = await dhan.market_quotes_by_segment({OPTION_SEGMENT: [int(x) for x in security_ids]}, max_age_seconds=QUOTE_MAX_AGE)
+    data = await dhan.market_quotes_by_segment({segment: [int(x) for x in security_ids]}, max_age_seconds=QUOTE_MAX_AGE)
     out = {}
-    for sec, q in (data.get(OPTION_SEGMENT) or {}).items():
+    for sec, q in (data.get(segment) or {}).items():
         depth = (q or {}).get("depth") or {}
         buy = (depth.get("buy") or [{}])[0] or {}
         sell = (depth.get("sell") or [{}])[0] or {}
@@ -331,7 +353,7 @@ async def _quotes(dhan: DhanService, security_ids: list[str]) -> dict[str, dict[
 
 
 async def _execute(security_id: str, side: str, qty: int, mode: str, quote: dict[str, Any] | None, tag: str,
-                   *, broker: str = "dhan", symbol: str | None = None) -> dict[str, Any]:
+                   *, broker: str = "dhan", symbol: str | None = None, segment: str = OPTION_SEGMENT) -> dict[str, Any]:
     price = _fill(quote, side)
     if mode != "live":
         return {"ok": price is not None, "price": price, "orderId": None, "note": None if price else "no quote"}
@@ -340,7 +362,7 @@ async def _execute(security_id: str, side: str, qty: int, mode: str, quote: dict
             return {"ok": False, "price": price, "orderId": None, "note": "no Kite symbol"}
 
         async def requote() -> dict[str, Any] | None:
-            return (await _quotes(DhanService(get_settings()), [security_id])).get(str(security_id))
+            return (await _quotes(DhanService(get_settings()), [security_id], segment)).get(str(security_id))
 
         try:
             return await kite_broker.execute(symbol=symbol, side=side, qty=qty, quote=quote, tag=f"NS{tag}", requote=requote)
@@ -351,7 +373,7 @@ async def _execute(security_id: str, side: str, qty: int, mode: str, quote: dict
     result: dict[str, Any] = {}
     for attempt in range(3):
         result = await orders.place_market_order(
-            transaction_type=side, exchange_segment=OPTION_SEGMENT, security_id=security_id, quantity=qty,
+            transaction_type=side, exchange_segment=segment, security_id=security_id, quantity=qty,
             correlation_id=f"NS{tag}{attempt}{int(time.time()) % 100000}",
         )
         if result.get("status") == "sent":
@@ -389,7 +411,8 @@ async def _enter(trigger: str, *, force: bool, book: str) -> dict[str, Any]:
     broker = config["broker"]
     dhan = DhanService(get_settings())
     today = datetime.now(IST).date()
-    entry_date, expiry = await next_entry(dhan, today)
+    index = ix(book)
+    entry_date, expiry = await next_entry(dhan, today, book=book)
     if not expiry:
         return {"status": "skipped", "message": "No upcoming expiry."}
     if not force and entry_date != today:
@@ -400,7 +423,7 @@ async def _enter(trigger: str, *, force: bool, book: str) -> dict[str, Any]:
         await kite_broker.remind_login("strangle entry")
         return {"status": "skipped", "message": "Not logged in to Zerodha today -- open the login link sent on Telegram."}
     p = await plan(expiry, dhan=dhan, book=book)
-    label = "NIFTY Strangle" + (" (hedged)" if book == "hedged" else "")
+    label = {"plain": "NIFTY Strangle", "hedged": "NIFTY Strangle (hedged)", "sensex": "SENSEX Strangle (hedged)"}[book]
     now = int(time.time())
     if p.get("eventSkip") and not force:
         names = "; ".join(f"{e['name']} ({e['day']})" for e in p["events"])
@@ -408,7 +431,7 @@ async def _enter(trigger: str, *, force: bool, book: str) -> dict[str, Any]:
             "mode": mode, "trigger": "skipped", "entry_date": today.isoformat(), "expiry": expiry.isoformat(), "entry_time": now,
             "spot": p.get("spot") or 0, "atm_strike": p.get("atmStrike") or 0, "straddle": p.get("straddle") or 0,
             "multiplier": config["multiplier"], "distance": p.get("distance") or 0, "stop_loss_percent": config["stopLossPercent"],
-            "lots": config["lots"], "lot_size": LOT_SIZE, "status": "SKIPPED", "book": book, "broker": broker,
+            "lots": config["lots"], "lot_size": index["lot"], "status": "SKIPPED", "book": book, "broker": broker,
             "notes": f"Event week skipped: {names}", "closed_at": now,
         })
         await _notify(f"⏸ {label}: {expiry:%d %b} expiry skipped -- event in the hold: {names}")
@@ -423,11 +446,11 @@ async def _enter(trigger: str, *, force: bool, book: str) -> dict[str, Any]:
     trade_id = db.nifty_strangle_insert("nifty_strangle_trades", {
         "mode": mode, "trigger": trigger, "entry_date": today.isoformat(), "expiry": expiry.isoformat(), "entry_time": now,
         "spot": p["spot"], "atm_strike": p["atmStrike"], "straddle": p["straddle"], "multiplier": p["multiplier"],
-        "distance": p["distance"], "stop_loss_percent": config["stopLossPercent"], "lots": config["lots"], "lot_size": LOT_SIZE,
+        "distance": p["distance"], "stop_loss_percent": config["stopLossPercent"], "lots": config["lots"], "lot_size": index["lot"],
         "status": "OPEN", "notes": "; ".join(notes) or None, "book": book, "broker": broker,
     })
     ids = [leg["securityId"] for leg in p["legs"].values()] + [w["securityId"] for w in p["wings"].values()]
-    quotes = await _quotes(dhan, ids)
+    quotes = await _quotes(dhan, ids, index["segment"])
     lines = []
 
     async def place(side: str, info: dict[str, Any], role: str) -> bool:
@@ -439,7 +462,8 @@ async def _enter(trigger: str, *, force: bool, book: str) -> dict[str, Any]:
                 symbol = await kite_broker.nifty_option_symbol(expiry, info["strike"], side)
             except Exception as exc:
                 res = {"ok": False, "price": None, "orderId": None, "note": f"Kite symbol: {exc}"}
-        res = res or await _execute(info["securityId"], order_side, qty, mode, q, f"{trade_id}{side}{role[0].upper()}E", broker=broker, symbol=symbol)
+        res = res or await _execute(info["securityId"], order_side, qty, mode, q, f"{trade_id}{side}{role[0].upper()}E", broker=broker, symbol=symbol,
+                                    segment=index["segment"])
         leg_id = db.nifty_strangle_insert("nifty_strangle_legs", {
             "trade_id": trade_id, "option_type": side, "strike": info["strike"], "security_id": str(info["securityId"]),
             "formula_strike": info.get("formulaStrike"), "quantity": qty, "entry_bid": q.get("bid"), "entry_ask": q.get("ask"),
@@ -452,7 +476,7 @@ async def _enter(trigger: str, *, force: bool, book: str) -> dict[str, Any]:
         price = float(res["price"])
         sl = round(price * (1 + float(config["stopLossPercent"]) / 100), 2) if role == "short" else None
         db.nifty_strangle_update("nifty_strangle_legs", leg_id, entry_price=price, sl_price=sl, status="OPEN",
-                                 entry_order_id=res["orderId"], entry_charges=_charges(price, qty, order_side),
+                                 entry_order_id=res["orderId"], entry_charges=_charges(price, qty, order_side, index["segment"]),
                                  last_ltp=q.get("ltp"), last_bid=q.get("bid"), last_ask=q.get("ask"), last_update=now, error=res["note"])
         if role == "short":
             lines.append(f"SELL {config['lots']} lots {info['strike']:,.0f} {side} @ {price:.2f} (SL {sl:.2f}, {info['distancePercent']}% away)")
@@ -461,7 +485,7 @@ async def _enter(trigger: str, *, force: bool, book: str) -> dict[str, Any]:
         return True
 
     for side in ("PE", "CE"):
-        if book == "hedged":
+        if p["wings"]:
             # wing first: never leave a short naked in the hedged book
             if not await place(side, p["wings"][side], "wing"):
                 lines.append(f"⚠️ {side} short not sold because its wing did not fill")
@@ -471,7 +495,7 @@ async def _enter(trigger: str, *, force: bool, book: str) -> dict[str, Any]:
     if not any(l["status"] == "OPEN" and l["role"] == "short" for l in trade["legs"]):
         for leg in trade["legs"]:
             if leg["status"] == "OPEN":  # a lone wing: sell it back
-                await _close_leg(trade, leg, "manual", (await _quotes(dhan, [leg["security_id"]])).get(str(leg["security_id"])), notify_close=False)
+                await _close_leg(trade, leg, "manual", (await _quotes(dhan, [leg["security_id"]], index["segment"])).get(str(leg["security_id"])), notify_close=False)
         db.nifty_strangle_update("nifty_strangle_trades", trade_id, status="FAILED", closed_at=now)
     elif mode == "live" and any(l["status"] == "NOT_FILLED" for l in trade["legs"]):
         lines.append("⚠️ not every leg filled -- check the broker.")
@@ -496,14 +520,15 @@ async def _close_leg(trade: dict[str, Any], leg: dict[str, Any], reason: str, qu
     role = leg.get("role") or "short"
     order_side = "BUY" if role == "short" else "SELL"
     broker = trade.get("broker") or "dhan"
+    segment = ix(trade.get("book"))["segment"]
     if settle_price is not None:
         price, order_id, note, charges = settle_price, None, "settled at expiry", 0.0
     else:
         res = await _execute(leg["security_id"], order_side, int(leg["quantity"]), trade["mode"], quote, f"{leg['id']}X",
-                             broker=broker, symbol=leg.get("symbol"))
+                             broker=broker, symbol=leg.get("symbol"), segment=segment)
         price = res["price"] if res["price"] is not None else float(leg["last_ltp"] or leg["entry_price"])
         order_id, note = res["orderId"], res["note"]
-        charges = _charges(price, int(leg["quantity"]), order_side)
+        charges = _charges(price, int(leg["quantity"]), order_side, segment)
         if not res["ok"] and trade["mode"] == "live":
             where = "Zerodha" if broker == "kite" else "Dhan"
             note = f"{'BUY-BACK' if role == 'short' else 'WING SALE'} FAILED ({res['note']}) -- square off {leg['strike']:,.0f} {leg['option_type']} manually in {where}"
@@ -521,7 +546,7 @@ async def _close_leg(trade: dict[str, Any], leg: dict[str, Any], reason: str, qu
     if not any(l["status"] == "OPEN" for l in fresh["legs"]):
         db.nifty_strangle_update("nifty_strangle_trades", int(trade["id"]), status="CLOSED", closed_at=now)
         s = summarize(_get(int(trade["id"])))
-        await _notify(f"NIFTY Strangle #{trade['id']} closed · gross ₹{s['grossPnl']:,.0f} · charges ₹{s['charges']:,.0f} · net ₹{s['netPnl']:,.0f}")
+        await _notify(f"{ix(trade.get('book'))['name']} Strangle #{trade['id']} closed · gross ₹{s['grossPnl']:,.0f} · charges ₹{s['charges']:,.0f} · net ₹{s['netPnl']:,.0f}")
 
 
 async def monitor_once() -> None:
@@ -549,8 +574,13 @@ async def _monitor() -> None:
         await kite_broker.remind_login("open strangle")
 
     if market_open(now) and open_trades:
-        ids = [l["security_id"] for t in open_trades for l in t["legs"] if l["status"] == "OPEN"]
-        quotes = await _quotes(dhan, ids)
+        quotes: dict[str, dict[str, Any]] = {}
+        by_segment: dict[str, list[str]] = {}
+        for t in open_trades:
+            seg = ix(t.get("book"))["segment"]
+            by_segment.setdefault(seg, []).extend(l["security_id"] for l in t["legs"] if l["status"] == "OPEN")
+        for seg, ids in by_segment.items():
+            quotes.update(await _quotes(dhan, ids, seg))
         spot = None
         for trade in open_trades:
             config = get_config(trade.get("book") or "plain")
@@ -578,7 +608,7 @@ async def _monitor() -> None:
                     if worth > float(config["buybackThreshold"]):
                         await _close_leg(trade, leg, "expiry_buyback" if role == "short" else "expiry_sold", q)
                     elif now.time() >= dtime(15, 29):
-                        spot = spot or await _spot(dhan) or 0
+                        spot = await _spot(dhan, trade.get("book") or "plain") or 0
                         intrinsic = max(0.0, (spot - leg["strike"]) if leg["option_type"] == "CE" else (leg["strike"] - spot))
                         await _close_leg(trade, leg, "expired", None, settle_price=round(intrinsic, 2))
 
@@ -590,14 +620,14 @@ async def _monitor() -> None:
         if not config["enabled"]:
             continue
         if config["broker"] == "kite" and _mode(config) == "live" and now.time() >= dtime(9, 0):
-            entry_date, _ = await next_entry(dhan, now.date())
+            entry_date, _ = await next_entry(dhan, now.date(), book=book)
             if entry_date == now.date():
                 await kite_broker.remind_login("entry today")
         if not (_hhmm(config["entryTime"]) <= now.time() <= _hhmm(config["entryWindowEnd"])):
             continue
         if db.has_nifty_strangle_trade(now.date().isoformat(), _mode(config), book):
             continue
-        entry_date, expiry = await next_entry(dhan, now.date())
+        entry_date, expiry = await next_entry(dhan, now.date(), book=book)
         if entry_date != now.date():
             continue
         result = await _enter("scheduled", force=False, book=book)
@@ -613,7 +643,7 @@ async def close_leg_now(leg_id: int) -> dict[str, Any]:
         for trade in db.list_nifty_strangle_trades(status="OPEN"):
             for leg in trade["legs"]:
                 if leg["id"] == leg_id and leg["status"] == "OPEN":
-                    quotes = await _quotes(DhanService(get_settings()), [leg["security_id"]])
+                    quotes = await _quotes(DhanService(get_settings()), [leg["security_id"]], ix(trade.get("book"))["segment"])
                     await _close_leg(trade, leg, "manual", quotes.get(str(leg["security_id"])))
                     return {"status": "closed"}
     return {"status": "blocked", "message": "Leg is not open."}
@@ -657,11 +687,11 @@ def list_trades(book: str | None = "plain") -> list[dict[str, Any]]:
     return [summarize(t) for t in db.list_nifty_strangle_trades(book=_book(book))]
 
 
-async def spot_chart() -> dict[str, Any]:
+async def spot_chart(book: str | None = "plain") -> dict[str, Any]:
     dhan = DhanService(get_settings())
     today = datetime.now(IST).date()
     start = today - timedelta(days=4)
-    candles = await dhan.intraday_candles(str(get_settings().dhan_nifty_security_id), INDEX_SEGMENT, "INDEX", "5",
+    candles = await dhan.intraday_candles(str(ix(book)["securityId"]), INDEX_SEGMENT, "INDEX", "5",
                                           start.isoformat(), today.isoformat())
     return {"candles": sorted(({"time": c["time"], "close": c["close"]} for c in candles), key=lambda c: c["time"])}
 
