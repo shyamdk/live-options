@@ -209,7 +209,9 @@ async def _session() -> None:
     attempt = 0
     while _recording_window(datetime.now(IST)):
         try:
-            token = await get_dhan_access_token(settings, force_refresh=attempt > 0)
+            # reuse the shared token; only force a new login after several failed connects in a row
+            # (each forced login invalidates the token every other service is using)
+            token = await get_dhan_access_token(settings, force_refresh=attempt >= 5 and attempt % 5 == 0)
             url = f"{WSS_URL}?version=2&token={token}&clientId={settings.resolved_dhan_client_id}&authType=2"
             async with websockets.connect(url, ping_interval=20, ping_timeout=10, close_timeout=5, max_size=None) as ws:
                 _state.update(connected=True, error=None)
@@ -236,6 +238,7 @@ async def _session() -> None:
             raise
         except Exception as exc:
             _state.update(connected=False, error=f"{type(exc).__name__}: {exc}")
+            logger.warning("order_flow: feed connect failed (attempt %s): %s", attempt + 1, exc)
             attempt += 1
             await asyncio.sleep(min(2 ** attempt, 30))
     flush_stale(time.time() + 60)
