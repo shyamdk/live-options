@@ -40,6 +40,21 @@ export interface DishaState {
   breakout: { side: "up" | "down"; time: number; level: number; distancePts: number } | null;
   vix: { now: number | null; prev: number | null; change: number | null };
   oi: { ceAdded: number; peAdded: number; pcrOpen: number | null; pcrNow: number | null; since: number; asOf: number } | null;
+  marketProfile?: MarketProfile | null;
   matches: string[];
   baseRates: DishaBaseRates | null;
+}
+
+export interface MarketProfile {
+  prevDay: string;
+  prev: { poc: number; vah: number; val: number };
+  prevWidth: number;
+  open?: number;
+  last?: number;
+  openVsValue?: "above" | "inside" | "below";
+  openVsPoc?: "above" | "below";
+  nowVsValue?: "above" | "inside" | "below";
+  ib?: { high: number; low: number; width: number; complete: boolean };
+  today?: { poc: number; vah: number; val: number } | null;
+  notes?: string[];
 }

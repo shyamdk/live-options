@@ -1613,6 +1613,25 @@ def init_db() -> None:
             )
             """
         )
+        # Order-flow recorder: 1-min aggregates of Dhan's live feed (research data)
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS orderflow_minutes (
+                day TEXT NOT NULL,
+                security_id TEXT NOT NULL,
+                label TEXT,
+                kind TEXT,
+                minute_ts INTEGER NOT NULL,
+                open REAL, high REAL, low REAL, close REAL,
+                volume REAL, buy_vol REAL, sell_vol REAL,
+                book_buy REAL, book_sell REAL, bid_qty REAL, ask_qty REAL, spread REAL, oi REAL,
+                packets INTEGER,
+                footprint TEXT,
+                PRIMARY KEY (security_id, minute_ts)
+            )
+            """
+        )
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_orderflow_day ON orderflow_minutes(day)")
         # 1-Min CHoCH paper trades (NIFTY futures points)
         conn.execute(
             """
@@ -5408,3 +5427,30 @@ def choch_set_setting(key: str, value: str) -> None:
         conn.execute("INSERT INTO choch_settings (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
                      (key, value, datetime.now().isoformat(timespec="seconds")))
         conn.commit()
+
+
+# ---------------------------------------------------------------- order-flow recorder
+
+
+def orderflow_save_minute(values: dict[str, Any]) -> None:
+    cols = ", ".join(values)
+    marks = ", ".join(f":{k}" for k in values)
+    with _DB_LOCK, _connect() as conn:
+        conn.execute(f"INSERT OR REPLACE INTO orderflow_minutes ({cols}) VALUES ({marks})", values)
+        conn.commit()
+
+
+def orderflow_minutes(*, day: str, security_id: str | None = None) -> list[dict[str, Any]]:
+    with _DB_LOCK, _connect() as conn:
+        if security_id:
+            rows = conn.execute("SELECT * FROM orderflow_minutes WHERE day = ? AND security_id = ? ORDER BY minute_ts", (day, security_id)).fetchall()
+        else:
+            rows = conn.execute("SELECT * FROM orderflow_minutes WHERE day = ? ORDER BY minute_ts", (day,)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def orderflow_days() -> list[dict[str, Any]]:
+    with _DB_LOCK, _connect() as conn:
+        rows = conn.execute("SELECT day, COUNT(*) AS minutes, COUNT(DISTINCT security_id) AS instruments, SUM(volume) AS volume "
+                            "FROM orderflow_minutes GROUP BY day ORDER BY day DESC LIMIT 120").fetchall()
+    return [dict(r) for r in rows]

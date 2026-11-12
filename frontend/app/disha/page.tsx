@@ -5,6 +5,7 @@ import { Compass, RefreshCw } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import CollapsibleSection from "@/components/CollapsibleSection";
+import MarketProfileStrip from "@/components/MarketProfileStrip";
 import { getDishaState } from "@/lib/api";
 import type { DishaSituation, DishaState, DishaStatement } from "@/types/disha";
 
@@ -129,6 +130,10 @@ export default function DishaPage() {
           caption={state?.oi ? `PCR ${num(state.oi.pcrOpen)} → ${num(state.oi.pcrNow)} · since ${clock(state.oi.since)}` : "from the OI snapshots (every ~3 min)"}
         />
       </div>
+
+      <CollapsibleSection id="disha-mp" title="Market Profile (context)">
+        {state?.marketProfile ? <MarketProfileStrip mp={state.marketProfile} /> : <p className="pcr-oi-caption">Loads with today's candles.</p>}
+      </CollapsibleSection>
 
       <CollapsibleSection id="disha-chart" title="NIFTY today" aside={<span className="pcr-oi-caption">1-min closes · previous close and opening range drawn as lines</span>}>
         <SpotChart state={state} />
@@ -283,6 +288,12 @@ function SpotChart({ state }: { state: DishaState | null }) {
     if (state.openingRange) {
       lines.push(series.createPriceLine({ price: state.openingRange.high, color: "#1b7a4b", lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: "OR high" }));
       lines.push(series.createPriceLine({ price: state.openingRange.low, color: "#b23c35", lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: "OR low" }));
+    }
+    const mp = state.marketProfile;
+    if (mp) {
+      lines.push(series.createPriceLine({ price: mp.prev.vah, color: "#6b5bd2", lineWidth: 1, lineStyle: 3, axisLabelVisible: true, title: "prev VAH" }));
+      lines.push(series.createPriceLine({ price: mp.prev.val, color: "#6b5bd2", lineWidth: 1, lineStyle: 3, axisLabelVisible: true, title: "prev VAL" }));
+      lines.push(series.createPriceLine({ price: mp.prev.poc, color: "#6b5bd2", lineWidth: 2, lineStyle: 0, axisLabelVisible: true, title: "prev POC" }));
     }
     linesRef.current = lines;
     const bars = state.spot.map((c) => c.time);

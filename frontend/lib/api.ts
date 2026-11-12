@@ -38,6 +38,7 @@ import type { MantraAlarm, MantraConfig, MantraMode, MantraPlan, MantraTrade } f
 import type { Note, NoteInput, NotesSummary } from "@/types/notes";
 import type { PfOverview, PfState } from "@/types/pf-lab";
 import type { ChochConfig, ChochState, ChochTrade } from "@/types/choch";
+import type { OrderFlowState } from "@/types/order-flow";
 import type { TurtleA1Book, TurtleAlarm, TurtleConfig, TurtleState, TurtleTrade } from "@/types/turtle";
 import type { BatmanAnalysis, BatmanConfig, BatmanMode, BatmanPreview, BatmanTrade } from "@/types/batman";
 import type { BtcSpotChart, BtcStrangleChart, BtcStrangleConfig, BtcStranglePreview, BtcStrangleTrade } from "@/types/btc-strangle";
@@ -1143,4 +1144,9 @@ export async function getChochTrades(): Promise<{ trades: ChochTrade[] }> {
 
 export async function updateChochConfig(updates: Partial<ChochConfig>): Promise<ChochConfig> {
   return apiJson<ChochConfig>("/api/choch/config", { method: "PUT", body: JSON.stringify(updates) }, "Failed to save settings");
+}
+
+// Order-flow recorder
+export async function getOrderFlowState(): Promise<OrderFlowState> {
+  return apiJson<OrderFlowState>("/api/order-flow/state", undefined, "Failed to load the order-flow recorder");
 }

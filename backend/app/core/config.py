@@ -355,6 +355,9 @@ class Settings(BaseSettings):
     # 1-Min CHoCH (Mukesh Jha's 1-min NIFTY CHoCH reversal), paper only
     choch_monitor_enabled: bool = True
 
+    # Order-flow recorder (Dhan live feed -> 1-min delta / book / footprint), research only
+    order_flow_recorder_enabled: bool = True
+
     # Batman (docs/sources/batman-option-strategy-guide.pdf): NIFTY 1:3:2 double ratio
     # spread, monthly per the rulebook + a weekly variant. Paper only.
     batman_monitor_enabled: bool = True

@@ -36,6 +36,7 @@ import DishaTagHint from "@/components/DishaTagHint";
 import type { DishaState } from "@/types/disha";
 import PcrOiPanel from "@/components/PcrOiPanel";
 import ToneText from "@/components/ToneText";
+import MarketProfileStrip from "@/components/MarketProfileStrip";
 
 type DraftLevels = {
   stopLoss: string;
@@ -325,6 +326,8 @@ export default function ManageTradesPage() {
           Risk orders {riskOrderLabel(session)}
         </span>
       </div>
+
+      <MarketProfileStrip mp={disha?.marketProfile} compact />
 
       {snapshot?.suggestConfig ? <SuggestSettings config={snapshot.suggestConfig} onSaved={loadTrades} /> : null}
 

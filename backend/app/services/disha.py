@@ -21,6 +21,7 @@ from app.core.sessions import weekday_open
 from app.core.config import get_settings
 from app.core.timeutil import now_ist
 from app.db import sqlite as db
+from app.services import market_profile
 from app.services.dhan import DhanService
 
 IST = timezone(timedelta(hours=5, minutes=30))
@@ -146,6 +147,12 @@ async def get_state() -> dict[str, Any]:
     except Exception as exc:
         errors.append(f"India VIX: {exc}")
 
+    mp = None
+    try:
+        mp = await market_profile.context(dhan, nifty_id, today, candles)
+    except Exception as exc:
+        errors.append(f"market profile: {exc}")
+
     day_open = candles[0]["open"] if candles else None
     last = candles[-1]["close"] if candles else None
     gap_bps = (day_open / prev_close - 1) * 1e4 if day_open and prev_close else None
@@ -176,6 +183,7 @@ async def get_state() -> dict[str, Any]:
                      if breakout and last else None),
         "vix": {"now": vix_now, "prev": vix_prev, "change": round(vix_now - vix_prev, 2) if vix_now and vix_prev else None},
         "oi": _oi_buildup(today),
+        "marketProfile": mp,
         "matches": keys,
         "baseRates": rates,
     }
