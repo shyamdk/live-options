@@ -357,8 +357,10 @@ async def rebalance(trigger: str = "scheduled") -> dict[str, Any]:
     db.set_swing_setting("plan.createdAt", str(now))
     payload = {"week": week, "trigger": trigger, "regime": reg, "regimeOk": regime_ok, "plan": the_plan, "gates": details,
                "ranking": ranking[:40], "eligible": sum(1 for r in ranking if r["rank"]), "universe": len(ranking)}
+    # a manual plan gets its own key so the period's scheduled rebalance still runs
+    key = week if trigger == "scheduled" else f"{week} {trigger} {datetime.now(IST):%Y-%m-%d %H:%M}"
     db.swing_execute_many(
-        "INSERT OR REPLACE INTO equity_swing_rankings (week, created_at, payload) VALUES (?, ?, ?)", [(week, now, json.dumps(payload))]
+        "INSERT OR REPLACE INTO equity_swing_rankings (week, created_at, payload) VALUES (?, ?, ?)", [(key, now, json.dumps(payload))]
     )
     lines = [f"📈 Equity-Swing {'monthly' if config['frequency'] == 'monthly' else 'weekly'} plan ({week}, {config['mode']}, "
              f"{'alpha + low-vol' if config['model'] == 'alpha_lowvol' else 'momentum'})"]
