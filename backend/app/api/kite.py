@@ -22,6 +22,13 @@ async def status() -> dict[str, Any]:
     return out
 
 
+@router.post("/auto-login", dependencies=[Depends(require_auth)])
+async def auto_login() -> dict[str, Any]:
+    if not kite_broker.auto_login_configured():
+        return {"ok": False, "note": "KITE_USER_ID / KITE_PASSWORD / KITE_TOTP_SECRET are not set on the server."}
+    return {**(await kite_broker.auto_login("manual")), "status": kite_broker.status()}
+
+
 @router.get("/callback", response_class=HTMLResponse)
 async def callback(request_token: str | None = None, status: str | None = None) -> HTMLResponse:
     """Kite's login redirect. Public on purpose: a request_token is useless without the API secret."""

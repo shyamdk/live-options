@@ -4,8 +4,11 @@ Plan: the free Personal plan (orders, order book, positions, margins). Market
 data keeps coming from Dhan, so no paid Kite data subscription is needed.
 
 Login: Kite has no API login; the access token comes from a browser login once
-a day (it expires around 06:00 IST the next morning). login_url() is sent on
-Telegram; after logging in, Kite redirects to /api/kite/callback with a
+a day (it expires around 06:00 IST the next morning). With KITE_USER_ID /
+KITE_PASSWORD / KITE_TOTP_SECRET set, auto_login() does that login in headless
+Chromium (Playwright) every weekday morning -- Zerodha says the daily login
+should be manual; the user chose to automate it anyway. Otherwise (or if it
+fails) login_url() is sent on Telegram; after logging in, Kite redirects to /api/kite/callback with a
 request_token, which complete_login() exchanges (checksum = sha256(api_key +
 request_token + api_secret)). The token is stored in kite_settings.
 
@@ -68,7 +71,8 @@ def access_token() -> str | None:
 
 def status() -> dict[str, Any]:
     return {"configured": configured(), "connected": bool(access_token()), "loginUrl": login_url(),
-            "user": db.get_kite_setting("userName"), "loggedInAt": db.get_kite_setting("loggedInAt")}
+            "user": db.get_kite_setting("userName"), "loggedInAt": db.get_kite_setting("loggedInAt"),
+            "autoLogin": auto_login_configured(), "autoLoginResult": db.get_kite_setting("auto.lastResult")}
 
 
 async def complete_login(request_token: str) -> dict[str, Any]:
@@ -228,9 +232,13 @@ async def execute(*, symbol: str, side: str, qty: int, quote: dict[str, Any] | N
 
 
 async def remind_login(reason: str) -> None:
-    """Telegram the login link (at most once per hour per reason)."""
+    """Get today's token: automated login first, else Telegram the link (at most once an hour per reason)."""
     if not configured() or access_token():
         return
+    if auto_login_configured():
+        result = await auto_login(reason)
+        if result.get("ok"):
+            return
     key = f"remind.{reason}.{datetime.now(IST):%Y-%m-%d %H}"
     if db.get_kite_setting(key):
         return
@@ -241,3 +249,137 @@ async def remind_login(reason: str) -> None:
         await TelegramNotifier().send(f"🔑 Zerodha login needed ({reason}): {login_url()}\nLog in once; the app takes it from there for today.")
     except Exception:
         logger.warning("kite: telegram reminder failed")
+
+
+# ---------------------------------------------------------------- automated daily login (Playwright)
+
+_auto_lock = asyncio.Lock()
+
+
+def auto_login_configured() -> bool:
+    s = get_settings()
+    return configured() and bool(s.kite_user_id and s.kite_password and s.kite_totp_secret)
+
+
+async def auto_login(reason: str = "scheduled") -> dict[str, Any]:
+    """Log in to Kite in headless Chromium: user id + password, then the TOTP, then (first
+    time only) Authorize; the redirect's request_token is caught before it leaves the
+    browser and exchanged here. At most one attempt per 3 minutes."""
+    async with _auto_lock:
+        if access_token():
+            return {"ok": True, "note": "already logged in"}
+        fail_key = f"auto.failures.{datetime.now(IST).date()}"
+        if int(db.get_kite_setting(fail_key) or 0) >= 3:
+            return {"ok": False, "note": "stopped after 3 failed attempts today (avoids a Zerodha lockout)"}
+        last = db.get_kite_setting("auto.lastAttempt")
+        if last and (datetime.now(IST) - datetime.fromisoformat(last)).total_seconds() < 180:
+            return {"ok": False, "note": "last attempt under 3 minutes ago"}
+        db.set_kite_setting("auto.lastAttempt", datetime.now(IST).isoformat(timespec="seconds"))
+        try:
+            token = await _browser_login()
+            who = await complete_login(token)
+        except Exception as exc:
+            msg = f"{type(exc).__name__}: {str(exc)[:200]}"
+            db.set_kite_setting("auto.lastResult", f"failed {datetime.now(IST):%d %b %H:%M} -- {msg}")
+            failures = int(db.get_kite_setting(fail_key) or 0) + 1
+            db.set_kite_setting(fail_key, str(failures))
+            logger.warning("kite: auto login (%s) failed (%s today): %s", reason, failures, msg)
+            if failures >= 3:
+                from app.services.telegram import TelegramNotifier
+
+                try:
+                    await TelegramNotifier().send(f"🚨 Zerodha auto-login failed 3 times today ({msg}); stopped retrying. Log in manually: {login_url()}")
+                except Exception:
+                    pass
+            return {"ok": False, "note": msg}
+        db.set_kite_setting("auto.lastResult", f"ok {datetime.now(IST):%d %b %H:%M}")
+        logger.info("kite: auto login (%s) ok", reason)
+        return {"ok": True, "user": who.get("user")}
+
+
+async def _browser_login() -> str:
+    import os
+
+    import pyotp
+
+    s = get_settings()
+    if s.playwright_browsers_path and os.path.isdir(s.playwright_browsers_path):
+        os.environ.setdefault("PLAYWRIGHT_BROWSERS_PATH", s.playwright_browsers_path)
+    from playwright.async_api import async_playwright
+
+    captured: dict[str, str] = {}
+
+    async def catch(route) -> None:
+        url = httpx.URL(route.request.url)
+        captured["token"] = url.params.get("request_token") or ""
+        captured["status"] = url.params.get("status") or ""
+        await route.fulfill(status=200, content_type="text/html", body="ok")
+
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(headless=True)
+        try:
+            page = await browser.new_page()
+            await page.route("**/api/kite/callback*", catch)
+            await page.goto(login_url(), timeout=30000)
+            await page.fill("#userid", s.kite_user_id)
+            await page.fill("#password", s.kite_password)
+            await page.click("button[type=submit]")
+            otp = page.locator("input[type=number], input[maxlength='6'], input[autocomplete='one-time-code']").first
+            await otp.wait_for(state="visible", timeout=20000)
+            totp = pyotp.TOTP(s.kite_totp_secret.replace(" ", ""))
+            if totp.interval - (int(datetime.now().timestamp()) % totp.interval) < 4:
+                await asyncio.sleep(5)  # don't type a code that is about to roll over
+            await otp.fill(totp.now())
+            submit = page.locator("button[type=submit]")
+            if await submit.count() and await submit.first.is_enabled():
+                try:
+                    await submit.first.click(timeout=3000)
+                except Exception:
+                    pass  # Kite usually submits by itself after 6 digits
+            for _ in range(40):
+                if captured.get("token"):
+                    break
+                auth = page.get_by_role("button", name="Authorize")
+                if await auth.count():
+                    await auth.first.click()
+                err = page.locator(".error, .su-message.error, .text-red")
+                if await err.count() and (await err.first.inner_text()).strip():
+                    raise KiteError(f"Kite login page says: {(await err.first.inner_text()).strip()[:150]}")
+                await asyncio.sleep(0.5)
+        finally:
+            await browser.close()
+    if captured.get("status") not in ("", "success") or not captured.get("token"):
+        raise KiteError("no request_token after login (Kite page layout may have changed)")
+    return captured["token"]
+
+
+async def _loop() -> None:
+    """Weekday mornings at kite_auto_login_time IST (and on start-up during market hours)."""
+    from app.core.sessions import weekday_open
+
+    while True:
+        try:
+            now = datetime.now(IST)
+            start = datetime.strptime(get_settings().kite_auto_login_time, "%H:%M").time()
+            if (auto_login_configured() and weekday_open(now) and start <= now.time() <= datetime.strptime("15:30", "%H:%M").time()
+                    and not access_token()):
+                await auto_login("scheduled")
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("kite: auto-login loop failed")
+        await asyncio.sleep(60)
+
+
+def start_kite_task() -> asyncio.Task | None:
+    return asyncio.create_task(_loop())
+
+
+async def stop_kite_task(task: asyncio.Task | None) -> None:
+    if not task:
+        return
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        return

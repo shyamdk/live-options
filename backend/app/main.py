@@ -63,6 +63,7 @@ from app.services.melting import start_melting_task, stop_melting_task
 from app.services.melting_gap import start_melting_gap_task, stop_melting_gap_task
 from app.services.nifty_strangle import start_nifty_strangle_task, stop_nifty_strangle_task
 from app.services.market_events import start_market_events_task, stop_market_events_task
+from app.services.kite_broker import start_kite_task, stop_kite_task
 from app.services.calm_strangle import start_calm_strangle_task, stop_calm_strangle_task
 from app.services.calm_or import start_calm_or_task, stop_calm_or_task
 from app.services.btc_calm import start_btc_calm_task, stop_btc_calm_task
@@ -114,6 +115,7 @@ melting_task = None
 melting_gap_task = None
 nifty_strangle_task = None
 market_events_task = None
+kite_task = None
 calm_strangle_task = None
 calm_or_task = None
 btc_calm_task = None
@@ -133,7 +135,7 @@ app.add_middleware(
 
 @app.on_event("startup")
 async def startup() -> None:
-    global risk_order_monitor_task, spot_distance_monitor_task, gamma_blast_task, journal_insights_task, ema5_task, animesh_task, credit_spread_task, theta_task, market_news_task, market_calendar_task, pcr_oi_task, paper_trading_task, oi_upgraded_task, simple_crossover_task, varaha_task, btc_strangle_task, batman_task, turtle_task, turtle_a1_task, pf_lab_task, choch_task, order_flow_task, mantra_task, melting_task, melting_gap_task, nifty_strangle_task, market_events_task, calm_strangle_task, calm_or_task, btc_calm_task, varaha_paper_task, alerts_task, equity_swing_task, dhan_health_task
+    global risk_order_monitor_task, spot_distance_monitor_task, gamma_blast_task, journal_insights_task, ema5_task, animesh_task, credit_spread_task, theta_task, market_news_task, market_calendar_task, pcr_oi_task, paper_trading_task, oi_upgraded_task, simple_crossover_task, varaha_task, btc_strangle_task, batman_task, turtle_task, turtle_a1_task, pf_lab_task, choch_task, order_flow_task, mantra_task, melting_task, melting_gap_task, nifty_strangle_task, market_events_task, kite_task, calm_strangle_task, calm_or_task, btc_calm_task, varaha_paper_task, alerts_task, equity_swing_task, dhan_health_task
     init_db()
     spot_distance_monitor_task = start_spot_distance_monitor_task()
     risk_order_monitor_task = start_risk_order_monitor_task()
@@ -162,6 +164,7 @@ async def startup() -> None:
     melting_gap_task = start_melting_gap_task()
     nifty_strangle_task = start_nifty_strangle_task()
     market_events_task = start_market_events_task()
+    kite_task = start_kite_task()
     calm_strangle_task = start_calm_strangle_task()
     calm_or_task = start_calm_or_task()
     btc_calm_task = start_btc_calm_task()
@@ -200,6 +203,7 @@ async def shutdown() -> None:
     await stop_melting_gap_task(melting_gap_task)
     await stop_nifty_strangle_task(nifty_strangle_task)
     await stop_market_events_task(market_events_task)
+    await stop_kite_task(kite_task)
     await stop_calm_strangle_task(calm_strangle_task)
     await stop_calm_or_task(calm_or_task)
     await stop_btc_calm_task(btc_calm_task)

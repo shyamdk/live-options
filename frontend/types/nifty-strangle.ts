@@ -25,6 +25,8 @@ export interface KiteStatus {
   loginUrl: string | null;
   user: string | null;
   loggedInAt: string | null;
+  autoLogin?: boolean;
+  autoLoginResult?: string | null;
   margins?: { net: number | null; cash: number | null; collateral: number | null; used: number | null };
   error?: string;
 }

@@ -15,6 +15,7 @@ import {
   deleteMarketEvent,
   enterNiftyStrangleNow,
   getKiteStatus,
+  kiteAutoLogin,
   getMarketEvents,
   getNiftyStranglePlan,
   getNiftyStrangleSpotChart,
@@ -755,6 +756,7 @@ function SpotChart({ open, trades }: { open: NiftyStrangleTrade | null; trades: 
 function KitePanel() {
   const [status, setStatus] = useState<KiteStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
   useEffect(() => {
     getKiteStatus().then(setStatus).catch((exc) => setError(exc instanceof Error ? exc.message : "Zerodha status unavailable."));
   }, []);
@@ -775,8 +777,33 @@ function KitePanel() {
               {status.margins ? ` Zerodha funds: net ${inr(status.margins.net)}, cash ${inr(status.margins.cash)}, collateral ${inr(status.margins.collateral)}.` : ""}
             </span>
           ) : (
-            <span>Kite needs one browser login per day (a link also comes on Telegram before entries and while a live trade is open).</span>
+            <span>
+              {status.autoLogin
+                ? `Automated login runs weekdays at 08:40 IST (headless browser, stops after 3 failures a day).${status.autoLoginResult ? ` Last: ${status.autoLoginResult}.` : ""}`
+                : "Kite needs one browser login per day (a link also comes on Telegram before entries and while a live trade is open)."}
+            </span>
           )}
+          {status.configured && status.autoLogin ? (
+            <button
+              type="button"
+              className="button"
+              disabled={busy}
+              onClick={async () => {
+                setBusy(true);
+                try {
+                  const r = await kiteAutoLogin();
+                  setError(r.ok ? null : r.note ?? "Auto-login failed.");
+                  setStatus(await getKiteStatus());
+                } catch (exc) {
+                  setError(exc instanceof Error ? exc.message : "Auto-login failed.");
+                } finally {
+                  setBusy(false);
+                }
+              }}
+            >
+              {busy ? "Logging in…" : "Log in automatically now"}
+            </button>
+          ) : null}
           {status.configured && status.loginUrl ? (
             <a className="button secondary" href={status.loginUrl} target="_blank" rel="noreferrer">
               <SquareArrowOutUpRight size={14} /> {status.connected ? "Log in again" : "Log in to Zerodha"}

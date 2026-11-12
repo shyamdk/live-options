@@ -8,3 +8,4 @@ openai==2.45.0
 beautifulsoup4==4.12.3
 
 pyotp==2.9.0
+playwright==1.49.1

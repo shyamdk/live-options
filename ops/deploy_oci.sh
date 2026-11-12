@@ -31,6 +31,10 @@ chmod 600 "$APP_ROOT/shared/.env"
 python3.12 -m venv "$RELEASE_DIR/.venv"
 "$RELEASE_DIR/.venv/bin/python" -m pip install --upgrade pip
 "$RELEASE_DIR/.venv/bin/python" -m pip install -r "$RELEASE_DIR/backend/requirements.txt"
+# headless Chromium for the automated Kite login; kept outside releases so it is downloaded once
+# (system libraries: nss atk at-spi2-atk cups-libs libdrm libxkbcommon libXcomposite libXdamage libXfixes libXrandr mesa-libgbm pango alsa-lib)
+sudo mkdir -p /opt/live-options/shared/ms-playwright && sudo chown "$(id -un)" /opt/live-options/shared/ms-playwright
+PLAYWRIGHT_BROWSERS_PATH=/opt/live-options/shared/ms-playwright "$RELEASE_DIR/.venv/bin/python" -m playwright install chromium >/dev/null 2>&1 || echo "playwright chromium install failed (Kite auto-login will fall back to the Telegram link)"
 
 cd "$RELEASE_DIR/frontend"
 npm ci --no-audit --no-fund

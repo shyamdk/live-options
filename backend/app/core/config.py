@@ -335,6 +335,13 @@ class Settings(BaseSettings):
     nifty_strangle_kite_live_order_enabled: bool = False
     kite_api_key: str | None = None
     kite_api_secret: str | None = None
+    # Automated daily Kite login (Playwright, headless Chromium). Zerodha says the daily
+    # login should be manual; the user chose to automate it (12 Nov 2026), accepting that risk.
+    kite_user_id: str | None = None
+    kite_password: str | None = None
+    kite_totp_secret: str | None = None
+    kite_auto_login_time: str = "08:40"
+    playwright_browsers_path: str = "/opt/live-options/shared/ms-playwright"
 
     # Melting Straddles (docs/strategies/melting-straddles.md): intraday NIFTY (Fri/Mon/Tue)
     # / Sensex (Wed/Thu) straddle decay on P&F combined-premium + VWAP.

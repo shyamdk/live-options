@@ -949,6 +949,10 @@ export async function refreshMarketEvents(): Promise<{ events: MarketEvent[]; ad
   return apiJson("/api/market-events/refresh", { method: "POST" }, "Event refresh failed");
 }
 
+export async function kiteAutoLogin(): Promise<{ ok: boolean; note?: string; status?: KiteStatus }> {
+  return apiJson("/api/kite/auto-login", { method: "POST" }, "Zerodha auto-login failed");
+}
+
 export async function getKiteStatus(): Promise<KiteStatus> {
   return apiJson("/api/kite/status", undefined, "Failed to load the Zerodha status");
 }
