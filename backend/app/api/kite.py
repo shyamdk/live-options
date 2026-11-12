@@ -32,4 +32,4 @@ async def callback(request_token: str | None = None, status: str | None = None) 
     except Exception as exc:
         return HTMLResponse(f"<h3>Zerodha login failed</h3><p>{exc}</p>", status_code=400)
     return HTMLResponse(f"<h3>Zerodha connected ({who.get('user') or 'ok'}) for today.</h3>"
-                        "<p><a href='/nifty-strangle-hedged'>Back to NIFTY Strangle (hedged)</a></p>")
+                        "<p><a href='http://140.245.25.236/nifty-strangle-hedged'>Back to NIFTY Strangle (hedged)</a></p>")
