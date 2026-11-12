@@ -12,6 +12,43 @@ export interface NiftyStrangleConfig {
   lotSize: number;
   quantity: number;
   liveOrdersAllowed: boolean;
+  book: "plain" | "hedged";
+  broker: "dhan" | "kite";
+  skipEventWeeks: boolean;
+  wingDistance: number;
+  kite?: KiteStatus;
+}
+
+export interface KiteStatus {
+  configured: boolean;
+  connected: boolean;
+  loginUrl: string | null;
+  user: string | null;
+  loggedInAt: string | null;
+  margins?: { net: number | null; cash: number | null; collateral: number | null; used: number | null };
+  error?: string;
+}
+
+export interface MarketEvent {
+  id: number;
+  day: string;
+  name: string;
+  kind: string;
+  source: string;
+  note: string | null;
+}
+
+export interface NiftyStranglePlanWing {
+  strike: number;
+  securityId: string;
+  ltp: number | null;
+  bid: number | null;
+  ask: number | null;
+  iv: number | null;
+  delta: number | null;
+  oiLots: number;
+  distancePercent: number;
+  buyAt?: number;
 }
 
 export interface NiftyStranglePlanLeg {
@@ -42,6 +79,12 @@ export interface NiftyStranglePlan {
   multiplier?: number;
   distance?: number;
   legs?: Partial<Record<"CE" | "PE", NiftyStranglePlanLeg>>;
+  wings?: Partial<Record<"CE" | "PE", NiftyStranglePlanWing>>;
+  events?: { day: string; name: string; kind: string }[];
+  eventSkip?: boolean;
+  wingCost?: number;
+  netCredit?: number;
+  maxLossPerSide?: number;
   credit?: number;
   sellCharges?: number;
   netIfExpire?: number;
@@ -50,6 +93,8 @@ export interface NiftyStranglePlan {
 
 export interface NiftyStrangleLeg {
   id: number;
+  role: "short" | "wing";
+  symbol: string | null;
   optionType: "CE" | "PE";
   strike: number;
   formulaStrike: number | null;
@@ -76,6 +121,8 @@ export interface NiftyStrangleLeg {
 
 export interface NiftyStrangleTrade {
   id: number;
+  book: "plain" | "hedged";
+  broker: string | null;
   mode: "paper" | "live";
   trigger: string;
   entryDate: string;
@@ -89,7 +136,7 @@ export interface NiftyStrangleTrade {
   stopLossPercent: number;
   lots: number;
   lotSize: number;
-  status: "OPEN" | "CLOSED" | "FAILED";
+  status: "OPEN" | "CLOSED" | "FAILED" | "SKIPPED";
   notes: string | null;
   closedAt: number | null;
   legs: NiftyStrangleLeg[];

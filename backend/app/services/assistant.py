@@ -19,6 +19,7 @@ import json
 from datetime import datetime
 from typing import Any
 
+from app.core.ai_gate import PAUSED_MESSAGE, ai_allowed
 from app.core.config import get_settings
 from app.core.timeutil import now_ist
 from app.db.sqlite import get_pcr_oi_snapshots
@@ -96,6 +97,8 @@ async def _build_context(now: datetime) -> dict[str, Any]:
 
 async def ask_assistant(question: str, history: list[dict[str, str]]) -> str:
     settings = get_settings()
+    if not ai_allowed("assistant"):
+        return PAUSED_MESSAGE
     if not settings.openai_api_key:
         return "The assistant isn't configured yet -- no OpenAI API key is set on the server."
 

@@ -7,6 +7,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from app.core.ai_gate import PAUSED_MESSAGE, ai_allowed
 from app.core.config import get_settings
 from app.db import gamma_blast as db
 
@@ -27,6 +28,12 @@ SYSTEM_PROMPT = (
 
 async def generate_retrospective(session_id: str) -> dict[str, Any] | None:
     settings = get_settings()
+    if not ai_allowed("gamma_retrospective"):
+        db.record_event(session_id, "RETROSPECTIVE_SKIPPED", PAUSED_MESSAGE)
+        session = db.get_session(session_id)
+        if session:
+            db.save_retrospective(session_id, session["sessionDate"], PAUSED_MESSAGE, {})
+        return None
     if not settings.openai_api_key:
         db.record_event(session_id, "RETROSPECTIVE_SKIPPED", "OPENAI_API_KEY not configured.")
         return None

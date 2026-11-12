@@ -32,7 +32,7 @@ import type { VarahaPaperConfig, VarahaPaperState, VarahaPaperTrade } from "@/ty
 import type { BtcCalmConfig, BtcCalmState, BtcCalmTrade, BtcCalmTradeDetail } from "@/types/btc-calm";
 import type { DishaState } from "@/types/disha";
 import type { CalmConfig, CalmState, CalmTrade, CalmTradeDetail } from "@/types/calm-strangle";
-import type { NiftyStrangleConfig, NiftyStranglePlan, NiftyStrangleTrade } from "@/types/nifty-strangle";
+import type { KiteStatus, MarketEvent, NiftyStrangleConfig, NiftyStranglePlan, NiftyStrangleTrade } from "@/types/nifty-strangle";
 import type { MeltingConfig, MeltingDaySummary, MeltingState, MeltingTag, MeltingTrade } from "@/types/melting";
 import type { MantraAlarm, MantraConfig, MantraMode, MantraPlan, MantraTrade } from "@/types/mantra";
 import type { Note, NoteInput, NotesSummary } from "@/types/notes";
@@ -907,28 +907,50 @@ export async function getMeltingGapDays(): Promise<{ days: MeltingDaySummary[] }
   return apiJson<{ days: MeltingDaySummary[] }>("/api/melting-gap/days", undefined, "Failed to load daily P&L");
 }
 
-export async function getNiftyStranglePlan(): Promise<NiftyStranglePlan> {
-  return apiJson<NiftyStranglePlan>("/api/nifty-strangle/plan", undefined, "Failed to load the NIFTY Strangle plan");
+export type StrangleBook = "plain" | "hedged";
+
+export async function getNiftyStranglePlan(book: StrangleBook = "plain"): Promise<NiftyStranglePlan> {
+  return apiJson<NiftyStranglePlan>(`/api/nifty-strangle/plan?book=${book}`, undefined, "Failed to load the NIFTY Strangle plan");
 }
 
-export async function getNiftyStrangleConfig(): Promise<NiftyStrangleConfig> {
-  return apiJson<NiftyStrangleConfig>("/api/nifty-strangle/config", undefined, "Failed to load NIFTY Strangle settings");
+export async function getNiftyStrangleConfig(book: StrangleBook = "plain"): Promise<NiftyStrangleConfig> {
+  return apiJson<NiftyStrangleConfig>(`/api/nifty-strangle/config?book=${book}`, undefined, "Failed to load NIFTY Strangle settings");
 }
 
-export async function updateNiftyStrangleConfig(updates: Partial<NiftyStrangleConfig>): Promise<NiftyStrangleConfig> {
-  return apiJson<NiftyStrangleConfig>("/api/nifty-strangle/config", { method: "PUT", body: JSON.stringify(updates) }, "Failed to save NIFTY Strangle settings");
+export async function updateNiftyStrangleConfig(updates: Partial<NiftyStrangleConfig>, book: StrangleBook = "plain"): Promise<NiftyStrangleConfig> {
+  return apiJson<NiftyStrangleConfig>(`/api/nifty-strangle/config?book=${book}`, { method: "PUT", body: JSON.stringify(updates) }, "Failed to save NIFTY Strangle settings");
 }
 
-export async function enterNiftyStrangleNow(): Promise<{ status: string; message?: string; tradeId?: number }> {
-  return apiJson("/api/nifty-strangle/enter", { method: "POST" }, "NIFTY Strangle entry failed");
+export async function enterNiftyStrangleNow(book: StrangleBook = "plain"): Promise<{ status: string; message?: string; tradeId?: number }> {
+  return apiJson(`/api/nifty-strangle/enter?book=${book}`, { method: "POST" }, "NIFTY Strangle entry failed");
 }
 
-export async function getNiftyStrangleTrades(): Promise<{ trades: NiftyStrangleTrade[] }> {
-  return apiJson<{ trades: NiftyStrangleTrade[] }>("/api/nifty-strangle/trades", undefined, "Failed to load NIFTY Strangle trades");
+export async function getNiftyStrangleTrades(book: StrangleBook = "plain"): Promise<{ trades: NiftyStrangleTrade[] }> {
+  return apiJson<{ trades: NiftyStrangleTrade[] }>(`/api/nifty-strangle/trades?book=${book}`, undefined, "Failed to load NIFTY Strangle trades");
 }
 
 export async function closeNiftyStrangleLeg(legId: number): Promise<{ status: string; message?: string }> {
   return apiJson(`/api/nifty-strangle/legs/${legId}/close`, { method: "POST" }, "Failed to close the leg");
+}
+
+export async function getMarketEvents(): Promise<{ events: MarketEvent[]; refreshedAt: string | null }> {
+  return apiJson("/api/market-events", undefined, "Failed to load market events");
+}
+
+export async function addMarketEvent(event: { day: string; name: string; kind: string }): Promise<{ events: MarketEvent[] }> {
+  return apiJson("/api/market-events", { method: "POST", body: JSON.stringify(event) }, "Failed to add the event");
+}
+
+export async function deleteMarketEvent(id: number): Promise<{ events: MarketEvent[] }> {
+  return apiJson(`/api/market-events/${id}`, { method: "DELETE" }, "Failed to delete the event");
+}
+
+export async function refreshMarketEvents(): Promise<{ events: MarketEvent[]; added: number; error?: string }> {
+  return apiJson("/api/market-events/refresh", { method: "POST" }, "Event refresh failed");
+}
+
+export async function getKiteStatus(): Promise<KiteStatus> {
+  return apiJson("/api/kite/status", undefined, "Failed to load the Zerodha status");
 }
 
 export async function getNiftyStrangleSpotChart(): Promise<{ candles: { time: number; close: number }[]; error?: string }> {

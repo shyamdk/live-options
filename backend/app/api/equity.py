@@ -458,7 +458,7 @@ async def _news_for_holding(holding: dict[str, Any], *, refresh: bool) -> dict[s
     if not refresh:
         return _cached_news_for_holding(holding)
     news = await OpenAINewsService(settings).stock_news(symbol=symbol, company_name=holding.get("tradingSymbol"))
-    if not news.get("warning") or settings.resolved_openai_api_key:
+    if (not news.get("warning") or settings.resolved_openai_api_key) and "credit overuse" not in str(news.get("warning") or ""):
         upsert_equity_cache("news", symbol, news)
     return news
 

@@ -12,6 +12,7 @@ import json
 from collections import Counter
 from typing import Any
 
+from app.core.ai_gate import PAUSED_MESSAGE, ai_allowed
 from app.core.config import get_settings
 from app.db import sqlite as db
 
@@ -47,11 +48,13 @@ def summary() -> dict[str, Any]:
     digest = db.get_notes_summary()
     if digest:
         digest["stale"] = digest.get("noteCount") != len(notes) or digest.get("lastUpdated") != max((n["updatedAt"] for n in notes), default=None)
-    return {"stats": stats(notes), "digest": digest, "aiAvailable": bool(get_settings().openai_api_key)}
+    return {"stats": stats(notes), "digest": digest, "aiAvailable": bool(get_settings().openai_api_key) and ai_allowed("notes_digest"), "aiPausedMessage": None if ai_allowed("notes_digest") else PAUSED_MESSAGE}
 
 
 async def refresh_digest() -> dict[str, Any]:
     settings = get_settings()
+    if not ai_allowed("notes_digest"):
+        raise ValueError(PAUSED_MESSAGE)
     if not settings.openai_api_key:
         raise ValueError("OPENAI_API_KEY is not set on the server.")
     notes = db.list_notes()

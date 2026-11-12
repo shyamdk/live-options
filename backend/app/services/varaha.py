@@ -21,6 +21,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from app.core.sessions import weekday_open
+from app.core.ai_gate import PAUSED_MESSAGE, ai_allowed
 from app.core.config import Settings, get_settings
 from app.core.timeutil import now_ist, now_ist_epoch
 from app.db import sqlite as db
@@ -357,6 +358,8 @@ def _ai_payload(snapshot: dict[str, Any], result: dict[str, Any], candidates: li
 async def rank_with_ai(settings: Settings, snapshot: dict[str, Any], result: dict[str, Any]) -> dict[str, Any]:
     candidates = result["candidates"][:MAX_AI_CANDIDATES]
     api_key = settings.resolved_openai_api_key
+    if not ai_allowed("varaha_ranking"):
+        return {"source": "FALLBACK", "error": PAUSED_MESSAGE}
     if not api_key:
         return {"source": "FALLBACK", "error": "OPENAI_API_KEY is not configured."}
     if not candidates:

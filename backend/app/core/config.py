@@ -77,6 +77,8 @@ class Settings(BaseSettings):
     # separate from the chat-completions model above.
     openai_base_url: str = "https://api.openai.com/v1"
     openai_news_model: str = "gpt-5.4-mini"
+    # features allowed to call OpenAI (app/core/ai_gate.py); everything else shows a "paused" note
+    openai_enabled_features: str = "market_events"
 
     # Equity page: Dhan holdings/quotes/transactions/candles + Screener.in
     # fundamentals + OpenAI news, ported from options-dash (see that repo's
@@ -327,6 +329,12 @@ class Settings(BaseSettings):
     # AND the page's mode set to live (plus the global live_order_enabled).
     nifty_strangle_monitor_enabled: bool = True
     nifty_strangle_live_order_enabled: bool = False
+    # The hedged book (wings bought) goes live on Zerodha via Kite Connect (free
+    # Personal plan: orders + portfolio; market data still comes from Dhan).
+    # Real orders need this AND the hedged book's mode set to live AND live_order_enabled.
+    nifty_strangle_kite_live_order_enabled: bool = False
+    kite_api_key: str | None = None
+    kite_api_secret: str | None = None
 
     # Melting Straddles (docs/strategies/melting-straddles.md): intraday NIFTY (Fri/Mon/Tue)
     # / Sensex (Wed/Thu) straddle decay on P&F combined-premium + VWAP.

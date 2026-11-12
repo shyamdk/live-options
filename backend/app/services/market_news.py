@@ -26,6 +26,7 @@ from typing import Any
 
 import httpx
 
+from app.core.ai_gate import PAUSED_MESSAGE, ai_allowed
 from app.core.config import Settings, get_settings
 from app.core.timeutil import now_ist
 from app.db.sqlite import save_market_calendar, save_market_news
@@ -117,6 +118,9 @@ async def _calendar_loop() -> None:
 
 async def refresh_market_calendar(settings: Settings | None = None) -> dict[str, Any] | None:
     settings = settings or get_settings()
+    if not ai_allowed("market_calendar"):
+        save_market_calendar([{"headline": PAUSED_MESSAGE, "impact": "medium", "link": None}])
+        return None
     if not settings.openai_api_key:
         return None
     prompt = CALENDAR_PROMPT_TEMPLATE.format(
@@ -179,6 +183,9 @@ async def _loop() -> None:
 
 async def refresh_market_news(settings: Settings | None = None) -> dict[str, Any] | None:
     settings = settings or get_settings()
+    if not ai_allowed("market_news"):
+        save_market_news([{"headline": PAUSED_MESSAGE, "impact": "medium", "link": None}])
+        return None
     candidates = await _collect_candidates(settings)
     if not candidates:
         save_market_news([])

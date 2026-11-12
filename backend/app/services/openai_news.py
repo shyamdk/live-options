@@ -7,6 +7,7 @@ from typing import Any
 
 import httpx
 
+from app.core.ai_gate import PAUSED_MESSAGE, ai_allowed
 from app.core.config import Settings, get_settings
 
 
@@ -16,6 +17,8 @@ class OpenAINewsService:
 
     async def stock_news(self, *, symbol: str, company_name: str | None = None) -> dict[str, Any]:
         api_key = self.settings.resolved_openai_api_key
+        if not ai_allowed("equity_news"):
+            return _empty_news(symbol, PAUSED_MESSAGE)
         if not api_key:
             return _empty_news(symbol, "OPENAI_API_KEY is not configured.")
 

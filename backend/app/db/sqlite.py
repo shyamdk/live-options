@@ -1247,6 +1247,34 @@ def init_db() -> None:
             )
             """
         )
+        # two paper books side by side: "plain" (naked strangle) and "hedged" (with bought wings)
+        _add_column_if_missing(conn, "nifty_strangle_trades", "book", "TEXT NOT NULL DEFAULT 'plain'")
+        _add_column_if_missing(conn, "nifty_strangle_trades", "broker", "TEXT")
+        _add_column_if_missing(conn, "nifty_strangle_legs", "role", "TEXT NOT NULL DEFAULT 'short'")
+        _add_column_if_missing(conn, "nifty_strangle_legs", "symbol", "TEXT")
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS market_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                day TEXT NOT NULL,
+                name TEXT NOT NULL,
+                kind TEXT NOT NULL,
+                source TEXT NOT NULL,
+                note TEXT,
+                created_at INTEGER NOT NULL,
+                UNIQUE (day, kind)
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS kite_settings (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS melting_days (
@@ -4973,9 +5001,14 @@ def nifty_strangle_update(table: str, row_id: int, **values: Any) -> None:
     _mantra_update(table, row_id, values)
 
 
-def list_nifty_strangle_trades(*, status: str | None = None, limit: int = 300) -> list[dict[str, Any]]:
-    where = "WHERE status = ?" if status else ""
-    params: tuple = (status, limit) if status else (limit,)
+def list_nifty_strangle_trades(*, status: str | None = None, limit: int = 300, book: str | None = None) -> list[dict[str, Any]]:
+    clauses, args = [], []
+    if status:
+        clauses.append("status = ?"); args.append(status)
+    if book:
+        clauses.append("book = ?"); args.append(book)
+    where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
+    params: tuple = (*args, limit)
     with _DB_LOCK, _connect() as conn:
         trades = [dict(r) for r in conn.execute(
             f"SELECT * FROM nifty_strangle_trades {where} ORDER BY entry_time DESC, id DESC LIMIT ?", params
@@ -4987,11 +5020,11 @@ def list_nifty_strangle_trades(*, status: str | None = None, limit: int = 300) -
     return trades
 
 
-def has_nifty_strangle_trade(entry_date: str, mode: str) -> bool:
+def has_nifty_strangle_trade(entry_date: str, mode: str, book: str = "plain") -> bool:
     with _DB_LOCK, _connect() as conn:
         row = conn.execute(
-            "SELECT 1 FROM nifty_strangle_trades WHERE entry_date = ? AND mode = ? AND trigger = 'scheduled' LIMIT 1",
-            (entry_date, mode),
+            "SELECT 1 FROM nifty_strangle_trades WHERE entry_date = ? AND mode = ? AND book = ? AND trigger IN ('scheduled', 'skipped') LIMIT 1",
+            (entry_date, mode, book),
         ).fetchone()
     return row is not None
 
@@ -5454,3 +5487,57 @@ def orderflow_days() -> list[dict[str, Any]]:
         rows = conn.execute("SELECT day, COUNT(*) AS minutes, COUNT(DISTINCT security_id) AS instruments, SUM(volume) AS volume "
                             "FROM orderflow_minutes GROUP BY day ORDER BY day DESC LIMIT 120").fetchall()
     return [dict(r) for r in rows]
+
+
+# ---------------------------------------------------------------- market events (event-week rider)
+
+
+def list_market_events(start: str | None = None, end: str | None = None) -> list[dict[str, Any]]:
+    clauses, args = [], []
+    if start:
+        clauses.append("day >= ?"); args.append(start)
+    if end:
+        clauses.append("day <= ?"); args.append(end)
+    where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
+    with _DB_LOCK, _connect() as conn:
+        return [dict(r) for r in conn.execute(f"SELECT * FROM market_events {where} ORDER BY day, id", tuple(args)).fetchall()]
+
+
+def upsert_market_event(day: str, name: str, kind: str, source: str, note: str | None = None) -> None:
+    with _DB_LOCK, _connect() as conn:
+        conn.execute(
+            """
+            INSERT INTO market_events (day, name, kind, source, note, created_at) VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(day, kind) DO UPDATE SET name = excluded.name, note = COALESCE(excluded.note, market_events.note)
+            """,
+            (day, name, kind, source, note, int(datetime.now().timestamp())),
+        )
+        conn.commit()
+
+
+def delete_market_event(event_id: int) -> None:
+    with _DB_LOCK, _connect() as conn:
+        conn.execute("DELETE FROM market_events WHERE id = ?", (event_id,))
+        conn.commit()
+
+
+# ---------------------------------------------------------------- Kite (Zerodha) session
+
+
+def get_kite_setting(key: str) -> str | None:
+    with _DB_LOCK, _connect() as conn:
+        row = conn.execute("SELECT value FROM kite_settings WHERE key = ?", (key,)).fetchone()
+    return row["value"] if row else None
+
+
+def set_kite_setting(key: str, value: str) -> None:
+    now = datetime.now().isoformat(timespec="seconds")
+    with _DB_LOCK, _connect() as conn:
+        conn.execute(
+            """
+            INSERT INTO kite_settings (key, value, updated_at) VALUES (?, ?, ?)
+            ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+            """,
+            (key, value, now),
+        )
+        conn.commit()

@@ -57,6 +57,7 @@ const navItems = [
   { href: "/oi-improvements", label: "OI Improvements", short: "IM", icon: Lightbulb },
   { href: "/varaha", label: "Varaha", short: "VA", icon: Shapes },
   { href: "/nifty-strangle", label: "NIFTY Strangle", short: "NS", icon: Spline },
+  { href: "/nifty-strangle-hedged", label: "NIFTY Strangle - Hedged", short: "NH", icon: Spline },
   { href: "/calm-strangle", label: "Calm Strangle", short: "CS", icon: Waves },
   { href: "/calm-strangle-or", label: "Calm Strangle - OR", short: "CO", icon: Waves },
   { href: "/batman", label: "Batman", short: "BM", icon: Moon },

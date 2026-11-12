@@ -269,7 +269,7 @@ function SummaryPanel({ summary, busy, onRefresh, onTag }: { summary: NotesSumma
           ))}
         </div>
       ) : null}
-      {!summary.aiAvailable ? <div className="pcr-oi-caption">AI summary needs OPENAI_API_KEY on the server.</div> : null}
+      {!summary.aiAvailable ? <div className="pcr-oi-caption">{summary.aiPausedMessage ?? "AI summary needs OPENAI_API_KEY on the server."}</div> : null}
       {digest ? (
         <>
           {digest.stale ? <div className="alert warning">Notes have changed since this summary -- press Refresh summary to update it.</div> : null}

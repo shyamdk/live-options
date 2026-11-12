@@ -10,6 +10,7 @@ import asyncio
 import json
 from typing import Any
 
+from app.core.ai_gate import PAUSED_MESSAGE, ai_allowed
 from app.core.config import Settings, get_settings
 from app.core.timeutil import in_time_window, now_ist
 from app.db.sqlite import get_journal_insights, get_journals_with_content, save_journal_insights
@@ -71,6 +72,9 @@ async def _maybe_refresh(settings: Settings) -> None:
 
 async def refresh_journal_insights() -> dict[str, Any] | None:
     settings = get_settings()
+    if not ai_allowed("journal_insights"):
+        save_journal_insights([PAUSED_MESSAGE])
+        return {"bullets": [PAUSED_MESSAGE]}
     if not settings.openai_api_key:
         return None
     journals = get_journals_with_content()

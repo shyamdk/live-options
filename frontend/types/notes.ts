@@ -32,6 +32,7 @@ export interface NotesSummary {
   };
   digest: NotesDigest | null;
   aiAvailable: boolean;
+  aiPausedMessage?: string | null;
 }
 
 export interface NoteInput {
