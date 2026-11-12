@@ -277,7 +277,12 @@ async def auto_login(reason: str = "scheduled") -> dict[str, Any]:
         db.set_kite_setting("auto.lastAttempt", datetime.now(IST).isoformat(timespec="seconds"))
         try:
             token = await _browser_login()
-            who = await complete_login(token)
+            try:
+                who = await complete_login(token)
+            except KiteError:
+                if not access_token():  # our /api/kite/callback may have exchanged it first
+                    raise
+                who = {"user": db.get_kite_setting("userName")}
         except Exception as exc:
             msg = f"{type(exc).__name__}: {str(exc)[:200]}"
             db.set_kite_setting("auto.lastResult", f"failed {datetime.now(IST):%d %b %H:%M} -- {msg}")
@@ -309,17 +314,19 @@ async def _browser_login() -> str:
 
     captured: dict[str, str] = {}
 
-    async def catch(route) -> None:
-        url = httpx.URL(route.request.url)
-        captured["token"] = url.params.get("request_token") or ""
-        captured["status"] = url.params.get("status") or ""
-        await route.fulfill(status=200, content_type="text/html", body="ok")
+    def watch(request) -> None:
+        # Kite hands the request_token over in a 302 to the redirect URL; routes don't see
+        # redirected requests, so read it off the request itself
+        if "request_token=" in request.url and not captured.get("token"):
+            url = httpx.URL(request.url)
+            captured["token"] = url.params.get("request_token") or ""
+            captured["status"] = url.params.get("status") or ""
 
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
         try:
             page = await browser.new_page()
-            await page.route("**/api/kite/callback*", catch)
+            page.on("request", watch)
             await page.goto(login_url(), timeout=30000)
             await page.fill("#userid", s.kite_user_id)
             await page.fill("#password", s.kite_password)
@@ -331,21 +338,27 @@ async def _browser_login() -> str:
                 await asyncio.sleep(5)  # don't type a code that is about to roll over
             await otp.fill(totp.now())
             submit = page.locator("button[type=submit]")
-            if await submit.count() and await submit.first.is_enabled():
-                try:
+            try:
+                if await submit.count() and await submit.first.is_enabled():
                     await submit.first.click(timeout=3000)
-                except Exception:
-                    pass  # Kite usually submits by itself after 6 digits
+            except Exception:
+                pass  # Kite usually submits by itself after 6 digits (and navigates away)
+            page_error = None
             for _ in range(40):
                 if captured.get("token"):
                     break
-                auth = page.get_by_role("button", name="Authorize")
-                if await auth.count():
-                    await auth.first.click()
-                err = page.locator(".error, .su-message.error, .text-red")
-                if await err.count() and (await err.first.inner_text()).strip():
-                    raise KiteError(f"Kite login page says: {(await err.first.inner_text()).strip()[:150]}")
+                try:  # the page navigates under us (TOTP -> authorize -> redirect); just look again
+                    auth = page.get_by_role("button", name="Authorize")
+                    if await auth.count():
+                        await auth.first.click(timeout=3000)
+                    err = page.locator(".error, .su-message.error, .text-red")
+                    if await err.count():
+                        page_error = (await err.first.inner_text()).strip() or page_error
+                except Exception:
+                    pass
                 await asyncio.sleep(0.5)
+            if not captured.get("token") and page_error:
+                raise KiteError(f"Kite login page says: {page_error[:150]}")
         finally:
             await browser.close()
     if captured.get("status") not in ("", "success") or not captured.get("token"):
