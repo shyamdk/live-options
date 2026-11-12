@@ -256,6 +256,12 @@ button:disabled {
   font-size: 14px;
 }
 
+.nav-group-toggle.nav-nested {
+  padding: 8px 10px;
+  font-weight: 600;
+  font-size: 14px;
+}
+
 .nav-short {
   display: none;
 }

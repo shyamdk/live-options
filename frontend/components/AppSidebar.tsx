@@ -25,6 +25,8 @@ import {
   X,
   Crosshair,
   Activity,
+  Zap,
+  FlaskConical,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -45,44 +47,53 @@ import { useEffect, useState } from "react";
 //    background monitor exists in the running app at all. Unarchiving means
 //    moving the files back (see archive/README.md), not just adding a nav
 //    entry.
-const navItems = [
+type NavItem = { href: string; label: string; short: string; icon: typeof Grid3x3; group?: string; subgroup?: string };
+
+// Tools at the top; strategies grouped by whether they place real orders (Live) or not (Paper).
+// Move a page between Live and Paper by changing its `group` when it goes live / back to paper.
+const navItems: NavItem[] = [
   { href: "/manage-trades", label: "Manage Trades", short: "MT", icon: BriefcaseBusiness },
   { href: "/alerts", label: "Alerts & Reminders", short: "AL", icon: BellRing },
   { href: "/notes", label: "Notes", short: "NO", icon: NotebookPen },
   { href: "/equity", label: "Equity", short: "EQ", icon: WalletCards },
-  { href: "/equity-swing", label: "Equity-Swing", short: "ES", icon: TrendingUp },
   { href: "/trade-journals", label: "Trade Journals", short: "TJ", icon: BookOpenText },
   { href: "/disha", label: "Disha - NM", short: "DI", icon: Compass },
-  { href: "/oi-upgraded", label: "OI - Upgraded", short: "OU", icon: RadioTower },
-  { href: "/oi-improvements", label: "OI Improvements", short: "IM", icon: Lightbulb },
-  { href: "/varaha", label: "Varaha", short: "VA", icon: Shapes },
-  { href: "/nifty-strangle", label: "NIFTY Strangle", short: "NS", icon: Spline },
-  { href: "/nifty-strangle-hedged", label: "NIFTY Strangle - Hedged", short: "NH", icon: Spline },
-  { href: "/calm-strangle", label: "Calm Strangle", short: "CS", icon: Waves },
-  { href: "/calm-strangle-or", label: "Calm Strangle - OR", short: "CO", icon: Waves },
-  { href: "/batman", label: "Batman", short: "BM", icon: Moon },
-  { href: "/define-turtle", label: "Define Turtle", short: "DT", icon: Turtle },
-  { href: "/define-turtle-a1", label: "Define Turtle A1", short: "A1", icon: Turtle },
-  { href: "/choch-1min", label: "1-Min CHoCH", short: "CH", icon: Crosshair },
   { href: "/order-flow", label: "Order Flow (recording)", short: "OF", icon: Activity },
-  { href: "/pf-lab", label: "Overview", short: "PF", icon: Grid3x3, group: "pf" },
-  { href: "/pf-lab/nifty/short", label: "NIFTY · Short", short: "NS", icon: Grid3x3, group: "pf" },
-  { href: "/pf-lab/nifty/medium", label: "NIFTY · Medium", short: "NM", icon: Grid3x3, group: "pf" },
-  { href: "/pf-lab/nifty/long", label: "NIFTY · Long", short: "NL", icon: Grid3x3, group: "pf" },
-  { href: "/pf-lab/btc/short", label: "BTC · Short", short: "BS", icon: Grid3x3, group: "pf" },
-  { href: "/pf-lab/btc/medium", label: "BTC · Medium", short: "BM", icon: Grid3x3, group: "pf" },
-  { href: "/pf-lab/btc/long", label: "BTC · Long", short: "BL", icon: Grid3x3, group: "pf" },
-  { href: "/pf-lab/gold/short", label: "Gold · Short", short: "GS", icon: Grid3x3, group: "pf" },
-  { href: "/pf-lab/gold/medium", label: "Gold · Medium", short: "GM", icon: Grid3x3, group: "pf" },
-  { href: "/pf-lab/gold/long", label: "Gold · Long", short: "GL", icon: Grid3x3, group: "pf" },
-  { href: "/mantra-theta-gainers", label: "Mantra - Theta Gainers", short: "MT", icon: InfinityIcon },
-  { href: "/melting-straddles", label: "Melting Straddles", short: "MS", icon: Droplets },
-  { href: "/melting-straddles-gap", label: "Melting Straddles - Gap", short: "MG", icon: Droplets },
+
+  { href: "/equity-swing", label: "Equity-Swing", short: "ES", icon: TrendingUp, group: "live" },
+  { href: "/define-turtle-a1", label: "Define Turtle A1", short: "A1", icon: Turtle, group: "live" },
+  { href: "/nifty-strangle-hedged", label: "NIFTY Strangle - Hedged", short: "NH", icon: Spline, group: "live" },
+
+  { href: "/oi-upgraded", label: "OI - Upgraded", short: "OU", icon: RadioTower, group: "paper" },
+  { href: "/oi-improvements", label: "OI Improvements", short: "IM", icon: Lightbulb, group: "paper" },
+  { href: "/varaha", label: "Varaha", short: "VA", icon: Shapes, group: "paper" },
+  { href: "/nifty-strangle", label: "NIFTY Strangle", short: "NS", icon: Spline, group: "paper" },
+  { href: "/calm-strangle", label: "Calm Strangle", short: "CS", icon: Waves, group: "paper" },
+  { href: "/calm-strangle-or", label: "Calm Strangle - OR", short: "CO", icon: Waves, group: "paper" },
+  { href: "/batman", label: "Batman", short: "BM", icon: Moon, group: "paper" },
+  { href: "/define-turtle", label: "Define Turtle", short: "DT", icon: Turtle, group: "paper" },
+  { href: "/define-turtle-filtered", label: "Define Turtle - Filtered", short: "DF", icon: Turtle, group: "paper" },
+  { href: "/choch-1min", label: "1-Min CHoCH", short: "CH", icon: Crosshair, group: "paper" },
+  { href: "/mantra-theta-gainers", label: "Mantra - Theta Gainers", short: "MT", icon: InfinityIcon, group: "paper" },
+  { href: "/melting-straddles", label: "Melting Straddles", short: "MS", icon: Droplets, group: "paper" },
+  { href: "/melting-straddles-gap", label: "Melting Straddles - Gap", short: "MG", icon: Droplets, group: "paper" },
+  { href: "/pf-lab", label: "Overview", short: "PF", icon: Grid3x3, group: "paper", subgroup: "pf" },
+  { href: "/pf-lab/nifty/short", label: "NIFTY · Short", short: "NS", icon: Grid3x3, group: "paper", subgroup: "pf" },
+  { href: "/pf-lab/nifty/medium", label: "NIFTY · Medium", short: "NM", icon: Grid3x3, group: "paper", subgroup: "pf" },
+  { href: "/pf-lab/nifty/long", label: "NIFTY · Long", short: "NL", icon: Grid3x3, group: "paper", subgroup: "pf" },
+  { href: "/pf-lab/btc/short", label: "BTC · Short", short: "BS", icon: Grid3x3, group: "paper", subgroup: "pf" },
+  { href: "/pf-lab/btc/medium", label: "BTC · Medium", short: "BM", icon: Grid3x3, group: "paper", subgroup: "pf" },
+  { href: "/pf-lab/btc/long", label: "BTC · Long", short: "BL", icon: Grid3x3, group: "paper", subgroup: "pf" },
+  { href: "/pf-lab/gold/short", label: "Gold · Short", short: "GS", icon: Grid3x3, group: "paper", subgroup: "pf" },
+  { href: "/pf-lab/gold/medium", label: "Gold · Medium", short: "GM", icon: Grid3x3, group: "paper", subgroup: "pf" },
+  { href: "/pf-lab/gold/long", label: "Gold · Long", short: "GL", icon: Grid3x3, group: "paper", subgroup: "pf" },
 ];
 
-// Folders in the nav: items with a matching `group` render inside a collapsible
-// entry, closed by default (opened automatically while one of its pages is shown).
-const NAV_GROUPS: Record<string, { label: string; short: string; icon: typeof Grid3x3 }> = {
+// Folders: items with a matching `group` (or `subgroup` inside a group) render in a
+// collapsible entry. Live starts open; the others start closed unless one of their pages is shown.
+const NAV_GROUPS: Record<string, { label: string; short: string; icon: typeof Grid3x3; defaultOpen?: boolean }> = {
+  live: { label: "Live", short: "LV", icon: Zap, defaultOpen: true },
+  paper: { label: "Paper", short: "PP", icon: FlaskConical },
   pf: { label: "P&F Lab", short: "PF", icon: Grid3x3 },
 };
 
@@ -125,7 +136,7 @@ export default function AppSidebar() {
     });
   }
 
-  function renderLink(item: (typeof navItems)[number], nested: boolean) {
+  function renderLink(item: NavItem, nested: boolean) {
     const Icon = item.icon;
     return (
       <Link key={item.href} href={item.href} title={item.label} className={`${isActive(pathname, item.href, nested) ? "active" : ""} ${nested ? "nav-nested" : ""}`}>
@@ -135,6 +146,27 @@ export default function AppSidebar() {
         <span className="nav-short">{item.short}</span>
         <span className="nav-label">{item.label}</span>
       </Link>
+    );
+  }
+
+  function renderGroup(group: string, items: NavItem[], body: React.ReactNode, nested: boolean) {
+    const meta = NAV_GROUPS[group];
+    const inside = items.some((x) => isActive(pathname, x.href, true));
+    const open = openGroups[group] ?? (inside || !!meta.defaultOpen);
+    const GroupIcon = meta.icon;
+    return (
+      <div key={`group-${group}`} className={`nav-group ${nested ? "nav-subgroup" : ""}`}>
+        <button type="button" className={`nav-group-toggle ${nested ? "nav-nested" : ""} ${inside && !open ? "active" : ""}`} onClick={() => toggleGroup(group, !open)}
+          title={meta.label} aria-expanded={open}>
+          <span className="nav-icon">
+            <GroupIcon size={nested ? 15 : 17} />
+          </span>
+          <span className="nav-short">{meta.short}</span>
+          <span className="nav-label">{meta.label}</span>
+          <span className="nav-chevron">{open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}</span>
+        </button>
+        {open ? <div className="nav-group-items">{body}</div> : null}
+      </div>
     );
   }
 
@@ -159,35 +191,22 @@ export default function AppSidebar() {
         </button>
       </div>
       <nav className="nav-tabs" aria-label="Primary navigation">
-        {navItems.map((item, index) => {
-          const group = "group" in item ? (item.group as string) : null;
-          if (group && index > 0 && "group" in navItems[index - 1] && navItems[index - 1].group === group) return null;
-          if (group) {
-            const children = navItems.filter((x) => "group" in x && x.group === group);
-            const meta = NAV_GROUPS[group];
-            const inside = children.some((x) => isActive(pathname, x.href, true));
-            const open = openGroups[group] ?? inside;
-            const GroupIcon = meta.icon;
-            return (
-              <div key={`group-${group}`} className="nav-group">
-                <button type="button" className={`nav-group-toggle ${inside && !open ? "active" : ""}`} onClick={() => toggleGroup(group, !open)}
-                  title={meta.label} aria-expanded={open}>
-                  <span className="nav-icon">
-                    <GroupIcon size={17} />
-                  </span>
-                  <span className="nav-short">{meta.short}</span>
-                  <span className="nav-label">{meta.label}</span>
-                  <span className="nav-chevron">{open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}</span>
-                </button>
-                {open ? (
-                  <div className="nav-group-items">
-                    {children.map((child) => renderLink(child, true))}
-                  </div>
-                ) : null}
-              </div>
-            );
-          }
-          return renderLink(item, false);
+        {navItems.filter((item) => !item.group).map((item) => renderLink(item, false))}
+        {["live", "paper"].map((group) => {
+          const items = navItems.filter((x) => x.group === group);
+          const subgroups = Array.from(new Set(items.filter((x) => x.subgroup).map((x) => x.subgroup as string)));
+          return renderGroup(
+            group,
+            items,
+            <>
+              {items.filter((x) => !x.subgroup).map((child) => renderLink(child, true))}
+              {subgroups.map((sub) => {
+                const subItems = items.filter((x) => x.subgroup === sub);
+                return renderGroup(sub, subItems, <>{subItems.map((child) => renderLink(child, true))}</>, true);
+              })}
+            </>,
+            false,
+          );
         })}
       </nav>
     </aside>
