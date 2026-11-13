@@ -395,7 +395,10 @@ async def _fill(config: dict[str, Any], t: dict[str, Any], side: str, qty: int, 
     from app.services.angel_broker import AngelBroker
 
     broker = AngelBroker()
-    order_id = await broker.place_market_order(symbol=t["symbol"], token=t["security_id"], side=side, qty=qty, tag=f"SWING{t['id']}")
+    try:
+        order_id = await broker.place_market_order(symbol=t["symbol"], token=t["security_id"], side=side, qty=qty, tag=f"SWING{t['id']}")
+    except Exception as exc:  # e.g. AB4036: stock under exchange surveillance -- skip it, don't stop the other orders
+        return None, None, f"Angel rejected the order: {exc}"
     for _ in range(10):
         await asyncio.sleep(2)
         info = await broker.order_fill(order_id)
@@ -404,6 +407,36 @@ async def _fill(config: dict[str, Any], t: dict[str, Any], side: str, qty: int, 
         if info and info["status"] in ("rejected", "cancelled"):
             return None, order_id, f"Angel order {info['status']}: {info.get('text')}"
     return None, order_id, "Angel order not filled within 20 s -- check the order book"
+
+
+SURVEILLANCE = ("AB4036", "cautionary", "surveillance", "ASM", "GSM", "ESM")
+
+
+def _replacement(failed: dict[str, Any], note: str) -> dict[str, Any] | None:
+    """When the exchange blocks a stock (surveillance list), plan the best-ranked stock not already held,
+    planned or blocked today, from the latest ranking. Other failures (cash, price) get no replacement."""
+    if not any(k.lower() in (note or "").lower() for k in SURVEILLANCE):
+        return None
+    latest = db.swing_rows("SELECT payload FROM equity_swing_rankings ORDER BY created_at DESC LIMIT 1")
+    if not latest:
+        return None
+    ranking = json.loads(latest[0]["payload"]).get("ranking") or []
+    since = int(time.time()) - 86400
+    taken = {r["symbol"] for r in db.swing_rows(
+        "SELECT symbol FROM equity_swing_trades WHERE status IN ('OPEN', 'PLANNED', 'PENDING_EXIT') OR (status = 'CANCELLED' AND planned_at >= ?)", (since,))}
+    taken.add(failed["symbol"])
+    meta = {m["symbol"]: m for m in universe()}
+    for r in ranking:
+        if r.get("rank") and r["symbol"] not in taken and r["symbol"] in meta:
+            m = meta[r["symbol"]]
+            new_id = db.swing_insert("equity_swing_trades", {
+                "symbol": r["symbol"], "security_id": m["securityId"], "industry": m["industry"], "mode": failed["mode"],
+                "status": "PLANNED", "qty": 0, "planned_at": int(time.time()), "entry_rank": r["rank"], "entry_score": r["score"],
+                "entry_reason": f"rank {r['rank']}: replaces {failed['symbol']} (exchange surveillance block)",
+            })
+            _event("plan", f"{failed['symbol']} blocked by the exchange -- replaced by {r['symbol']} (rank {r['rank']})", r["symbol"])
+            return db.swing_rows("SELECT * FROM equity_swing_trades WHERE id = ?", (new_id,))[0]
+    return None
 
 
 async def execute(trigger: str = "scheduled") -> dict[str, Any]:
@@ -439,7 +472,10 @@ async def execute(trigger: str = "scheduled") -> dict[str, Any]:
         done.append(f"SELL {t['symbol']} {t['qty']} @ {price:,.2f}: ₹{pnl:,.0f} ({t['exit_reason']})")
     equity = equity_now(config)
     target = equity / max(int(config["positions"]), 1)
-    for t in buys:
+    replaced = 0
+    queue = list(buys)
+    while queue:
+        t = queue.pop(0)
         p = prices.get(str(t["security_id"])) or {}
         ref = (p.get("open") if use_open else None) or p.get("ltp")
         available = cash(config) - 100
@@ -453,7 +489,12 @@ async def execute(trigger: str = "scheduled") -> dict[str, Any]:
         price, order_id, note = await _fill(config, t, "BUY", qty, ref)
         if price is None:
             db.swing_update("equity_swing_trades", t["id"], {"status": "CANCELLED", "note": note, "entry_order_id": order_id})
-            await _notify(f"🚨 Equity-Swing: buy of {t['symbol']} failed -- {note}")
+            sub = _replacement(t, note) if replaced < 5 else None
+            if sub:  # exchange surveillance block: buy the next-ranked stock instead
+                replaced += 1
+                prices.update(await _opens([sub["security_id"]]))
+                queue.append(sub)
+            await _notify(f"🚨 Equity-Swing: buy of {t['symbol']} failed -- {note}" + (f"\nBuying the next-ranked stock instead: {sub['symbol']}" if sub else ""))
             continue
         charges = engine.delivery_charges(price * qty, "BUY")
         db.swing_update("equity_swing_trades", t["id"], {"status": "OPEN", "qty": qty, "entry_time": now, "entry_price": price,
