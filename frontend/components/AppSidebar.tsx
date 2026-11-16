@@ -39,7 +39,8 @@ import { useEffect, useState } from "react";
 //    of its own, since its pcr_oi feed is shared with OI Upgraded/OI
 //    Improvements, which stay active). Re-add the entry + flip the flag to
 //    unarchive. Also Simple Cross Over, BTC Strangle and BTC Calm Strangle
-//    (Nov 2026: no edge in backtests or paper) -- their monitors are off
+//    (Nov 2026: no edge in backtests or paper), and Melting Straddles - Gap (16 Nov 2026,
+//    MELTING_GAP_MONITOR_ENABLED now defaults to false) -- their monitors are off
 //    (SIMPLE_CROSSOVER_MONITOR_ENABLED / btc_strangle_monitor_enabled default;
 //    BTC Calm's auto entry is off, so its monitor idles); pages keep the history.
 // 2. Crypto-Swing, pStrategy, Nifty-Swing, pStrategy-Nifty, PE-CE Crossover:
@@ -77,7 +78,6 @@ const navItems: NavItem[] = [
   { href: "/choch-1min", label: "1-Min CHoCH", short: "CH", icon: Crosshair, group: "paper" },
   { href: "/mantra-theta-gainers", label: "Mantra - Theta Gainers", short: "MT", icon: InfinityIcon, group: "paper" },
   { href: "/melting-straddles", label: "Melting Straddles", short: "MS", icon: Droplets, group: "paper" },
-  { href: "/melting-straddles-gap", label: "Melting Straddles - Gap", short: "MG", icon: Droplets, group: "paper" },
   { href: "/pf-lab", label: "Overview", short: "PF", icon: Grid3x3, group: "paper", subgroup: "pf" },
   { href: "/pf-lab/nifty/short", label: "NIFTY · Short", short: "NS", icon: Grid3x3, group: "paper", subgroup: "pf" },
   { href: "/pf-lab/nifty/medium", label: "NIFTY · Medium", short: "NM", icon: Grid3x3, group: "paper", subgroup: "pf" },
