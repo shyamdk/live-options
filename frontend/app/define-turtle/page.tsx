@@ -54,6 +54,8 @@ function ist(epoch: number | null | undefined): string {
   });
 }
 
+const opt = (t: { side?: string }) => (t.side === "bear" ? "CE" : "PE");
+
 export default function DefineTurtlePage() {
   const [state, setState] = useState<TurtleState | null>(null);
   const [trades, setTrades] = useState<TurtleTrade[]>([]);
@@ -120,7 +122,9 @@ export default function DefineTurtlePage() {
           </h1>
           <p>
             NIFTY Point &amp; Figure RSI(14) &gt; 50 + Turtle Follow-Through → next-week put credit spread (sell ATM, buy 300
-            lower). Exits: 75% decay, RSI &lt; 50, or 3 days before expiry. Paper trading -- see docs/strategies/define-turtle.md.
+            lower). Exits: 75% decay, RSI &lt; 50, or 3 days before expiry. Bear side (on by default): RSI &lt; 50 + Turtle
+            Follow-Through Bearish → call credit spread (sell ATM, buy 300 higher), exit when RSI goes back above 50. One spread per
+            side. Paper trading -- see docs/strategies/define-turtle.md.
           </p>
         </div>
         <div className="toolbar" style={{ alignItems: "center" }}>
@@ -228,7 +232,7 @@ function turtleNotes(t: TurtleTrade): TradeNote[] {
       color: "var(--blue)",
       title: `Entry #${t.id} · put credit spread · exp ${t.expiry}`,
       lines: [
-        `${ist(t.entryTime)} · NIFTY ${num(t.spot, 0)} · sold ${t.shortStrike} PE @ ${num(t.shortEntry)}, bought ${t.longStrike} PE @ ${num(t.longEntry)} · ${t.lots} lots`,
+        `${ist(t.entryTime)} · NIFTY ${num(t.spot, 0)} · sold ${t.shortStrike} ${opt(t)} @ ${num(t.shortEntry)}, bought ${t.longStrike} ${opt(t)} @ ${num(t.longEntry)} · ${t.lots} lots`,
         t.trigger === "manual"
           ? "Why: entered manually"
           : `Why: Turtle Follow-Through on the P&F chart${t.signalTime ? ` at ${ist(t.signalTime)}` : ""} with RSI ${num(t.signalRsi)} above the threshold`,
@@ -244,7 +248,7 @@ function turtleNotes(t: TurtleTrade): TradeNote[] {
       color: t.netPnl >= 0 ? "var(--green)" : "var(--red)",
       title: `Exit #${t.id} · ${inr(t.netPnl)} net`,
       lines: [
-        `${ist(t.exitTime)} · bought back ${t.shortStrike} PE @ ${num(t.shortExit)}, sold ${t.longStrike} PE @ ${num(t.longExit)}`,
+        `${ist(t.exitTime)} · bought back ${t.shortStrike} ${opt(t)} @ ${num(t.shortExit)}, sold ${t.longStrike} ${opt(t)} @ ${num(t.longExit)}`,
         `Why: ${EXIT_LABEL[t.exitReason ?? ""] ?? t.exitReason ?? "—"}`,
       ],
     });
@@ -411,7 +415,7 @@ function OpenSpread({ trade, config, busy, onClose }: { trade: TurtleTrade; conf
     <div className="strategy-chart-card">
       <div style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "baseline" }}>
         <strong>
-          #{trade.id} · SELL {trade.shortStrike} PE / BUY {trade.longStrike} PE · exp {trade.expiry}
+          #{trade.id} · {trade.side === "bear" ? "BEAR" : "BULL"} · SELL {trade.shortStrike} {opt(trade)} / BUY {trade.longStrike} {opt(trade)} · exp {trade.expiry}
         </strong>
         <span className="pcr-oi-caption">
           {trade.lots} lots · entered {ist(trade.entryTime)} at {num(trade.spot, 0)} ({trade.trigger}
@@ -493,7 +497,7 @@ function TradesTable({ trades }: { trades: TurtleTrade[] }) {
                 {t.signalRsi ? ` (RSI ${num(t.signalRsi, 1)})` : ""}
               </td>
               <td>
-                {t.shortStrike}/{t.longStrike} PE · {t.expiry}
+                {t.shortStrike}/{t.longStrike} {opt(t)} · {t.expiry}
               </td>
               <td>{t.lots}</td>
               <td>
@@ -596,6 +600,10 @@ function SettingsSection({ config, onSaved }: { config: TurtleConfig | null; onS
         <label style={{ display: "flex", gap: 6, alignItems: "center", cursor: "pointer" }}>
           <input type="checkbox" checked={config.enabled} onChange={(e) => save({ enabled: e.target.checked })} disabled={saving} />
           Automatic entry on signals
+        </label>
+        <label style={{ display: "flex", gap: 6, alignItems: "center", cursor: "pointer" }}>
+          <input type="checkbox" checked={!!config.bearish} onChange={(e) => save({ bearish: e.target.checked })} disabled={saving} />
+          Also trade the bear side (call spreads)
         </label>
         <button type="button" className="button" onClick={() => save()} disabled={saving}>
           <Save size={14} /> Save settings

@@ -7,6 +7,12 @@ close with P&F RSI(14) > 50 opens a next-week put credit spread (sell ATM put
 rounded to 100, buy 300 lower) if none is open. Exits: 75% premium decay,
 RSI < 50 on a minute close, or <= 3 calendar days to expiry -- the calendar
 exit raises an unmissable alarm on the page plus Telegram.
+
+Bear side (Nov 2026, on by default, `bearish` setting): the mirror -- a Turtle
+Follow-Through Bearish with P&F RSI < 50 opens a call credit spread (sell the
+ATM call, buy 300 higher); it exits on 75% decay, RSI back above 50, or the
+calendar rule. One open spread per side. Back-test (turtle_both.py, Jan 2025 -
+Oct 2026, 6 lots): bull -Rs1.18L, bear -Rs88k, both -Rs2.06L -- paper only.
 """
 
 from __future__ import annotations
@@ -44,8 +50,12 @@ _history: dict[str, Any] = {"date": None, "candles": []}
 _expiry_cache: tuple[float, list[date]] | None = None
 _last_state: dict[str, Any] = {}
 
+KINDS = {"bull": "turtle_follow_through", "bear": "turtle_follow_through_bearish"}
+OPT = {"bull": "PE", "bear": "CE"}
+
 DEFAULTS: dict[str, Any] = {
     "enabled": True,
+    "bearish": True,
     "capital": 1_000_000.0,
     "capitalPerLot": 150_000.0,
     "boxPercent": 0.03,
@@ -188,7 +198,7 @@ async def state() -> dict[str, Any]:
         payload["lastCandle"] = candles[-1] if candles else None
         rsi_now = payload["chart"]["rsi"]
         payload["trend"] = None if rsi_now is None else ("BULLISH" if rsi_now > float(config["rsiThreshold"]) else "NOT_BULLISH")
-        follow = [s for s in chart.signals if s["kind"] == "turtle_follow_through"]
+        follow = [s for s in chart.signals if s["kind"] in (KINDS["bull"], KINDS["bear"])]
         payload["lastFollowThrough"] = follow[-1] if follow else None
         expiries = await _expiries(dhan)
         nxt = next_week_expiry(expiries, now_ist().date())
@@ -208,12 +218,13 @@ def _market_open(now: datetime) -> bool:
     return weekday_open(now) and MARKET_OPEN <= now.time() <= MARKET_CLOSE
 
 
-async def enter(trigger: str, signal: dict[str, Any] | None = None) -> dict[str, Any]:
+async def enter(trigger: str, signal: dict[str, Any] | None = None, side: str = "bull") -> dict[str, Any]:
     config = get_config()
+    opt = OPT[side]
     if config["lots"] < 1:
         return {"status": "blocked", "message": "Capital is below one lot's allocation."}
-    if db.list_turtle_trades(status="OPEN", limit=1):
-        return {"status": "blocked", "message": "A spread is already open -- one at a time."}
+    if any((t.get("side") or "bull") == side for t in db.list_turtle_trades(status="OPEN", limit=5)):
+        return {"status": "blocked", "message": f"A {side} spread is already open -- one per side."}
     dhan = DhanService()
     today = now_ist().date()
     expiry = next_week_expiry(await _expiries(dhan), today)
@@ -224,11 +235,11 @@ async def enter(trigger: str, signal: dict[str, Any] | None = None) -> dict[str,
     spot, quotes = await _chain_quotes(dhan, expiry)
     rounding = float(config["strikeRounding"])
     short_strike = round(spot / rounding) * rounding
-    long_strike = short_strike - float(config["spreadWidth"])
-    short_q, long_q = quotes.get((short_strike, "PE")), quotes.get((long_strike, "PE"))
+    long_strike = short_strike - float(config["spreadWidth"]) if side == "bull" else short_strike + float(config["spreadWidth"])
+    short_q, long_q = quotes.get((short_strike, opt)), quotes.get((long_strike, opt))
     short_fill, long_fill = _fill(short_q, "SELL"), _fill(long_q, "BUY")
     if not short_fill or not long_fill:
-        return {"status": "skipped", "message": f"No quote for {short_strike:.0f} / {long_strike:.0f} PE."}
+        return {"status": "skipped", "message": f"No quote for {short_strike:.0f} / {long_strike:.0f} {opt}."}
     credit = round(short_fill - long_fill, 2)
     if credit <= 0:
         return {"status": "skipped", "message": "Spread would not be a credit at current quotes."}
@@ -238,12 +249,12 @@ async def enter(trigger: str, signal: dict[str, Any] | None = None) -> dict[str,
         short_strike=short_strike, long_strike=long_strike,
         short_security_id=(short_q or {}).get("securityId"), long_security_id=(long_q or {}).get("securityId"),
         short_entry=short_fill, long_entry=long_fill, credit_points=credit, last_cost=credit, last_decay=0.0,
-        last_rsi=(signal or {}).get("rsi"), last_update=int(time.time()),
+        last_rsi=(signal or {}).get("rsi"), last_update=int(time.time()), side=side,
     )
     trade = summarize(next(t for t in db.list_turtle_trades(limit=5) if t["id"] == trade_id))
     await _notify(
-        f"🐢 Define Turtle #{trade_id} entered (paper, {trigger})\n"
-        f"SELL {trade['lots']}L {short_strike:.0f} PE @ {short_fill} / BUY {long_strike:.0f} PE @ {long_fill} -- exp {expiry}\n"
+        f"🐢 Define Turtle #{trade_id} entered ({side}, paper, {trigger})\n"
+        f"SELL {trade['lots']}L {short_strike:.0f} {opt} @ {short_fill} / BUY {long_strike:.0f} {opt} @ {long_fill} -- exp {expiry}\n"
         f"Credit {credit} pts (₹{trade['credit']:,.0f}), max loss ₹{trade['maxLoss']:,.0f}, "
         f"P&F RSI {(signal or {}).get('rsi')}"
     )
@@ -251,8 +262,9 @@ async def enter(trigger: str, signal: dict[str, Any] | None = None) -> dict[str,
 
 
 def _close(trade: dict[str, Any], quotes: dict[tuple[float, str], dict[str, Any]], reason: str) -> dict[str, Any]:
-    short_q = quotes.get((float(trade["shortStrike"]), "PE"))
-    long_q = quotes.get((float(trade["longStrike"]), "PE"))
+    opt = OPT[trade.get("side") or "bull"]
+    short_q = quotes.get((float(trade["shortStrike"]), opt))
+    long_q = quotes.get((float(trade["longStrike"]), opt))
     short_exit = _fill(short_q, "BUY") or float(trade["shortEntry"])
     long_exit = _fill(long_q, "SELL") or float(trade["longEntry"])
     qty = int(trade["lots"]) * int(trade["lotSize"])
@@ -273,7 +285,9 @@ async def _manage(dhan: DhanService, trade: dict[str, Any], rsi_now: float | Non
     expiry = date.fromisoformat(trade["expiry"])
     _, quotes = await _chain_quotes(dhan, expiry)
     cost = None
-    short_ask, long_bid = _fill(quotes.get((float(trade["shortStrike"]), "PE")), "BUY"), _fill(quotes.get((float(trade["longStrike"]), "PE")), "SELL")
+    side = trade.get("side") or "bull"
+    opt = OPT[side]
+    short_ask, long_bid = _fill(quotes.get((float(trade["shortStrike"]), opt)), "BUY"), _fill(quotes.get((float(trade["longStrike"]), opt)), "SELL")
     if short_ask is not None and long_bid is not None:
         cost = round(short_ask - long_bid, 2)
     credit = float(trade["creditPoints"])
@@ -286,15 +300,16 @@ async def _manage(dhan: DhanService, trade: dict[str, Any], rsi_now: float | Non
         reason = "calendar"
     elif decay is not None and decay >= float(config["profitDecayPercent"]):
         reason = "profit_target"
-    elif rsi_now is not None and rsi_now < float(config["rsiThreshold"]):
+    elif rsi_now is not None and (rsi_now < float(config["rsiThreshold"]) if side == "bull" else rsi_now > 100 - float(config["rsiThreshold"])):
         reason = "trend_flip"
     if not reason:
         return
     closed = _close(trade, quotes, reason)
-    label = {"calendar": "3-day calendar rule", "profit_target": "75% decay target", "trend_flip": "P&F RSI below 50"}[reason]
+    label = {"calendar": "3-day calendar rule", "profit_target": "75% decay target",
+             "trend_flip": "P&F RSI below 50" if side == "bull" else "P&F RSI back above 50"}[reason]
     text = (
         f"🐢 Define Turtle #{closed['id']} closed -- {label}\n"
-        f"{closed['shortStrike']:.0f}/{closed['longStrike']:.0f} PE exp {closed['expiry']}: "
+        f"{closed['shortStrike']:.0f}/{closed['longStrike']:.0f} {opt} exp {closed['expiry']}: "
         f"gross ₹{closed['grossPnl']:,.0f}, charges ₹{closed['charges']:,.0f}, net ₹{closed['netPnl']:,.0f}"
     )
     if reason == "calendar":
@@ -333,21 +348,25 @@ async def monitor_once() -> None:
         if not config["enabled"]:
             return
         handled = int(db.get_turtle_setting("lastHandledSignal") or 0)
+        sides = ["bull"] + (["bear"] if config["bearish"] else [])
         fresh = [
             s for s in chart.signals
-            if s["kind"] == "turtle_follow_through" and s["time"] > handled
+            if s["kind"] in [KINDS[x] for x in sides] and s["time"] > handled
             and s["time"] >= int(time.time()) - SIGNAL_MAX_AGE_SECONDS
         ]
         if not fresh:
             return
         signal = fresh[-1]
         db.set_turtle_setting("lastHandledSignal", str(signal["time"]))
-        if signal["rsi"] is None or signal["rsi"] <= float(config["rsiThreshold"]):
-            await _notify(f"🐢 Define Turtle: Follow-Through at {signal['price']:.0f} ignored -- P&F RSI {signal['rsi']} is not above {config['rsiThreshold']:.0f}.")
+        side = "bull" if signal["kind"] == KINDS["bull"] else "bear"
+        threshold = float(config["rsiThreshold"])
+        if signal["rsi"] is None or (signal["rsi"] <= threshold if side == "bull" else signal["rsi"] >= 100 - threshold):
+            await _notify(f"🐢 Define Turtle: {side} Follow-Through at {signal['price']:.0f} ignored -- P&F RSI {signal['rsi']} is not "
+                          f"{'above' if side == 'bull' else 'below'} {threshold if side == 'bull' else 100 - threshold:.0f}.")
             return
-        result = await enter("signal", signal)
+        result = await enter("signal", signal, side)
         if result["status"] != "entered":
-            await _notify(f"🐢 Define Turtle: Follow-Through signal not traded -- {result.get('message')}")
+            await _notify(f"🐢 Define Turtle: {side} Follow-Through signal not traded -- {result.get('message')}")
 
 
 async def close_now(trade_id: int) -> dict[str, Any]:
