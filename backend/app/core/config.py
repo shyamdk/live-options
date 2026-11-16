@@ -368,7 +368,7 @@ class Settings(BaseSettings):
     pf_lab_monitor_enabled: bool = True
 
     # 1-Min CHoCH (Mukesh Jha's 1-min NIFTY CHoCH reversal), paper only
-    choch_monitor_enabled: bool = True
+    choch_monitor_enabled: bool = False  # archived 16 Nov 2026 (page and history kept)
 
     # Order-flow recorder (Dhan live feed -> 1-min delta / book / footprint), research only
     order_flow_recorder_enabled: bool = True
