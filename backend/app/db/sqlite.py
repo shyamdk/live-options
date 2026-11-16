@@ -1539,6 +1539,137 @@ def init_db() -> None:
             """
         )
         _add_column_if_missing(conn, "melting_gap_days", "gap_percent", "REAL")
+        # Melting Straddles - Expiry: same tables under its own prefix
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS melting_exp_days (
+                day TEXT PRIMARY KEY,
+                index_name TEXT NOT NULL,
+                expiry TEXT NOT NULL,
+                dte INTEGER NOT NULL,
+                spot_open REAL NOT NULL,
+                atm REAL NOT NULL,
+                straddles TEXT NOT NULL,
+                lot_size INTEGER NOT NULL,
+                exchange_segment TEXT NOT NULL,
+                stops INTEGER NOT NULL DEFAULT 0,
+                braked_at INTEGER,
+                brake_reason TEXT,
+                created_at INTEGER NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS melting_exp_trades (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                day TEXT NOT NULL,
+                index_name TEXT NOT NULL,
+                expiry TEXT NOT NULL,
+                dte INTEGER NOT NULL,
+                tag TEXT NOT NULL,
+                strike REAL NOT NULL,
+                ce_security_id TEXT NOT NULL,
+                pe_security_id TEXT NOT NULL,
+                exchange_segment TEXT NOT NULL,
+                mode TEXT NOT NULL,
+                trigger TEXT NOT NULL,
+                signal TEXT NOT NULL,
+                signal_time INTEGER NOT NULL,
+                signal_price REAL NOT NULL,
+                signal_vwap REAL NOT NULL,
+                lot_size INTEGER NOT NULL,
+                lots INTEGER NOT NULL,
+                lots_open INTEGER NOT NULL,
+                entry_time INTEGER NOT NULL,
+                entry_ce REAL NOT NULL,
+                entry_pe REAL NOT NULL,
+                entry_price REAL NOT NULL,
+                initial_sl REAL NOT NULL,
+                sl REAL NOT NULL,
+                step REAL NOT NULL,
+                hits INTEGER NOT NULL DEFAULT 0,
+                status TEXT NOT NULL,
+                exit_time INTEGER,
+                exit_reason TEXT,
+                booked_points REAL NOT NULL DEFAULT 0,
+                charges REAL NOT NULL DEFAULT 0,
+                last_ce REAL,
+                last_pe REAL,
+                last_price REAL,
+                last_vwap REAL,
+                last_update INTEGER,
+                best_price REAL,
+                worst_price REAL,
+                needs_attention TEXT
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS melting_exp_fills (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                trade_id INTEGER NOT NULL,
+                time INTEGER NOT NULL,
+                action TEXT NOT NULL,
+                side TEXT NOT NULL,
+                lots INTEGER NOT NULL,
+                quantity INTEGER NOT NULL,
+                ce_price REAL NOT NULL,
+                pe_price REAL NOT NULL,
+                combined REAL NOT NULL,
+                ce_bid REAL, ce_ask REAL, ce_ltp REAL,
+                pe_bid REAL, pe_ask REAL, pe_ltp REAL,
+                reference_price REAL,
+                slippage REAL,
+                points REAL,
+                pnl REAL,
+                charges REAL NOT NULL,
+                reason TEXT NOT NULL,
+                mode TEXT NOT NULL,
+                ce_order_id TEXT,
+                pe_order_id TEXT,
+                order_status TEXT,
+                note TEXT
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS melting_exp_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                day TEXT NOT NULL,
+                trade_id INTEGER,
+                time INTEGER NOT NULL,
+                kind TEXT NOT NULL,
+                text TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS melting_exp_minutes (
+                day TEXT NOT NULL,
+                tag TEXT NOT NULL,
+                time INTEGER NOT NULL,
+                ce REAL NOT NULL,
+                pe REAL NOT NULL,
+                combined REAL NOT NULL,
+                vwap REAL,
+                PRIMARY KEY (day, tag, time)
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS melting_exp_settings (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+        _add_column_if_missing(conn, "melting_exp_days", "gap_percent", "REAL")
 
         conn.execute(
             """

@@ -936,6 +936,38 @@ export async function getMeltingGapDays(): Promise<{ days: MeltingDaySummary[] }
   return apiJson<{ days: MeltingDaySummary[] }>("/api/melting-gap/days", undefined, "Failed to load daily P&L");
 }
 
+export async function getMeltingExpiryState(): Promise<MeltingState> {
+  return apiJson<MeltingState>("/api/melting-expiry/state", undefined, "Failed to load Melting Straddles - Expiry");
+}
+
+export async function updateMeltingExpiryConfig(updates: Record<string, unknown>): Promise<MeltingConfig> {
+  return apiJson<MeltingConfig>("/api/melting-expiry/config", { method: "PUT", body: JSON.stringify(updates) }, "Failed to save Melting Straddles - Expiry settings");
+}
+
+export async function getMeltingExpiryTrades(): Promise<{ trades: MeltingTrade[] }> {
+  return apiJson<{ trades: MeltingTrade[] }>("/api/melting-expiry/trades", undefined, "Failed to load Melting Straddles - Expiry trades");
+}
+
+export async function getMeltingExpiryTrade(id: number): Promise<MeltingTrade> {
+  return apiJson<MeltingTrade>(`/api/melting-expiry/trades/${id}`, undefined, "Failed to load the trade");
+}
+
+export async function closeMeltingExpiryTrade(id: number): Promise<{ status: string; message?: string }> {
+  return apiJson(`/api/melting-expiry/trades/${id}/close`, { method: "POST" }, "Failed to close the straddle");
+}
+
+export async function squareOffMeltingExpiry(): Promise<{ status: string; closed: number }> {
+  return apiJson("/api/melting-expiry/square-off", { method: "POST" }, "Square-off failed");
+}
+
+export async function enterMeltingExpiryNow(tag: MeltingTag): Promise<{ status: string; message?: string; tradeId?: number }> {
+  return apiJson(`/api/melting-expiry/enter/${tag}`, { method: "POST" }, "Entry failed");
+}
+
+export async function getMeltingExpiryDays(): Promise<{ days: MeltingDaySummary[] }> {
+  return apiJson<{ days: MeltingDaySummary[] }>("/api/melting-expiry/days", undefined, "Failed to load daily P&L");
+}
+
 export type StrangleBook = "plain" | "hedged" | "sensex";
 
 export async function getNiftyStranglePlan(book: StrangleBook = "plain"): Promise<NiftyStranglePlan> {

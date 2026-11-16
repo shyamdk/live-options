@@ -351,6 +351,8 @@ class Settings(BaseSettings):
     melting_monitor_enabled: bool = True
     # Melting Straddles - Gap (gap filter), paper only -- archived 16 Nov 2026 (monitor off; page kept for history)
     melting_gap_monitor_enabled: bool = False
+    # Melting Straddles - Expiry (NIFTY expiry days only, 1 straddle, 4 lots), paper only
+    melting_expiry_monitor_enabled: bool = True
     melting_live_order_enabled: bool = False
     melting_live_order_product_type: str = "INTRADAY"
 
