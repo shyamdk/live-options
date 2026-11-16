@@ -355,7 +355,7 @@ function PnfChart({ columns: allColumns, signals, config, trades }: { columns: P
       </div>
       <svg
         viewBox={`0 0 ${width} ${height}`}
-        style={{ display: "block", width: "100%", minWidth: 640, height: "auto", background: "var(--panel)" }}
+        style={{ display: "block", width: "100%", minWidth: 640, maxWidth: Math.round(width * 1.25), height: "auto", background: "var(--panel)" }}
         role="img"
         aria-label="Point and figure chart"
       >
