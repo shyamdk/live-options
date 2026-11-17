@@ -1949,6 +1949,45 @@ def init_db() -> None:
         conn.execute("CREATE TABLE IF NOT EXISTS turtle_f_alarms (id INTEGER PRIMARY KEY AUTOINCREMENT, created_at INTEGER NOT NULL, kind TEXT NOT NULL, "
                      "title TEXT NOT NULL, message TEXT NOT NULL, trade_id INTEGER, acknowledged_at INTEGER)")
         conn.execute("CREATE TABLE IF NOT EXISTS turtle_f_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL)")
+        # Index Runway (paper): per-minute trigger snapshots, paper trades, settings
+        conn.execute("CREATE TABLE IF NOT EXISTS index_runway_minutes (ts INTEGER PRIMARY KEY, day TEXT NOT NULL, close REAL, "
+                     "trig_pts REAL, rng5 REAL, vix REAL, matched INTEGER NOT NULL DEFAULT 0, reasons TEXT, features TEXT, "
+                     "fwd_move REAL, fwd_minutes INTEGER, hit40 INTEGER)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_index_runway_minutes_day ON index_runway_minutes(day)")
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS index_runway_trades (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                day TEXT NOT NULL,
+                signal_ts INTEGER NOT NULL,
+                mode TEXT NOT NULL,
+                direction TEXT,
+                status TEXT NOT NULL,
+                expiry TEXT,
+                atm_strike REAL,
+                lots INTEGER NOT NULL,
+                quantity INTEGER NOT NULL,
+                legs TEXT NOT NULL,
+                entry_time INTEGER NOT NULL,
+                exit_due INTEGER NOT NULL,
+                exit_time INTEGER,
+                exit_reason TEXT,
+                spot_entry REAL,
+                spot_exit REAL,
+                trig_pts REAL,
+                est_move REAL,
+                est_p75 REAL,
+                est_hit40 REAL,
+                actual_move REAL,
+                hit40 INTEGER,
+                gross_pnl REAL,
+                charges REAL,
+                net_pnl REAL,
+                features TEXT
+            )
+            """
+        )
+        conn.execute("CREATE TABLE IF NOT EXISTS index_runway_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL)")
         for table in ("turtle_trades", "turtle_a1_trades", "turtle_f_trades"):
             _add_column_if_missing(conn, table, "mode", "TEXT NOT NULL DEFAULT 'paper'")
             _add_column_if_missing(conn, table, "side", "TEXT NOT NULL DEFAULT 'bull'")  # bull = put spread, bear = call spread
@@ -5710,3 +5749,99 @@ def set_kite_setting(key: str, value: str) -> None:
             (key, value, now),
         )
         conn.commit()
+
+
+# ---------------------------------------------------------------- Index Runway (paper)
+
+_RUNWAY_TRADE_COLUMNS = (
+    "day", "signal_ts", "mode", "direction", "status", "expiry", "atm_strike", "lots", "quantity", "legs", "entry_time",
+    "exit_due", "exit_time", "exit_reason", "spot_entry", "spot_exit", "trig_pts", "est_move", "est_p75", "est_hit40",
+    "actual_move", "hit40", "gross_pnl", "charges", "net_pnl", "features",
+)
+
+
+def get_index_runway_setting(key: str) -> str | None:
+    return get_turtle_setting(key, prefix="index_runway")
+
+
+def set_index_runway_setting(key: str, value: str) -> None:
+    set_turtle_setting(key, value, prefix="index_runway")
+
+
+def save_index_runway_minute(row: dict[str, Any]) -> None:
+    cols = ("ts", "day", "close", "trig_pts", "rng5", "vix", "matched", "reasons", "features")
+    with _DB_LOCK, _connect() as conn:
+        conn.execute(
+            f"INSERT INTO index_runway_minutes ({', '.join(cols)}) VALUES ({', '.join('?' for _ in cols)}) "
+            "ON CONFLICT(ts) DO UPDATE SET " + ", ".join(f"{c} = excluded.{c}" for c in cols[1:]),
+            tuple(row.get(c) for c in cols),
+        )
+        conn.commit()
+
+
+def index_runway_minutes_missing_outcome(day: str, before_ts: int) -> list[dict[str, Any]]:
+    with _DB_LOCK, _connect() as conn:
+        rows = conn.execute(
+            "SELECT ts, close FROM index_runway_minutes WHERE day = ? AND fwd_move IS NULL AND ts <= ? ORDER BY ts",
+            (day, before_ts),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def set_index_runway_minute_outcome(ts: int, move: float | None, minutes: int | None, hit40: int | None) -> None:
+    with _DB_LOCK, _connect() as conn:
+        conn.execute("UPDATE index_runway_minutes SET fwd_move = ?, fwd_minutes = ?, hit40 = ? WHERE ts = ?", (move, minutes, hit40, ts))
+        conn.commit()
+
+
+def list_index_runway_minutes(day: str | None = None, matched_only: bool = False, limit: int = 500) -> list[dict[str, Any]]:
+    where, args = [], []
+    if day:
+        where.append("day = ?"); args.append(day)
+    if matched_only:
+        where.append("matched = 1")
+    sql = "SELECT * FROM index_runway_minutes" + (f" WHERE {' AND '.join(where)}" if where else "") + " ORDER BY ts DESC LIMIT ?"
+    with _DB_LOCK, _connect() as conn:
+        rows = conn.execute(sql, (*args, limit)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def index_runway_minute_stats() -> dict[str, Any]:
+    with _DB_LOCK, _connect() as conn:
+        row = conn.execute(
+            "SELECT COUNT(*) AS minutes, SUM(fwd_move IS NOT NULL) AS scored, SUM(hit40) AS hits, "
+            "SUM(matched) AS signals, SUM(CASE WHEN matched = 1 THEN hit40 ELSE 0 END) AS signal_hits, "
+            "SUM(CASE WHEN matched = 1 AND fwd_move IS NOT NULL THEN 1 ELSE 0 END) AS signals_scored, "
+            "COUNT(DISTINCT day) AS days FROM index_runway_minutes"
+        ).fetchone()
+    return dict(row) if row else {}
+
+
+def insert_index_runway_trade(row: dict[str, Any]) -> int:
+    cols = [c for c in _RUNWAY_TRADE_COLUMNS if c in row]
+    with _DB_LOCK, _connect() as conn:
+        cur = conn.execute(
+            f"INSERT INTO index_runway_trades ({', '.join(cols)}) VALUES ({', '.join('?' for _ in cols)})",
+            tuple(row[c] for c in cols),
+        )
+        conn.commit()
+        return int(cur.lastrowid)
+
+
+def update_index_runway_trade(trade_id: int, updates: dict[str, Any]) -> None:
+    cols = [c for c in _RUNWAY_TRADE_COLUMNS if c in updates]
+    if not cols:
+        return
+    with _DB_LOCK, _connect() as conn:
+        conn.execute(
+            f"UPDATE index_runway_trades SET {', '.join(f'{c} = ?' for c in cols)} WHERE id = ?",
+            (*(updates[c] for c in cols), trade_id),
+        )
+        conn.commit()
+
+
+def list_index_runway_trades(status: str | None = None, limit: int = 1000) -> list[dict[str, Any]]:
+    sql = "SELECT * FROM index_runway_trades" + (" WHERE status = ?" if status else "") + " ORDER BY id DESC LIMIT ?"
+    with _DB_LOCK, _connect() as conn:
+        rows = conn.execute(sql, ((status, limit) if status else (limit,))).fetchall()
+    return [dict(r) for r in rows]

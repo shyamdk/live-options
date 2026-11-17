@@ -39,6 +39,7 @@ import type { Note, NoteInput, NotesSummary } from "@/types/notes";
 import type { PfOverview, PfState } from "@/types/pf-lab";
 import type { ChochConfig, ChochState, ChochTrade } from "@/types/choch";
 import type { OrderFlowState } from "@/types/order-flow";
+import type { RunwayConfig, RunwaySignal, RunwayState, RunwayTrade } from "@/types/index-runway";
 import type { TurtleA1Book, TurtleAlarm, TurtleConfig, TurtleState, TurtleTrade } from "@/types/turtle";
 import type { BatmanAnalysis, BatmanConfig, BatmanMode, BatmanPreview, BatmanTrade } from "@/types/batman";
 import type { BtcSpotChart, BtcStrangleChart, BtcStrangleConfig, BtcStranglePreview, BtcStrangleTrade } from "@/types/btc-strangle";
@@ -1236,4 +1237,25 @@ export async function updateChochConfig(updates: Partial<ChochConfig>): Promise<
 // Order-flow recorder
 export async function getOrderFlowState(): Promise<OrderFlowState> {
   return apiJson<OrderFlowState>("/api/order-flow/state", undefined, "Failed to load the order-flow recorder");
+}
+
+// Index Runway (paper)
+export async function getIndexRunwayState(): Promise<RunwayState> {
+  return apiJson<RunwayState>("/api/index-runway/state", undefined, "Failed to load Index Runway");
+}
+
+export async function updateIndexRunwayConfig(updates: Partial<RunwayConfig>): Promise<RunwayConfig> {
+  return apiJson<RunwayConfig>("/api/index-runway/config", { method: "PUT", body: JSON.stringify(updates) }, "Failed to save Index Runway settings");
+}
+
+export async function getIndexRunwayTrades(): Promise<{ trades: RunwayTrade[] }> {
+  return apiJson<{ trades: RunwayTrade[] }>("/api/index-runway/trades", undefined, "Failed to load Index Runway trades");
+}
+
+export async function getIndexRunwaySignals(day?: string): Promise<{ signals: RunwaySignal[] }> {
+  return apiJson<{ signals: RunwaySignal[] }>(`/api/index-runway/signals${day ? `?day=${day}` : ""}`, undefined, "Failed to load Index Runway signals");
+}
+
+export async function closeIndexRunwayTrade(id: number): Promise<{ status: string; message?: string }> {
+  return apiJson(`/api/index-runway/trades/${id}/close`, { method: "POST" }, "Failed to close the trade");
 }

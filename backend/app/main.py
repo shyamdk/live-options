@@ -17,6 +17,7 @@ from app.api.mantra import router as mantra_router
 from app.api.melting import router as melting_router
 from app.api.melting_gap import router as melting_gap_router
 from app.api.melting_expiry import router as melting_expiry_router
+from app.api.index_runway import router as index_runway_router
 from app.api.nifty_strangle import router as nifty_strangle_router
 from app.api.market_events import router as market_events_router
 from app.api.kite import router as kite_router
@@ -64,6 +65,7 @@ from app.services.mantra import start_mantra_task, stop_mantra_task
 from app.services.melting import start_melting_task, stop_melting_task
 from app.services.melting_gap import start_melting_gap_task, stop_melting_gap_task
 from app.services.melting_expiry import start_melting_expiry_task, stop_melting_expiry_task
+from app.services.index_runway import start_index_runway_task, stop_index_runway_task
 from app.services.nifty_strangle import start_nifty_strangle_task, stop_nifty_strangle_task
 from app.services.market_events import start_market_events_task, stop_market_events_task
 from app.services.kite_broker import start_kite_task, stop_kite_task
@@ -119,6 +121,7 @@ mantra_task = None
 melting_task = None
 melting_gap_task = None
 melting_expiry_task = None
+index_runway_task = None
 nifty_strangle_task = None
 market_events_task = None
 kite_task = None
@@ -141,7 +144,7 @@ app.add_middleware(
 
 @app.on_event("startup")
 async def startup() -> None:
-    global risk_order_monitor_task, spot_distance_monitor_task, gamma_blast_task, journal_insights_task, ema5_task, animesh_task, credit_spread_task, theta_task, market_news_task, market_calendar_task, pcr_oi_task, paper_trading_task, oi_upgraded_task, simple_crossover_task, varaha_task, btc_strangle_task, batman_task, turtle_task, turtle_a1_task, turtle_filtered_task, pf_lab_task, choch_task, order_flow_task, mantra_task, melting_task, melting_gap_task, melting_expiry_task, nifty_strangle_task, market_events_task, kite_task, calm_strangle_task, calm_or_task, btc_calm_task, varaha_paper_task, alerts_task, equity_swing_task, dhan_health_task
+    global risk_order_monitor_task, spot_distance_monitor_task, gamma_blast_task, journal_insights_task, ema5_task, animesh_task, credit_spread_task, theta_task, market_news_task, market_calendar_task, pcr_oi_task, paper_trading_task, oi_upgraded_task, simple_crossover_task, varaha_task, btc_strangle_task, batman_task, turtle_task, turtle_a1_task, turtle_filtered_task, pf_lab_task, choch_task, order_flow_task, mantra_task, melting_task, melting_gap_task, melting_expiry_task, index_runway_task, nifty_strangle_task, market_events_task, kite_task, calm_strangle_task, calm_or_task, btc_calm_task, varaha_paper_task, alerts_task, equity_swing_task, dhan_health_task
     init_db()
     spot_distance_monitor_task = start_spot_distance_monitor_task()
     risk_order_monitor_task = start_risk_order_monitor_task()
@@ -170,6 +173,7 @@ async def startup() -> None:
     melting_task = start_melting_task()
     melting_gap_task = start_melting_gap_task()
     melting_expiry_task = start_melting_expiry_task()
+    index_runway_task = start_index_runway_task()
     nifty_strangle_task = start_nifty_strangle_task()
     market_events_task = start_market_events_task()
     kite_task = start_kite_task()
@@ -211,6 +215,7 @@ async def shutdown() -> None:
     await stop_melting_task(melting_task)
     await stop_melting_gap_task(melting_gap_task)
     await stop_melting_expiry_task(melting_expiry_task)
+    await stop_index_runway_task(index_runway_task)
     await stop_nifty_strangle_task(nifty_strangle_task)
     await stop_market_events_task(market_events_task)
     await stop_kite_task(kite_task)
@@ -253,6 +258,7 @@ app.include_router(mantra_router, prefix=settings.api_prefix)
 app.include_router(melting_router, prefix=settings.api_prefix)
 app.include_router(melting_gap_router, prefix=settings.api_prefix)
 app.include_router(melting_expiry_router, prefix=settings.api_prefix)
+app.include_router(index_runway_router, prefix=settings.api_prefix)
 app.include_router(nifty_strangle_router, prefix=settings.api_prefix)
 app.include_router(market_events_router, prefix=settings.api_prefix)
 app.include_router(kite_router, prefix=settings.api_prefix)

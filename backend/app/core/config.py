@@ -353,6 +353,8 @@ class Settings(BaseSettings):
     melting_gap_monitor_enabled: bool = False
     # Melting Straddles - Expiry (NIFTY expiry days only, 1 straddle, 4 lots), paper only
     melting_expiry_monitor_enabled: bool = True
+    # Index Runway (NIFTY 40-pt / 2-min trigger study), paper only
+    index_runway_monitor_enabled: bool = True
     melting_live_order_enabled: bool = False
     melting_live_order_product_type: str = "INTRADAY"
 

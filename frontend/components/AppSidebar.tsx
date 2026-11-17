@@ -26,6 +26,7 @@ import {
   Activity,
   Zap,
   FlaskConical,
+  Gauge,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -77,6 +78,7 @@ const navItems: NavItem[] = [
   { href: "/mantra-theta-gainers", label: "Mantra - Theta Gainers", short: "MT", icon: InfinityIcon, group: "paper" },
   { href: "/melting-straddles", label: "Melting Straddles", short: "MS", icon: Droplets, group: "paper" },
   { href: "/melting-straddles-expiry", label: "Melting Straddles - Expiry", short: "ME", icon: Droplets, group: "paper" },
+  { href: "/index-runway", label: "Index Runway", short: "IR", icon: Gauge, group: "paper" },
   { href: "/pf-lab", label: "Overview", short: "PF", icon: Grid3x3, group: "paper", subgroup: "pf" },
   { href: "/pf-lab/nifty/short", label: "NIFTY · Short", short: "NS", icon: Grid3x3, group: "paper", subgroup: "pf" },
   { href: "/pf-lab/nifty/medium", label: "NIFTY · Medium", short: "NM", icon: Grid3x3, group: "paper", subgroup: "pf" },

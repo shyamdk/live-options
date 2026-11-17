@@ -8,6 +8,8 @@ Live Dhan trade management workspace with a FastAPI backend, SQLite persistence,
 - **ema5** (`/ema5`) and **animesh-scalping** (`/animesh-scalping`) - intraday option-buying engines.
 - **BN Credit Spread** (`/bank-nifty-credit-spread`) - positional Bank Nifty monthly bear call spread: sell the futures-ATM CE, buy the ~Rs 100 hedge CE on the first trading day after monthly expiry (09:45), exit both legs at 09:20 when 10 trading days remain (plus a 50%-of-credit profit target). Rules were reverse engineered and Dhan-verified from a 31-month track record; see `bank-nifty/strategy.md` in the sibling repo for the full derivation and risk notes. Runs in `CREDIT_SPREAD_MODE=PAPER` by default; flip to `LIVE` (plus `LIVE_ORDER_ENABLED=true`) only after paper-trading a full cycle. Keep `NSE_HOLIDAYS` current - the T-10 exit date is computed from it.
 
+- **Index Runway** (`/index-runway`) - paper forward test of the NIFTY "40 points in 2 minutes" study: logs trigger-minute Greeks, OI and VIX every minute and opens a paper long ATM straddle (held 2 minutes) when the trigger conditions match. See `docs/strategies/index-runway.md`.
+
 ## Structure
 
 - `backend` - FastAPI middle tier and SQLite data store (`backend/data`, not in git).
